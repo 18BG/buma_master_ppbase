@@ -1,0 +1,1834 @@
+{
+  "source": {
+    "repository": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks",
+    "branch": "fix/uv-paani-sup",
+    "commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+    "status": "clean"
+  },
+  "counts": {
+    "routes": 113,
+    "hooks": 9,
+    "collections_referenced": 62,
+    "transaction_and_sql_sites": 51
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api2/caisse/openCaisse",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 769,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/reject",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 774,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/reject_closing",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 775,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/openAgain/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 777,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/report/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 779,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/reportByExpenseType/:id/:start/:end",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 780,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/rangeReport/:id/:start/:end",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 781,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/transaction/cancel/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 782,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/transaction/cancel2/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 783,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/withdrawal",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 786,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/pvd/import",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 274,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/pvd/importSim",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 275,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/customer/create",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 276,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/customer/importPDVFromAgent/:agentID/:customerID",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 277,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/employee/create",
+      "source_file": "src/entries/employee.ts",
+      "source_line": 72,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/isConnected",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 3,
+      "bootstrap": "legacy-index",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/sql",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 37,
+      "bootstrap": "legacy-index",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sql2",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 62,
+      "bootstrap": "legacy-index",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/creates",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 80,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/executeSql",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 87,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/deleteSql",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 91,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/openCaisse",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 675,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/requestOpen",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 683,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/requestClose",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 690,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/new_correction",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 697,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/new_versement",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 704,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/bank_versement",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 711,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/cancel_bank_versement",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 718,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/versement_uv",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 725,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/expense",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 732,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/return",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 739,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/deposit",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 746,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/withdraw",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 753,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/transfer",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 760,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/cancel",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 767,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/unallocate",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 774,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/updateAmount",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 781,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/changeTransactionCustomer",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 788,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/add_payment_to_sale",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 795,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/updateNote",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 802,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/changeCashier",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 809,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/reportByExpenseType/:id/:start/:end",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 816,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/reportByCaisseType/:id/:start/:end",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 823,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/expense_type/archive",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 830,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/verifySession/:sessionId",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 837,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/employee_debt",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 844,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/employee_debt_repayment",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 851,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/accessible",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 858,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/customer/creates",
+      "source_file": "src/entries/master.customer.ts",
+      "source_line": 28,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/employee/create",
+      "source_file": "src/entries/master.employee.ts",
+      "source_line": 70,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/employee/payDebt",
+      "source_file": "src/entries/master.employee.ts",
+      "source_line": 77,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/newSim",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 169,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/turnovers",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 176,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/assign",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 183,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/unassign",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 185,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/pilotage/date-report/:startDate",
+      "source_file": "src/entries/master.pilotage.ts",
+      "source_line": 201,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/new",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 150,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/cancel",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 157,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/receive",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 164,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/cancel-wallet-transaction",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 171,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/add-payment",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 178,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/new",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 295,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/update",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 302,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/updatePDV",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 309,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/retour/cancel/:id",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 316,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/retour/info/:id",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 323,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/return_stats",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 330,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/save-rupture",
+      "source_file": "src/entries/master.rupture.ts",
+      "source_line": 215,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/new",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1007,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/recharge",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1014,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/cancel_recharge",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1021,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/cancel",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1028,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/recharge_stats",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1035,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/sold_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1043,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/sold_products_info",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1049,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/product_sales_by_customer",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1055,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/check_caisse_transactions",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1061,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_summary_by_period",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1067,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_summary_info_by_period",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1073,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customer_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1079,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1085,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/transfer",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 205,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/cancel_transfer",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 212,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/convert",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 219,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/cancel_conversion",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 221,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/movement",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 228,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/wallet_uv",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 235,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/uv_wallet",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 242,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/batch-movement",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 248,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/master/user/health",
+      "source_file": "src/entries/master.user.ts",
+      "source_line": 19,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/wallets/deposit",
+      "source_file": "src/entries/master.wallet.ts",
+      "source_line": 67,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/wallets/withdraw",
+      "source_file": "src/entries/master.wallet.ts",
+      "source_line": 75,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/wallets/cancel_transaction",
+      "source_file": "src/entries/master.wallet.ts",
+      "source_line": 83,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/wallets/transfer",
+      "source_file": "src/entries/master.wallet.ts",
+      "source_line": 91,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/master/wallets/updateNote",
+      "source_file": "src/entries/master.wallet.ts",
+      "source_line": 98,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/add",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 640,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/cancel",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 641,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/infos",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 642,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/payment/add",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 643,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return",
+      "source_file": "src/entries/return.ts",
+      "source_line": 126,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return/confirm",
+      "source_file": "src/entries/return.ts",
+      "source_line": 134,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/test",
+      "source_file": "src/entries/return.ts",
+      "source_line": 143,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 821,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return/confirm",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 822,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/cancel",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 824,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/infos",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 825,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/payment/add",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 826,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/transfer",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 418,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/stockage/stock_info/:name",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 419,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/add_article",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 420,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/remove_article",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 421,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/convert",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 422,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/supplier/creates",
+      "source_file": "src/entries/supplier.ts",
+      "source_line": 128,
+      "bootstrap": "master-or-entry",
+      "status": "active"
+    }
+  ],
+  "hooks": [
+    {
+      "event": "onRecordBeforeCreateRequest",
+      "collections": [
+        "buma_caisse_transactions"
+      ],
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 790,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeCreateRequest",
+      "collections": [
+        "buma_caisse"
+      ],
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 791,
+      "status": "active"
+    },
+    {
+      "event": "onAfterBootstrap",
+      "collections": [],
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 1,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeCreateRequest",
+      "collections": [],
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 12,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeCreateRequest",
+      "collections": [],
+      "source_file": "src/entries/master.customer.ts",
+      "source_line": 26,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeCreateRequest",
+      "collections": [],
+      "source_file": "src/entries/master.employee.ts",
+      "source_line": 84,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeDeleteRequest",
+      "collections": [],
+      "source_file": "src/entries/master.middleware.ts",
+      "source_line": 503,
+      "status": "active"
+    },
+    {
+      "event": "onRecordBeforeUpdateRequest",
+      "collections": [],
+      "source_file": "src/entries/master.middleware.ts",
+      "source_line": 518,
+      "status": "active"
+    },
+    {
+      "event": "onAfterBootstrap",
+      "collections": [],
+      "source_file": "src/entries/master.setup.ts",
+      "source_line": 323,
+      "status": "active"
+    }
+  ],
+  "collections": [
+    {
+      "name": "buma_agent",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_agent_doc",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_agent_doc_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_apps_roles",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/types.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/sale.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_categorie",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_components",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_stock",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/purchase.ts",
+        "src/entries/return.ts",
+        "src/entries/return_function.ts",
+        "src/entries/sale.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_stock_session",
+      "source_files": [
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_stockage",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_article_unite",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_buy",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/payment.ts",
+        "src/entries/purchase.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_buy_item",
+      "source_files": [
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_caisse",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/caisses_functions.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.retour.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/master.wallet.functions.ts",
+        "src/entries/purchase.ts",
+        "src/entries/return.ts",
+        "src/entries/return_function.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_caisse_access",
+      "source_files": [
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_caisse_expense_type",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.caisse.ts",
+        "src/entries/return_function.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_caisse_open_close",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/purchase.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_caisse_transactions",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/caisses_functions.ts",
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.sale.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/purchase.ts",
+        "src/entries/return_function.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_config",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.rupture.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_conversion",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/customer.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.customer.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.retour.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/payment.ts",
+        "src/entries/return.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_document",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_document_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_number",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_pdv",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/customer.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_solder_history",
+      "source_files": [
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_customer_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee",
+      "source_files": [
+        "src/entries/buma.employee.functions.ts",
+        "src/entries/buma.tables.ts",
+        "src/entries/employee.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_contact",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_contact_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_contract",
+      "source_files": [
+        "src/entries/master.middleware.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_debt",
+      "source_files": [
+        "src/entries/master.employee.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_document",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.middleware.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_document_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_employee_position",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_migrations",
+      "source_files": [
+        "src/entries/master.article.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_payment",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.caisse.functions2.ts",
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/payment.ts",
+        "src/entries/purchase.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_payment_method",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_pdv",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/customer.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.retour.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/return.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_pdv_doc",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_pdv_doc_type",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_pdv_turnover",
+      "source_files": [
+        "src/entries/master.pdv.functions.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_person_entity",
+      "source_files": [
+        "src/entries/buma.employee.functions.ts",
+        "src/entries/buma.tables.ts",
+        "src/entries/customer.ts",
+        "src/entries/employee.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/supplier.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_ressources",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_return",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/return_function.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_rupture",
+      "source_files": [
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_sale",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.sale.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/payment.ts",
+        "src/entries/purchase.ts",
+        "src/entries/sale.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_sim",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/customer.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/return.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_sim_balance_activity",
+      "source_files": [
+        "src/entries/master.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_sim_list_view",
+      "source_files": [
+        "src/entries/master.sale.functions.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_sql_table",
+      "source_files": [
+        "src/entries/master.article.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_stockage_user",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_supplier",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.purchase.functions.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/payment.ts",
+        "src/entries/purchase.ts",
+        "src/entries/supplier.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_supplier_article",
+      "source_files": [
+        "src/entries/buma.tables.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_transaction",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.sale.functions.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/purchase.ts",
+        "src/entries/return_function.ts",
+        "src/entries/sale.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_transaction_list_view",
+      "source_files": [
+        "src/entries/master.middleware.ts",
+        "src/entries/master.retour.functions.ts",
+        "src/entries/master.sale.functions.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_transfer",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_transfer_transaction",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/stockage.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_wallet",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/caisses_functions.ts",
+        "src/entries/index.pb.ts",
+        "src/entries/master.caisse.functions.ts",
+        "src/entries/master.caisse.functions2.ts",
+        "src/entries/master.middleware.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/master.wallet.functions.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "buma_wallet_transactions",
+      "source_files": [
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/caisses_functions.ts",
+        "src/entries/master.tables.ts",
+        "src/entries/master.wallet.functions.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "roles",
+      "source_files": [
+        "src/entries/article.ts",
+        "src/entries/buma.tables.ts",
+        "src/entries/caisse.ts",
+        "src/entries/customer.ts",
+        "src/entries/master.utility.ts",
+        "src/entries/purchase.ts",
+        "src/entries/sale.ts",
+        "src/entries/stockage.ts",
+        "src/entries/supplier.ts",
+        "src/entries/utils.ts"
+      ],
+      "schema_status": "requires-live-export"
+    },
+    {
+      "name": "users",
+      "source_files": [
+        "src/entries/caisse.ts"
+      ],
+      "schema_status": "requires-live-export"
+    }
+  ],
+  "transaction_sites": [
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 368
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 457
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 597
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 52
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 109
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 198
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 275
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 374
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 431
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 498
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 763
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 871
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 997
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 1136
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 1269
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions.ts",
+      "source_line": 1361
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions2.ts",
+      "source_line": 28
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions2.ts",
+      "source_line": 390
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions2.ts",
+      "source_line": 472
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions2.ts",
+      "source_line": 575
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.caisse.functions2.ts",
+      "source_line": 675
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 216
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 246
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.employee.functions.ts",
+      "source_line": 43
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.purchase.functions.ts",
+      "source_line": 20
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.retour.functions.ts",
+      "source_line": 325
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 67
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 211
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.sale.functions.ts",
+      "source_line": 433
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.sale.functions.ts",
+      "source_line": 551
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.functions.ts",
+      "source_line": 26
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 243
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 244
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 318
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 427
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 428
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 608
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 609
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 717
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 815
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 816
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 908
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 958
+    },
+    {
+      "kind": "transaction",
+      "source_file": "src/entries/master.stockage.functions.ts",
+      "source_line": 215
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.utility.ts",
+      "source_line": 189
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/master.utility.ts",
+      "source_line": 201
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 90
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 597
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 88
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 633
+    },
+    {
+      "kind": "raw-sql",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 640
+    }
+  ],
+  "notes": [
+    "Routes are source registrations after comment stripping; route behavior still requires manual contract review.",
+    "Collection references are not a schema snapshot; rules, indexes, views and requiredness require the live export.",
+    "SQL sites are inventory evidence only and are never executed by this script."
+  ]
+}

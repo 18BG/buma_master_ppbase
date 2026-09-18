@@ -1,0 +1,218 @@
+{
+  "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+  "total": 42,
+  "ok": 42,
+  "fail": 0,
+  "results": [
+    {
+      "name": "buma_agent_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_list_stat_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_stock_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_stock_stat_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_stock_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_stockage_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_article_with_no_stock_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_caisse_open_close_listview",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_caisse_session_info",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_caisse_transaction_by_categorie_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_conversion_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_list_view_with_users",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_mobile_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_pdv_list_selector_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_pdv_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_pdv_with_all_pdv",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_customer_supplier_info_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_employee_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_pdv_list_selector_for_agent_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_pdv_list_selector_for_client_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_pdv_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_pdv_turnover",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_purchase_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_return_info_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_return_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_rupture_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_sale_info",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_sale_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_sim_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_sim_list_view_all",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_sql_table",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_stock_buy_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_stock_transaction_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_stockage_no_manager",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_supplier_article_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_supplier_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_transaction_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_transfer_transaction_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "buma_users_list_view",
+      "status": "OK",
+      "error": ""
+    },
+    {
+      "name": "test",
+      "status": "OK",
+      "error": ""
+    }
+  ]
+}

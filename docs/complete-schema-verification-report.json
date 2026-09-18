@@ -1,0 +1,18 @@
+{
+  "expected": 114,
+  "expected_base_auth": 72,
+  "expected_views": 42,
+  "actual_non_system": 114,
+  "missing": [],
+  "unexpected": [],
+  "allowed_extras": [],
+  "required_compat_fields": [
+    "agent_users.username",
+    "users.username"
+  ],
+  "missing_compat_fields": [],
+  "metadata_mismatches": [],
+  "relation_errors": [],
+  "ok": true,
+  "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d"
+}

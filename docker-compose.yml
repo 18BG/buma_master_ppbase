@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: buma-master-ppbase-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-buma_master_ppbase}
+      POSTGRES_USER: ${POSTGRES_USER:-ppbase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ppbase}
+    ports:
+      - "${POSTGRES_PORT:-55434}:5432"
+    volumes:
+      - buma_master_ppbase_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-ppbase}\" -d \"$${POSTGRES_DB:-buma_master_ppbase}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  buma_master_ppbase_postgres_data:

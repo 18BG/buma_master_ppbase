@@ -1,0 +1,592 @@
+{
+  "schema": {
+    "path": "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json",
+    "sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+    "collections": 114,
+    "base": 70,
+    "auth": 2,
+    "views": 42,
+    "names": [
+      "agent_users",
+      "buma_agent",
+      "buma_agent_doc",
+      "buma_agent_doc_type",
+      "buma_agent_list_view",
+      "buma_apps_roles",
+      "buma_article",
+      "buma_article_categorie",
+      "buma_article_components",
+      "buma_article_list_stat_view",
+      "buma_article_list_view",
+      "buma_article_stock",
+      "buma_article_stock_designation",
+      "buma_article_stock_list_view",
+      "buma_article_stock_session",
+      "buma_article_stock_stat_view",
+      "buma_article_stock_view",
+      "buma_article_stockage",
+      "buma_article_stockage_list_view",
+      "buma_article_unite",
+      "buma_article_with_no_stock_list_view",
+      "buma_buy",
+      "buma_buy_item",
+      "buma_bw",
+      "buma_caisse",
+      "buma_caisse_access",
+      "buma_caisse_expense_type",
+      "buma_caisse_open_close",
+      "buma_caisse_open_close_listview",
+      "buma_caisse_session_info",
+      "buma_caisse_transaction_by_categorie_list_view",
+      "buma_caisse_transactions",
+      "buma_commission_customer",
+      "buma_commission_group",
+      "buma_commission_product",
+      "buma_config",
+      "buma_conversion",
+      "buma_conversion_list_view",
+      "buma_customer",
+      "buma_customer_document",
+      "buma_customer_document_type",
+      "buma_customer_list_view",
+      "buma_customer_list_view_with_users",
+      "buma_customer_mobile_list_view",
+      "buma_customer_number",
+      "buma_customer_old",
+      "buma_customer_pdv",
+      "buma_customer_pdv_list_selector_view",
+      "buma_customer_pdv_list_view",
+      "buma_customer_pdv_with_all_pdv",
+      "buma_customer_solder_history",
+      "buma_customer_supplier_info_view",
+      "buma_customer_type",
+      "buma_customer_user",
+      "buma_employee",
+      "buma_employee_contract",
+      "buma_employee_contract_type",
+      "buma_employee_debt",
+      "buma_employee_debt_payment",
+      "buma_employee_document",
+      "buma_employee_document_type",
+      "buma_employee_list_view",
+      "buma_employee_position",
+      "buma_invoice",
+      "buma_invoice_item",
+      "buma_payment",
+      "buma_payment_method",
+      "buma_pdv",
+      "buma_pdv_doc",
+      "buma_pdv_doc_type",
+      "buma_pdv_list_selector_for_agent_view",
+      "buma_pdv_list_selector_for_client_view",
+      "buma_pdv_list_view",
+      "buma_pdv_turnover",
+      "buma_person_entity",
+      "buma_pilotage_ticket",
+      "buma_pilotage_ticket_tag",
+      "buma_purchase_list_view",
+      "buma_ressources",
+      "buma_return",
+      "buma_return_info_view",
+      "buma_return_list_view",
+      "buma_return_regexp",
+      "buma_rupture",
+      "buma_rupture_list_view",
+      "buma_sale",
+      "buma_sale_info",
+      "buma_sale_list_view",
+      "buma_sim",
+      "buma_sim_balance_activity",
+      "buma_sim_list_view",
+      "buma_sim_list_view_all",
+      "buma_sql_table",
+      "buma_stock_buy_list_view",
+      "buma_stock_transaction_list_view",
+      "buma_stockage_no_manager",
+      "buma_stockage_user",
+      "buma_supplier",
+      "buma_supplier_article",
+      "buma_supplier_article_list_view",
+      "buma_supplier_list_view",
+      "buma_transaction",
+      "buma_transaction_list_view",
+      "buma_transfer",
+      "buma_transfer_transaction",
+      "buma_transfer_transaction_view",
+      "buma_user_bank_uv",
+      "buma_users_list_view",
+      "buma_ussd_code",
+      "buma_wallet",
+      "buma_wallet_transactions",
+      "roles",
+      "test",
+      "users"
+    ]
+  },
+  "migrations": {
+    "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/migrationsDir",
+    "files": 326,
+    "kinds": {
+      "updated": 301,
+      "created": 25
+    },
+    "targets": [
+      "agent_users",
+      "buma_agent",
+      "buma_agent_list_view",
+      "buma_article",
+      "buma_article_stock",
+      "buma_article_stock_designation",
+      "buma_article_stock_session",
+      "buma_article_stock_stat_view",
+      "buma_article_stockage",
+      "buma_buy",
+      "buma_buy_item",
+      "buma_bw",
+      "buma_caisse",
+      "buma_caisse_access",
+      "buma_caisse_expense_type",
+      "buma_caisse_open_close",
+      "buma_caisse_session_info",
+      "buma_caisse_transaction_by_categorie_list_view",
+      "buma_caisse_transactions",
+      "buma_commission_customer",
+      "buma_commission_group",
+      "buma_commission_product",
+      "buma_config",
+      "buma_conversion",
+      "buma_conversion_list_view",
+      "buma_customer",
+      "buma_customer_list_view",
+      "buma_customer_list_view_with_users",
+      "buma_customer_mobile_list_view",
+      "buma_customer_solder_history",
+      "buma_customer_user",
+      "buma_employee",
+      "buma_employee_debt_payment",
+      "buma_invoice",
+      "buma_invoice_item",
+      "buma_pdv",
+      "buma_pdv_list_view",
+      "buma_pdv_turnover",
+      "buma_pilotage_ticket",
+      "buma_pilotage_ticket_tag",
+      "buma_purchase_list_view",
+      "buma_ressources",
+      "buma_return",
+      "buma_return_list_view",
+      "buma_rupture",
+      "buma_rupture_list_view",
+      "buma_sale",
+      "buma_sale_list_view",
+      "buma_sim",
+      "buma_sim_balance_activity",
+      "buma_sim_list_view",
+      "buma_sim_list_view_all",
+      "buma_sql_table",
+      "buma_stock_buy_list_view",
+      "buma_stock_transaction_list_view",
+      "buma_supplier",
+      "buma_supplier_list_view",
+      "buma_transaction",
+      "buma_transaction_list_view",
+      "buma_transfer",
+      "buma_user_bank_uv",
+      "buma_ussd_code",
+      "buma_wallet",
+      "buma_wallet_transactions",
+      "test",
+      "users"
+    ],
+    "target_kinds": {
+      "agent_users": {
+        "created": 1,
+        "updated": 1
+      },
+      "buma_agent": {
+        "updated": 4
+      },
+      "buma_agent_list_view": {
+        "updated": 12
+      },
+      "buma_article": {
+        "updated": 5
+      },
+      "buma_article_stock": {
+        "updated": 1
+      },
+      "buma_article_stock_designation": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_article_stock_session": {
+        "created": 1,
+        "updated": 1
+      },
+      "buma_article_stock_stat_view": {
+        "updated": 2
+      },
+      "buma_article_stockage": {
+        "updated": 3
+      },
+      "buma_buy": {
+        "updated": 4
+      },
+      "buma_buy_item": {
+        "created": 1
+      },
+      "buma_bw": {
+        "created": 1
+      },
+      "buma_caisse": {
+        "updated": 5
+      },
+      "buma_caisse_access": {
+        "created": 1
+      },
+      "buma_caisse_expense_type": {
+        "updated": 1
+      },
+      "buma_caisse_open_close": {
+        "updated": 1
+      },
+      "buma_caisse_session_info": {
+        "updated": 8
+      },
+      "buma_caisse_transaction_by_categorie_list_view": {
+        "created": 1,
+        "updated": 6
+      },
+      "buma_caisse_transactions": {
+        "updated": 14
+      },
+      "buma_commission_customer": {
+        "created": 1,
+        "updated": 1
+      },
+      "buma_commission_group": {
+        "created": 1
+      },
+      "buma_commission_product": {
+        "created": 1,
+        "updated": 1
+      },
+      "buma_config": {
+        "updated": 15
+      },
+      "buma_conversion": {
+        "updated": 1
+      },
+      "buma_conversion_list_view": {
+        "updated": 4
+      },
+      "buma_customer": {
+        "updated": 5
+      },
+      "buma_customer_list_view": {
+        "updated": 34
+      },
+      "buma_customer_list_view_with_users": {
+        "created": 1,
+        "updated": 1
+      },
+      "buma_customer_mobile_list_view": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_customer_solder_history": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_customer_user": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_employee": {
+        "updated": 1
+      },
+      "buma_employee_debt_payment": {
+        "created": 1
+      },
+      "buma_invoice": {
+        "created": 1,
+        "updated": 5
+      },
+      "buma_invoice_item": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_pdv": {
+        "updated": 9
+      },
+      "buma_pdv_list_view": {
+        "updated": 2
+      },
+      "buma_pdv_turnover": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_pilotage_ticket": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_pilotage_ticket_tag": {
+        "created": 1,
+        "updated": 4
+      },
+      "buma_purchase_list_view": {
+        "updated": 3
+      },
+      "buma_ressources": {
+        "updated": 8
+      },
+      "buma_return": {
+        "updated": 3
+      },
+      "buma_return_list_view": {
+        "updated": 15
+      },
+      "buma_rupture": {
+        "created": 1,
+        "updated": 2
+      },
+      "buma_rupture_list_view": {
+        "created": 1,
+        "updated": 9
+      },
+      "buma_sale": {
+        "updated": 3
+      },
+      "buma_sale_list_view": {
+        "updated": 4
+      },
+      "buma_sim": {
+        "updated": 7
+      },
+      "buma_sim_balance_activity": {
+        "created": 1,
+        "updated": 7
+      },
+      "buma_sim_list_view": {
+        "updated": 10
+      },
+      "buma_sim_list_view_all": {
+        "updated": 3
+      },
+      "buma_sql_table": {
+        "created": 1
+      },
+      "buma_stock_buy_list_view": {
+        "updated": 1
+      },
+      "buma_stock_transaction_list_view": {
+        "updated": 8
+      },
+      "buma_supplier": {
+        "updated": 5
+      },
+      "buma_supplier_list_view": {
+        "updated": 4
+      },
+      "buma_transaction": {
+        "updated": 12
+      },
+      "buma_transaction_list_view": {
+        "updated": 8
+      },
+      "buma_transfer": {
+        "updated": 3
+      },
+      "buma_user_bank_uv": {
+        "created": 1
+      },
+      "buma_ussd_code": {
+        "updated": 1
+      },
+      "buma_wallet": {
+        "updated": 4
+      },
+      "buma_wallet_transactions": {
+        "updated": 9
+      },
+      "test": {
+        "updated": 3
+      },
+      "users": {
+        "updated": 4
+      }
+    }
+  },
+  "reconciliation": {
+    "schema_names_without_migration_filename": [
+      "buma_agent_doc",
+      "buma_agent_doc_type",
+      "buma_apps_roles",
+      "buma_article_categorie",
+      "buma_article_components",
+      "buma_article_list_stat_view",
+      "buma_article_list_view",
+      "buma_article_stock_list_view",
+      "buma_article_stock_view",
+      "buma_article_stockage_list_view",
+      "buma_article_unite",
+      "buma_article_with_no_stock_list_view",
+      "buma_caisse_open_close_listview",
+      "buma_customer_document",
+      "buma_customer_document_type",
+      "buma_customer_number",
+      "buma_customer_old",
+      "buma_customer_pdv",
+      "buma_customer_pdv_list_selector_view",
+      "buma_customer_pdv_list_view",
+      "buma_customer_pdv_with_all_pdv",
+      "buma_customer_supplier_info_view",
+      "buma_customer_type",
+      "buma_employee_contract",
+      "buma_employee_contract_type",
+      "buma_employee_debt",
+      "buma_employee_document",
+      "buma_employee_document_type",
+      "buma_employee_list_view",
+      "buma_employee_position",
+      "buma_payment",
+      "buma_payment_method",
+      "buma_pdv_doc",
+      "buma_pdv_doc_type",
+      "buma_pdv_list_selector_for_agent_view",
+      "buma_pdv_list_selector_for_client_view",
+      "buma_person_entity",
+      "buma_return_info_view",
+      "buma_return_regexp",
+      "buma_sale_info",
+      "buma_stockage_no_manager",
+      "buma_stockage_user",
+      "buma_supplier_article",
+      "buma_supplier_article_list_view",
+      "buma_transfer_transaction",
+      "buma_transfer_transaction_view",
+      "buma_users_list_view",
+      "roles"
+    ],
+    "migration_targets_not_in_final_schema": [],
+    "schema_names_with_created_migration": [
+      "agent_users",
+      "buma_article_stock_designation",
+      "buma_article_stock_session",
+      "buma_buy_item",
+      "buma_bw",
+      "buma_caisse_access",
+      "buma_caisse_transaction_by_categorie_list_view",
+      "buma_commission_customer",
+      "buma_commission_group",
+      "buma_commission_product",
+      "buma_customer_list_view_with_users",
+      "buma_customer_mobile_list_view",
+      "buma_customer_solder_history",
+      "buma_customer_user",
+      "buma_employee_debt_payment",
+      "buma_invoice",
+      "buma_invoice_item",
+      "buma_pdv_turnover",
+      "buma_pilotage_ticket",
+      "buma_pilotage_ticket_tag",
+      "buma_rupture",
+      "buma_rupture_list_view",
+      "buma_sim_balance_activity",
+      "buma_sql_table",
+      "buma_user_bank_uv"
+    ],
+    "schema_names_without_created_migration": [
+      "buma_agent",
+      "buma_agent_doc",
+      "buma_agent_doc_type",
+      "buma_agent_list_view",
+      "buma_apps_roles",
+      "buma_article",
+      "buma_article_categorie",
+      "buma_article_components",
+      "buma_article_list_stat_view",
+      "buma_article_list_view",
+      "buma_article_stock",
+      "buma_article_stock_list_view",
+      "buma_article_stock_stat_view",
+      "buma_article_stock_view",
+      "buma_article_stockage",
+      "buma_article_stockage_list_view",
+      "buma_article_unite",
+      "buma_article_with_no_stock_list_view",
+      "buma_buy",
+      "buma_caisse",
+      "buma_caisse_expense_type",
+      "buma_caisse_open_close",
+      "buma_caisse_open_close_listview",
+      "buma_caisse_session_info",
+      "buma_caisse_transactions",
+      "buma_config",
+      "buma_conversion",
+      "buma_conversion_list_view",
+      "buma_customer",
+      "buma_customer_document",
+      "buma_customer_document_type",
+      "buma_customer_list_view",
+      "buma_customer_number",
+      "buma_customer_old",
+      "buma_customer_pdv",
+      "buma_customer_pdv_list_selector_view",
+      "buma_customer_pdv_list_view",
+      "buma_customer_pdv_with_all_pdv",
+      "buma_customer_supplier_info_view",
+      "buma_customer_type",
+      "buma_employee",
+      "buma_employee_contract",
+      "buma_employee_contract_type",
+      "buma_employee_debt",
+      "buma_employee_document",
+      "buma_employee_document_type",
+      "buma_employee_list_view",
+      "buma_employee_position",
+      "buma_payment",
+      "buma_payment_method",
+      "buma_pdv",
+      "buma_pdv_doc",
+      "buma_pdv_doc_type",
+      "buma_pdv_list_selector_for_agent_view",
+      "buma_pdv_list_selector_for_client_view",
+      "buma_pdv_list_view",
+      "buma_person_entity",
+      "buma_purchase_list_view",
+      "buma_ressources",
+      "buma_return",
+      "buma_return_info_view",
+      "buma_return_list_view",
+      "buma_return_regexp",
+      "buma_sale",
+      "buma_sale_info",
+      "buma_sale_list_view",
+      "buma_sim",
+      "buma_sim_list_view",
+      "buma_sim_list_view_all",
+      "buma_stock_buy_list_view",
+      "buma_stock_transaction_list_view",
+      "buma_stockage_no_manager",
+      "buma_stockage_user",
+      "buma_supplier",
+      "buma_supplier_article",
+      "buma_supplier_article_list_view",
+      "buma_supplier_list_view",
+      "buma_transaction",
+      "buma_transaction_list_view",
+      "buma_transfer",
+      "buma_transfer_transaction",
+      "buma_transfer_transaction_view",
+      "buma_users_list_view",
+      "buma_ussd_code",
+      "buma_wallet",
+      "buma_wallet_transactions",
+      "roles",
+      "test",
+      "users"
+    ]
+  },
+  "note": "Filename reconciliation is evidence about history only. The final schema export remains authoritative for native PPBase baseline generation."
+}

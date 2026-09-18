@@ -1,0 +1,317 @@
+{
+  "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+  "include_views": true,
+  "definitions": 42,
+  "base_auth": 0,
+  "views": 42,
+  "views_report": [
+    {
+      "name": "buma_agent_list_view",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "c2f7288812db8ac629610e106250a134bbf30f601b55778cf52513a3273f8632",
+      "translated_query_sha256": "0fdf28cd0f916dce6fb08b5b4a649579adf2c885b87ad33a6a7bdc22d12bc767"
+    },
+    {
+      "name": "buma_article_list_stat_view",
+      "warnings": [],
+      "source_query_sha256": "60aaf4e2638284bfd322c01c044451cdf67b094b97bf65adb67389140ba6d70c",
+      "translated_query_sha256": "60aaf4e2638284bfd322c01c044451cdf67b094b97bf65adb67389140ba6d70c"
+    },
+    {
+      "name": "buma_article_list_view",
+      "warnings": [
+        "backticks-to-double-quotes",
+        "relation-id-coalesce-removed"
+      ],
+      "source_query_sha256": "a0609a8790d8138cd5ed3dffdcc18e6fbb61e084b622e1ce56a30fa5e1b8ffc0",
+      "translated_query_sha256": "c422cf95a78091d1339be2d114e24cfb1085d973c0d333856b9a15be9a398459"
+    },
+    {
+      "name": "buma_article_stock_list_view",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "d9a87d8634824d5c0d24adc6face04b661f436000c023c9f71624ab16abbc526",
+      "translated_query_sha256": "1fae3fec8c0b7d46b500cb8d1def497a6ab1321eea39b162c2b860cc41671a00"
+    },
+    {
+      "name": "buma_article_stock_stat_view",
+      "warnings": [],
+      "source_query_sha256": "40acab20c2c371e35b197ea21eb6ce00f4e826e20cf5feb95027fa8497e50dff",
+      "translated_query_sha256": "40acab20c2c371e35b197ea21eb6ce00f4e826e20cf5feb95027fa8497e50dff"
+    },
+    {
+      "name": "buma_article_stock_view",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "a010186dc7baf44a5413e0e4c93b770ae7d54668501e0cbf3aef935021361fb8",
+      "translated_query_sha256": "aeb397d732c2e6720e5bfd2857927c0105a4801512150f31e0504cbd3f48f2a6"
+    },
+    {
+      "name": "buma_article_stockage_list_view",
+      "warnings": [],
+      "source_query_sha256": "1fa2e8d6cc96c7f1ee5c570d20b8ba91129d8037469da6251af066819351bbdf",
+      "translated_query_sha256": "9f08b726a42f4ca041626d22fa7f0d1fcc7b8bc77033287418e51f074069421d"
+    },
+    {
+      "name": "buma_article_with_no_stock_list_view",
+      "warnings": [
+        "backticks-to-double-quotes",
+        "rowid-mapped-to-id",
+        "duplicate-rowid-column-removed",
+        "group-concat-to-string-agg"
+      ],
+      "source_query_sha256": "4b9ed9b35767ccc5111549a0dddcb53e0580625ce43d6bb6ec67d0a7dba9f43e",
+      "translated_query_sha256": "687485ecb67cad7ddd513fb1af489a9896680d95341881d07e1c3693083a86c0"
+    },
+    {
+      "name": "buma_caisse_open_close_listview",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "4c16cc78acac17b398ff9de2b8d7c6826946b0846ab0ff55fc8e139fe2768476",
+      "translated_query_sha256": "224f7e882c28569f53dc52f01b4ce7c2973d98a477e0cf46921e942565ac3b14"
+    },
+    {
+      "name": "buma_caisse_session_info",
+      "warnings": [],
+      "source_query_sha256": "46fbd0191b3c01edaafbc6d54dd0f651febc576d9667cdb6b70971d53ef3f36f",
+      "translated_query_sha256": "46fbd0191b3c01edaafbc6d54dd0f651febc576d9667cdb6b70971d53ef3f36f"
+    },
+    {
+      "name": "buma_caisse_transaction_by_categorie_list_view",
+      "warnings": [
+        "camel-case-identifiers-quoted"
+      ],
+      "source_query_sha256": "8d149cfe0979ecbbd11a6f4d5a4c5a20d3feb02d7e9a892459f8d3fd190abe21",
+      "translated_query_sha256": "a8b810c45567aeb0bfdf8a30bfdd4f3558ce3d1ede43786adf4eeee48815c573"
+    },
+    {
+      "name": "buma_conversion_list_view",
+      "warnings": [],
+      "source_query_sha256": "cfa2d12fc9b1364a25d9ce9cc3edd8b50c4d14f86db5d0077d495e747ef8c543",
+      "translated_query_sha256": "cfa2d12fc9b1364a25d9ce9cc3edd8b50c4d14f86db5d0077d495e747ef8c543"
+    },
+    {
+      "name": "buma_customer_list_view",
+      "warnings": [
+        "group-concat-to-string-agg"
+      ],
+      "source_query_sha256": "75db73cb69197257d316cd6552998adfc1343fb806f95bbab2ebb2ef04caef0d",
+      "translated_query_sha256": "b62cbb0cf037fd1b181db5fb71189b2f766e26ebd5c1b072a373c0d07c25c715"
+    },
+    {
+      "name": "buma_customer_list_view_with_users",
+      "warnings": [
+        "group-concat-to-string-agg"
+      ],
+      "source_query_sha256": "89810309618939b56b4f469bd36d53b419d6140405c8bbeafb6637734392ec04",
+      "translated_query_sha256": "a44ba30eda0a05334df7655aa8f1a23063dc67e8eda2da41d62b9725f840c8d9"
+    },
+    {
+      "name": "buma_customer_mobile_list_view",
+      "warnings": [
+        "camel-case-identifiers-quoted",
+        "group-concat-to-string-agg",
+        "unqualified-camel-case-identifier-quoted",
+        "grouped-bool-to-bool-or",
+        "multi-argument-max-to-greatest",
+        "outer-group-by-user-added",
+        "outer-group-by-bool-added",
+        "outer-group-by-view-columns-added"
+      ],
+      "source_query_sha256": "10c84822b0963236558a0ed9d9ca0f6825fe573f87e24269dc8ff5d2ace574e0",
+      "translated_query_sha256": "9f5326f76182854895c36dc314fb312f67a16f574796f0249a64155350d3b5c5"
+    },
+    {
+      "name": "buma_customer_pdv_list_selector_view",
+      "warnings": [
+        "select-alias-in-where-expanded"
+      ],
+      "source_query_sha256": "19d7e39ed7c76195106e0633034e571583820890fb0dfefb72a6902682d9d196",
+      "translated_query_sha256": "e4a9aef37d0831ff2e008cb068d9165abf8838293a53710a29ce5c912349f35d"
+    },
+    {
+      "name": "buma_customer_pdv_list_view",
+      "warnings": [],
+      "source_query_sha256": "c38e022544e6779b154b460075a3b1d6495c62be7e3c2ed11d3dba25e0330387",
+      "translated_query_sha256": "87cb3dad0ef064ce8d536085cf93e9a66f07bcb3a933d577916ebfcd6ecce366"
+    },
+    {
+      "name": "buma_customer_pdv_with_all_pdv",
+      "warnings": [],
+      "source_query_sha256": "e1148b993177f37de82e491927b7ffe16f1d5f3249c34cb00b140f5b5be1620d",
+      "translated_query_sha256": "5c3f28da9e1c1b30b6afc077a9db16b33c0794055cc9758dbc57ad49636881a5"
+    },
+    {
+      "name": "buma_customer_supplier_info_view",
+      "warnings": [],
+      "source_query_sha256": "dc62c307f679ca28cd70a02a3ae96d01dc721160bf037b19235d6af53caf63f2",
+      "translated_query_sha256": "dc62c307f679ca28cd70a02a3ae96d01dc721160bf037b19235d6af53caf63f2"
+    },
+    {
+      "name": "buma_employee_list_view",
+      "warnings": [],
+      "source_query_sha256": "ad45ee10234e80b4dfc2cbdcf396bc23afba9b802e489a85c97280740802d8d9",
+      "translated_query_sha256": "ad45ee10234e80b4dfc2cbdcf396bc23afba9b802e489a85c97280740802d8d9"
+    },
+    {
+      "name": "buma_pdv_list_selector_for_agent_view",
+      "warnings": [],
+      "source_query_sha256": "3d714ca9da999320438cec2d510bb6819fe9e11ba77435f371bc801a10d45e7d",
+      "translated_query_sha256": "3d714ca9da999320438cec2d510bb6819fe9e11ba77435f371bc801a10d45e7d"
+    },
+    {
+      "name": "buma_pdv_list_selector_for_client_view",
+      "warnings": [],
+      "source_query_sha256": "3318cd34408aea6c1c5e724f812eab3a7ecd0a4ea1304c8d57e5f08750c6e2b4",
+      "translated_query_sha256": "3318cd34408aea6c1c5e724f812eab3a7ecd0a4ea1304c8d57e5f08750c6e2b4"
+    },
+    {
+      "name": "buma_pdv_list_view",
+      "warnings": [],
+      "source_query_sha256": "2b7d1aebbaaddca8a6395148f202129fb39be14628259c69d74ef2f4e429d1a1",
+      "translated_query_sha256": "2b7d1aebbaaddca8a6395148f202129fb39be14628259c69d74ef2f4e429d1a1"
+    },
+    {
+      "name": "buma_pdv_turnover",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "7a7dcb64e8ce3dafeaa18f982688c681379b994d589d8b1f1c5257298dcd8bb4",
+      "translated_query_sha256": "93b23ea23c0f2eb74a3f7f872869319344afcfb10e4277c78586fdca3abb87a1"
+    },
+    {
+      "name": "buma_purchase_list_view",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "2416fe1f0a014caced2d0c961d72c454d8bef68444101cb90bc594937b9f820d",
+      "translated_query_sha256": "43f4203299ea6fd165e9316e8afb7cb6c7fbcb322509aebd24e358e65ec126ea"
+    },
+    {
+      "name": "buma_return_info_view",
+      "warnings": [],
+      "source_query_sha256": "b676651b529a01f50568fa35018aff2719683e3476617925c3f767eca9a71479",
+      "translated_query_sha256": "b676651b529a01f50568fa35018aff2719683e3476617925c3f767eca9a71479"
+    },
+    {
+      "name": "buma_return_list_view",
+      "warnings": [
+        "group-concat-to-string-agg"
+      ],
+      "source_query_sha256": "ab2da0f31ec08b3bcfecc6a36916000543d2dec9a48c78aad6f2cc91601b7687",
+      "translated_query_sha256": "dc5d101242df4af8f7f78b6dbe44ab04b1756bab79929218ff19a06d2c873afc"
+    },
+    {
+      "name": "buma_rupture_list_view",
+      "warnings": [],
+      "source_query_sha256": "34967ae0bff2173fefcabda9f4af10a37603e7c5b8e7e6891a25f96b72b0d19b",
+      "translated_query_sha256": "34967ae0bff2173fefcabda9f4af10a37603e7c5b8e7e6891a25f96b72b0d19b"
+    },
+    {
+      "name": "buma_sale_info",
+      "warnings": [],
+      "source_query_sha256": "2f0f3003f966aee225dc652471a8f74948af712c5a493055151a1da53501a46a",
+      "translated_query_sha256": "2f0f3003f966aee225dc652471a8f74948af712c5a493055151a1da53501a46a"
+    },
+    {
+      "name": "buma_sale_list_view",
+      "warnings": [],
+      "source_query_sha256": "5f178fad684dc51d2c8a9c563bd87ea4f8ded71839851372e69835d1f2a20bd8",
+      "translated_query_sha256": "5f178fad684dc51d2c8a9c563bd87ea4f8ded71839851372e69835d1f2a20bd8"
+    },
+    {
+      "name": "buma_sim_list_view",
+      "warnings": [
+        "backticks-to-double-quotes",
+        "multi-argument-max-to-greatest"
+      ],
+      "source_query_sha256": "33739f3ed7a0e4000550dd392e29f3565f832d994bc729f152a6084c7d2e8b22",
+      "translated_query_sha256": "d6fd2628bc2254b38289064f027da6e60f7df306e7d1cf6eaaa61d7b14a5390d"
+    },
+    {
+      "name": "buma_sim_list_view_all",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "79ab2d56a0545cd8b9b813318ea6147c8b52bbf0d129c699434fda4916352343",
+      "translated_query_sha256": "1c6e4b39858fc88a0ca81b931e9aa1d83dc616313c133a32317e56970e9d697b"
+    },
+    {
+      "name": "buma_sql_table",
+      "warnings": [],
+      "source_query_sha256": "cbc9a0b8168897ba4b3468feeb0743d5f2af1a5799aee69f09175b5bdcfea792",
+      "translated_query_sha256": "cbc9a0b8168897ba4b3468feeb0743d5f2af1a5799aee69f09175b5bdcfea792"
+    },
+    {
+      "name": "buma_stock_buy_list_view",
+      "warnings": [],
+      "source_query_sha256": "f785097351101ebee4da0fc43700dbf128acf473aef75bb9641804303be06b26",
+      "translated_query_sha256": "f785097351101ebee4da0fc43700dbf128acf473aef75bb9641804303be06b26"
+    },
+    {
+      "name": "buma_stock_transaction_list_view",
+      "warnings": [
+        "rowid-mapped-to-id"
+      ],
+      "source_query_sha256": "b801e8ecec1bf6e9e41e8d917ff58147e7257eab3c1cb5e24e2b0dfcea5f8bb4",
+      "translated_query_sha256": "0e3cf0f5c9756d877def65fcae2f078181b3c1b129b087b0da77489dd643193d"
+    },
+    {
+      "name": "buma_stockage_no_manager",
+      "warnings": [
+        "rowid-mapped-to-id",
+        "duplicate-rowid-column-removed",
+        "group-concat-to-string-agg"
+      ],
+      "source_query_sha256": "f33c59d141f3ab74fc9508a66278654648bc22f31dfbf6ebff6d3288d7cb1bbc",
+      "translated_query_sha256": "154ecd48981bf8bc214c071dcf0680d630e0279a9d51ce56dfa59a626cb65458"
+    },
+    {
+      "name": "buma_supplier_article_list_view",
+      "warnings": [],
+      "source_query_sha256": "c9e8799c6097f44258b59f4d0255eeaa7f7a7bf1ce8efef1797399bbd78d87fb",
+      "translated_query_sha256": "c9e8799c6097f44258b59f4d0255eeaa7f7a7bf1ce8efef1797399bbd78d87fb"
+    },
+    {
+      "name": "buma_supplier_list_view",
+      "warnings": [
+        "backticks-to-double-quotes"
+      ],
+      "source_query_sha256": "c2ec567ee2923a5ad3419eb5c7ddf403518d14dbdfb87ef49250998ba56bf8cb",
+      "translated_query_sha256": "2afaaf392f91d6df20b0451faf414ab73354abc7f8e2cd464f98b085028f6321"
+    },
+    {
+      "name": "buma_transaction_list_view",
+      "warnings": [
+        "double-equals-to-equals"
+      ],
+      "source_query_sha256": "cc9ffd18d94ef613617dd0f5f394b0f4344bb3ac7b5dd45b21e8e6b9554d5bc8",
+      "translated_query_sha256": "ecf6300499fb9274fa1cded39d544514b7d8a21e0e3b00e09eace19501891e5a"
+    },
+    {
+      "name": "buma_transfer_transaction_view",
+      "warnings": [],
+      "source_query_sha256": "01e036b2a3e7235af2fd37f92e0c850cc887733bc3183fa0dd16e003eaee8d27",
+      "translated_query_sha256": "01e036b2a3e7235af2fd37f92e0c850cc887733bc3183fa0dd16e003eaee8d27"
+    },
+    {
+      "name": "buma_users_list_view",
+      "warnings": [],
+      "source_query_sha256": "001ffd0a354e864a9d86a90f52666676f6b867d9b8ab866ee8b407adfa722f9c",
+      "translated_query_sha256": "001ffd0a354e864a9d86a90f52666676f6b867d9b8ab866ee8b407adfa722f9c"
+    },
+    {
+      "name": "test",
+      "warnings": [
+        "group-by-customer-name-added"
+      ],
+      "source_query_sha256": "5aa1611403d6e5973f404e5626ddb7f0d743a2887c26a6dbe6a12cb067ec2257",
+      "translated_query_sha256": "e0e6002c518296f1b8a805dfe9394b9858e900617b1e2ecbc7c7f64e805952ad"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "source": "buma_master_hooks@530018c",
+  "status": "generated-from-source-inventory",
+  "hooks": [
+    {"event": "onAfterBootstrap", "files": ["src/entries/master.setup.ts", "src/entries/index.pb.ts"]},
+    {"event": "onRecordBeforeCreateRequest", "files": ["src/entries/index.pb.ts", "src/entries/caisse.ts", "src/entries/master.customer.ts", "src/entries/master.employee.ts"]},
+    {"event": "onRecordBeforeDeleteRequest", "files": ["src/entries/master.middleware.ts"]},
+    {"event": "onRecordBeforeUpdateRequest", "files": ["src/entries/master.middleware.ts"]}
+  ],
+  "note": "The generated source-inventory.json is authoritative for exact collection tags and source lines."
+}

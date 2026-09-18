@@ -1,0 +1,22 @@
+{
+  "source_repository": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks",
+  "source_branch": "fix/uv-paani-sup",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "source_commit_short": "530018c",
+  "source_commit_subject": "fix: make transaction creation idempotent",
+  "source_entry_files": 78,
+  "source_migration_directory": "migrationsDir",
+  "source_migration_files": 326,
+  "source_migration_created_files": 25,
+  "source_migration_updated_files": 301,
+  "static_inventory": {
+    "routes": 113,
+    "hooks": 9,
+    "collections_referenced": 62,
+    "transaction_and_sql_sites": 51
+  },
+  "source_status_at_freeze": "clean",
+  "schema_export_status": "corrected_export_received_and_reconciled",
+  "data_backup_status": "pending",
+  "runtime_validation_status": "foundation_and_corrected_complete_schema_validated; views_42_of_42; auth_username_compat_users_and_agent_users; no_production_data"
+}

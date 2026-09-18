@@ -1,0 +1,8 @@
+{
+  "source": "buma_master_hooks@530018c",
+  "status": "generated-inventory-pending-manual-contract-review",
+  "routes": [],
+  "route_status_values": ["active", "commented", "deprecated", "collision-review"],
+  "required_fields": ["method", "path", "source_file", "source_line", "auth", "request", "response", "errors", "status"],
+  "note": "Use source-inventory.json as the machine-generated route list, then fill auth/request/response/error contracts route by route."
+}

@@ -1,0 +1,6 @@
+{
+  "source": "buma_master_hooks@530018c",
+  "status": "references-only-until-live-schema-export",
+  "collections": [],
+  "note": "Populate from source-inventory.json and reconcile with the PocketBase Dashboard export before creating native PPBase migrations."
+}
