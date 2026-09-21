@@ -92,3 +92,43 @@ def test_targeted_baseline_verifier_ignores_views_on_a_full_install() -> None:
     assert report["unexpected"] == []
     assert report["allowed_extras"] == []
     assert report["ok"] is True
+
+
+def test_baseline_verifier_accepts_materialized_auth_password_field() -> None:
+    definitions, _, _ = load_schema(SCHEMA, include_views=False)
+    rows = [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "type": item["type"],
+            "system": item["system"],
+            "schema": copy.deepcopy(item.get("schema") or []),
+            "indexes": copy.deepcopy(item.get("indexes") or []),
+            "list_rule": item.get("listRule"),
+            "view_rule": item.get("viewRule"),
+            "create_rule": item.get("createRule"),
+            "update_rule": item.get("updateRule"),
+            "delete_rule": item.get("deleteRule"),
+            "options": copy.deepcopy(item.get("options") or {}),
+        }
+        for item in definitions
+    ]
+    for name, minimum in (("users", 5), ("agent_users", 8)):
+        row = next(row for row in rows if row["name"] == name)
+        row["schema"].append(
+            {
+                "id": "password_field",
+                "name": "password",
+                "type": "password",
+                "required": True,
+                "system": True,
+                "hidden": True,
+                "presentable": False,
+                "options": {"min": minimum, "max": 0, "cost": 10, "pattern": ""},
+            }
+        )
+        row["options"].pop("minPasswordLength", None)
+
+    report = verify(definitions, rows)
+    assert report["metadata_mismatches"] == []
+    assert report["ok"] is True

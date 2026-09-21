@@ -24,10 +24,18 @@ contient pas encore les routes métier ni les données de production.
 
 - `app/core/config.py` : lit les variables d’environnement PPBase et fournit
   les paramètres de base (URL PostgreSQL, port, dossiers, jobs internes).
-- `app/hooks/register.py` : point d’entrée des hooks PPBase. Il charge les
-  modules dans un ordre explicite ; seuls les modules foundation sont encore
-  enregistrés.
-- `app/hooks/health.py` : route technique `/` renvoyant l’état du service.
+- `app/hooks/register.py` : point d'entrée des hooks PPBase. Il charge les
+  modules foundation, auth et les checkpoints métier validés dans un ordre
+  explicite.
+- `app/hooks/health.py` : route technique `/` renvoyant l'état du service.
+- `app/hooks/auth.py` : routes legacy `/isConnected` et
+  `/master/user/health`, plus l'enregistrement des middlewares auth C3.
+- `app/auth/` : résolution username/email, contexte live des rôles/permissions
+  et garde `requireAdminOrRecordAuth`.
+- `app/stockage/service.py` et `app/hooks/stockage.py` : checkpoint C7 pour
+  articles, stocks, stockages, transferts, conversions, mouvements batch et
+  ponts wallet/UV ; toutes les mutations utilisent le coordinateur
+  transactionnel et des verrous PostgreSQL.
 - `app/hooks/poc.py` : POC technique, route de test, hook CRUD et endpoints de
   transaction/rollback. Ce n’est pas une route métier BUMA.
 - `app/__init__.py`, `app/core/__init__.py`, `app/hooks/__init__.py` : fichiers
@@ -45,6 +53,8 @@ contient pas encore les routes métier ni les données de production.
   le checkpoint auth.
 - `pb_migrations/1789236842_buma_master_views.py` : crée les 42 vues avec les
   requêtes traduites et validées pour PostgreSQL, dans leur ordre de dépendance.
+- `pb_migrations/1789236844_auth_compat.py` : aligne les champs d'identité et
+  la politique de mot de passe des collections `users` et `agent_users`.
 - `pb_migrations/.gitkeep` : conserve le dossier avant l'arrivée des migrations.
 
 La collection technique `foundation_poc` n'est pas une migration officielle :
@@ -68,6 +78,8 @@ BUMA.
 - `scripts/verify_complete_schema.py` : vérifie les 114 définitions du JSON
   corrigé, les relations et les champs de compatibilité
   `users.username`/`agent_users.username`.
+- `scripts/c7_stockage_runtime.py` : preuve HTTP PostgreSQL du checkpoint C7,
+  avec rollback, idempotence, concurrence, permissions et nettoyage.
 - `scripts/__init__.py`, `scripts/.gitkeep` : support du package et conservation
   initiale du dossier.
 
@@ -82,8 +94,10 @@ BUMA.
 - `docs/contracts/source-inventory.json` : inventaire détaillé de la source.
 - `docs/contracts/schema-migration-reconciliation.json` : rapport de
   réconciliation du JSON final et des 326 migrations.
-- `docs/contracts/README.md`, `routes.json`, `collections.json`, `hooks.json` et
-  `transaction-invariants.md` : contrats à compléter par domaine.
+- `docs/contracts/README.md`, `routes.json`, `authentication.md`,
+  `article-stockage.md`, `collections.json`, `hooks.json` et
+  `transaction-invariants.md` : contrats par domaine, avec C3 et C7
+  documentés.
 - `docs/implementation-plan.md` : ordre des checkpoints C0 à C11.
 - `docs/migration-ppbase-tasklist.md` : cases de suivi opérationnel.
 - `docs/progress/ledger.md` : journal principal et point de reprise obligatoire.

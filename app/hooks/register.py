@@ -1,7 +1,8 @@
 """Ordered PPBase hook registration entrypoint.
 
-Only foundation modules are registered in Checkpoint 1. Business modules are
-added one domain at a time after their contract and tests are ready.
+Authentication compatibility is registered after the foundation routes. The
+validated business modules follow it in checkpoint order; unfinished domains
+are intentionally not registered.
 """
 
 from __future__ import annotations
@@ -15,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 HOOK_MODULES: tuple[str, ...] = (
     "app.hooks.health",
+    "app.hooks.auth",
+    "app.hooks.customer",
+    "app.hooks.supplier",
+    "app.hooks.employee",
+    "app.hooks.pdv",
+    "app.hooks.finance",
+    "app.hooks.stockage",
     "app.hooks.poc",
 )
 
@@ -28,9 +36,9 @@ def _load_register(module_name: str) -> Callable[[Any], None]:
 
 
 def register(pb: Any) -> None:
-    """Register the currently implemented foundation modules in order."""
-    logger.info("Loading BUMA Master PPBase foundation modules")
+    """Register foundation, validated auth and business checkpoint modules."""
+    logger.info("Loading BUMA Master PPBase foundation/auth/business modules")
     for module_name in HOOK_MODULES:
         logger.info("Loading hook module %s", module_name)
         _load_register(module_name)(pb)
-    logger.info("BUMA Master PPBase foundation modules loaded")
+    logger.info("BUMA Master PPBase foundation/auth/business modules loaded")

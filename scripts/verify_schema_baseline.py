@@ -32,6 +32,7 @@ DEFAULT_DB = os.getenv(
 ALLOWED_EXTRAS: set[str] = set()
 IGNORED_NON_SYSTEM_TYPES = {"view"}
 COMPATIBILITY_FIELDS = {"users": {"username"}, "agent_users": {"username"}}
+AUTH_RUNTIME_FIELDS = {"password"}
 
 
 def _expected_projection(collection: dict[str, Any]) -> dict[str, Any]:
@@ -79,9 +80,34 @@ def _stable_options(
     return actual_options
 
 
+def _auth_password_minimum(schema: list[dict[str, Any]]) -> int | None:
+    for field in schema:
+        if field.get("name") != "password" or field.get("type") != "password":
+            continue
+        options = field.get("options") if isinstance(field.get("options"), dict) else {}
+        value = options.get("min")
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _compare_collection(name: str, expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     expected_projection = _expected_projection(expected)
     actual_projection = _actual_projection(actual)
+    if expected_projection["type"] == "auth":
+        actual_projection["schema"] = [
+            field
+            for field in actual_projection["schema"]
+            if field.get("name") not in AUTH_RUNTIME_FIELDS
+        ]
+        expected_min = expected_projection["options"].get("minPasswordLength")
+        if expected_min is not None and "minPasswordLength" not in actual_projection["options"]:
+            actual_min = _auth_password_minimum(actual.get("schema") or [])
+            if actual_min is not None:
+                actual_projection["options"] = dict(actual_projection["options"])
+                actual_projection["options"]["minPasswordLength"] = actual_min
     expected_stable = dict(expected_projection)
     actual_stable = dict(actual_projection)
     actual_stable["options"] = _stable_options(

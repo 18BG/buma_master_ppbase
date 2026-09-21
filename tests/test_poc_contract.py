@@ -13,4 +13,14 @@ def test_poc_is_not_an_official_schema_migration() -> None:
 
 
 def test_poc_is_registered_after_health() -> None:
-    assert HOOK_MODULES == ("app.hooks.health", "app.hooks.poc")
+    assert HOOK_MODULES == (
+        "app.hooks.health",
+        "app.hooks.auth",
+        "app.hooks.customer",
+        "app.hooks.supplier",
+        "app.hooks.employee",
+        "app.hooks.pdv",
+        "app.hooks.finance",
+        "app.hooks.stockage",
+        "app.hooks.poc",
+    )

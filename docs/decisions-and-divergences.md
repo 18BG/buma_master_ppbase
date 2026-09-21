@@ -66,6 +66,13 @@ seront traduites vers `id` dans PPBase et ne nécessitent pas l'ajout d'un champ
 
 ## Divergences à décider plus tard
 
+- C3 : la migration persistée normalise `minPasswordLength` vers le champ
+  système `password` (`users.min=5`, `agent_users.min=8`) et le runtime PPBase
+  passe maintenant la création/mise à jour 5/4 et 8/7. L'adaptateur BUMA
+  accepte désormais le claim standard `type=auth` ainsi que l'ancien
+  `type=authRecord`; `authRecord` reste compris comme contexte PocketBase et
+  non comme type JWT.
+
 - comportement exact et protection des routes SQL ;
 - compatibilité des hashes d'authentification ;
 - filtres/pagination/expand du SDK ;
@@ -74,3 +81,17 @@ seront traduites vers `id` dans PPBase et ne nécessitent pas l'ajout d'un champ
   production) ;
 - jobs externes ou scheduler ;
 - règles de concurrence et contraintes uniques finales.
+
+## D-0007 — C7 et valeurs historiques de transaction
+
+Le code source écrit `WALLET_TO_UV`, `UV_TO_WALLET` et
+`CONVERSION_CANCEL_IN/OUT`, mais l'export corrigé ne les liste pas dans les
+valeurs du select `buma_transaction.type`. Il ne s'agit pas d'une nouvelle
+route ni d'une donnée de production : `app/stockage/service.py` les insère
+uniquement dans les écritures historiques internes, tandis que les flux
+normaux utilisent la validation PPBase. La baseline de schéma reste inchangée.
+
+Le source affecte aussi `cancel_author` et `cancel_date` sur
+`buma_conversion`, champs absents de l'export corrigé. C7 conserve l'état
+annulé et l'audit auteur/date dans les transactions d'annulation et leurs
+timestamps, sans ajouter silencieusement des colonnes.

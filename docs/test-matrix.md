@@ -19,3 +19,11 @@ officielle est maintenant installée et les 42/42 requêtes passent.
 Les scripts `test_*.py` du dépôt source servent de références comportementales.
 Ils ne doivent pas être considérés comme validation PPBase tant qu'ils ne sont
 pas paramétrables et exécutés contre une cible dédiée.
+
+## Preuves C7
+
+`tests/test_c7_stockage_contract.py` vérifie l'enregistrement des routes et la
+présence des primitives transactionnelles/verrous. `scripts/c7_stockage_runtime.py`
+exécute le scénario PostgreSQL complet : article et stock initial, mouvement,
+rollback batch, transfert/annulation, conversion/retry idempotent,
+wallet/UV, 401/403, concurrence et nettoyage.

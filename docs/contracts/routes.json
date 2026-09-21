@@ -1,7 +1,118 @@
 {
   "source": "buma_master_hooks@530018c",
-  "status": "generated-inventory-pending-manual-contract-review",
-  "routes": [],
+  "status": "c7-article-stockage-reviewed",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/isConnected",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 3,
+      "auth": "optional authRecord; admin auth does not count as connected",
+      "request": "Authorization header optional",
+      "response": "200 {message:true} when authRecord; 400 {message:false} otherwise",
+      "errors": "none beyond optional-auth token rejection",
+      "status": [200, 400]
+    },
+    {
+      "method": "GET",
+      "path": "/master/user/health",
+      "source_file": "src/entries/master.user.ts",
+      "source_line": 19,
+      "auth": "optional authRecord; route is public",
+      "request": "Authorization header optional",
+      "response": "200 text true when authRecord, otherwise 200 text false",
+      "errors": "500 Internal Server Error only if auth lookup throws",
+      "status": [200, 500]
+    },
+    {
+      "method": "POST",
+      "path": "/api/collections/users/auth-with-password",
+      "source_file": "PocketBase auth collection users; source options in migrationsDir/1733572247_updated_users.js",
+      "source_line": 1,
+      "auth": "guest login",
+      "request": "{identity, password}; identity is username",
+      "response": "200 {token, record}; 400 validation_invalid_credentials for bad credentials",
+      "errors": "400 missing fields or invalid credentials",
+      "status": [200, 400]
+    },
+    {
+      "method": "POST",
+      "path": "/api/collections/agent_users/auth-with-password",
+      "source_file": "migrationsDir/1738201707_created_agent_users.js",
+      "source_line": 1,
+      "auth": "guest login",
+      "request": "{identity, password}; identity accepts email or username",
+      "response": "200 {token, record}; 400 validation_invalid_credentials for bad credentials",
+      "errors": "400 missing fields or invalid credentials",
+      "status": [200, 400]
+    },
+    {
+      "method": "POST",
+      "path": "/api/collections/{collectionIdOrName}/auth-refresh",
+      "source_file": "PocketBase auth API used by source clients",
+      "source_line": null,
+      "auth": "valid record JWT required",
+      "request": "Authorization header with record token",
+      "response": "200 refreshed {token, record}; 401 without/invalid token",
+      "errors": "401 The request requires valid auth token to be set",
+      "status": [200, 401]
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/creates",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 80,
+      "auth": "record auth; article.create or admin",
+      "request": "{articles:[{designation,sell_price,buy_price,categorie,barcode,kind,trackStock}]}",
+      "response": "200 {message:Operation effectuee}; article and zero main-stock row persist",
+      "errors": "401/403 permission or 400 validation/transaction failure",
+      "status": [200, 400, 401, 403]
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/movement",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 88,
+      "auth": "record auth; stockage.input_output or admin",
+      "request": "{articleStockId,quantity,isEntry,notes?}",
+      "response": "200 {message,transaction,type}; quantity and buma_transaction persist",
+      "errors": "401/403 permission or 400 invalid/insufficient stock",
+      "status": [200, 400, 401, 403]
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/batch-movement",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 114,
+      "auth": "record auth; stockage.input_output or admin",
+      "request": "{movements:[{articleStockId,quantity,isEntry,notes?}]}",
+      "response": "200 {message,transactions}; all rows commit atomically",
+      "errors": "401/403 permission or 400 validation/insufficient stock with rollback",
+      "status": [200, 400, 401, 403]
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/transfer",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 31,
+      "auth": "record auth; stockage.transfer or admin",
+      "request": "{from,destination,deliveryMan,note,articles:[{stockId,articleId,quantity}]}" ,
+      "response": "200 transfer record with transfer-in/out and quantity updates",
+      "errors": "401/403 permission or 400 invalid/insufficient source stock",
+      "status": [200, 400, 401, 403]
+    },
+    {
+      "method": "POST",
+      "path": "/master/stockage/convert",
+      "source_file": "src/entries/master.stockage.ts",
+      "source_line": 42,
+      "auth": "record auth; stockage.conversion or admin",
+      "request": "{fromId,toId,quantity,system_id?,mobile_message_id?,transaction_date?}",
+      "response": "200 {id,message}; conversion and two stock transactions persist",
+      "errors": "401/403 permission or 400 invalid/insufficient stock; retry is idempotent",
+      "status": [200, 400, 401, 403]
+    }
+  ],
   "route_status_values": ["active", "commented", "deprecated", "collision-review"],
   "required_fields": ["method", "path", "source_file", "source_line", "auth", "request", "response", "errors", "status"],
   "note": "Use source-inventory.json as the machine-generated route list, then fill auth/request/response/error contracts route by route."
