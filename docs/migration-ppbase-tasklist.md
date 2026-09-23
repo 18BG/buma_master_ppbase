@@ -1,5 +1,14 @@
 # Tasklist de migration
 
+## Règle de parité pour toutes les cases
+
+Une case métier n'est terminée que si la route ou le hook garde le contrat
+PocketBase observable : chemin/méthode, payload, auth et permissions, code HTTP,
+content type, enveloppe/message/champs de réponse, effets persistés, hooks,
+rollback, concurrence et idempotence applicables. Les opérations SDK/CRUD
+utilisées par les apps doivent également être vérifiées. Un HTTP 200 seul ne
+valide jamais une case ; tout écart doit être documenté et testé.
+
 ## Foundation
 
 - [x] Choisir le dossier `buma-master-ppbase`.
@@ -120,9 +129,64 @@
 - [x] Ajouter provisoirement verrouillage des soldes et transaction atomique des écritures
   liées.
 - [x] Vérification provisoire HTTP 200/403 et conservation des soldes.
-- [ ] Porter ouverture/fermeture de caisse, demandes de session et annulations.
-- [ ] Reprendre et fermer C8 après C7, avec rollback/concurrence des sessions et
+- [x] Porter ouverture/fermeture de caisse, demandes de session et annulations.
+- [x] Reprendre et fermer C8 après C7, avec rollback/concurrence des sessions et
   compensations.
+- [x] Porter dans C8 les autres routes caisse internes : correction, versement,
+  dépense, versement bancaire/annulation, désallocation, modification
+  montant/client/note, changement de caissier, dette employé, vérification de
+  session, type de dépense et accès.
+- [x] Conserver les payloads source sans corriger le schéma PocketBase : champs
+  inconnus inchangés et valeur `DEBT` non normalisée.
+- [x] Laisser explicitement en C9 les routes caisse transverses
+  `/return`, `/versement_uv`, `/add_payment_to_sale` et les deux rapports,
+  car elles appartiennent aux familles retour/paiement/vente/rapports.
+
+## C9 — Vente, recharge, achat, paiement, retour et rapports
+
+Portage et gate locale terminés le 2026-09-23 pour les 29 routes et les preuves
+listées dans `docs/c9-runtime-report.json`. D-0009 a été corrigé après clarification utilisateur : les sauvegardes
+partielles des flux vente/achat sont maintenant reproduites et testées. Cette
+clôture ne vaut pas une preuve de parité absolue ni autorisation de cutover.
+
+- [x] Retrouver le point d'arrêt et inventorier les 29 routes attendues.
+- [x] Valider vente/recharge et annulations, les cinq routes achat et la
+  création/annulation retour avec réponses et effets PostgreSQL.
+- [x] Porter les quatre routes retour : update, updatePDV, info, return_stats.
+- [x] Porter les neuf routes restantes vente/recharge/statistiques/rapports.
+- [x] Porter les cinq routes caisse transverses réservées depuis C8.
+- [x] Vérifier PAANI/supplément agent, NAFAMA, snapshots, antidatage,
+  création d'identités prévue par la source et statuts legacy.
+- [x] Exécuter les contrats HTTP (69 tests locaux au total), la gate C9 avec
+  erreurs partielles source, rollback des vraies transactions,
+  idempotence/concurrence, permissions et CRUD natif applicable.
+- [x] Vérifier le nettoyage des fixtures, l'absence de régression C8 et le
+  maintien des 7 migrations, 114 définitions et 42 vues.
+- [x] Documenter les limites et fermer le périmètre C9 testé ; prochaine
+  famille d'implémentation : C10.
+- [x] Corriger D-0009 : conserver l’ordre et les effets partiels des sauvegardes
+  legacy ; régression vente tardive, wallet manquant et réception sans article.
+- [ ] Compléter avant cutover les preuves PocketBase/PPBase comparées, SDK
+  files/realtime et règles natives non testées.
+
+## C10 — Compatibilité legacy
+
+- [x] Sous-lot SQL : lire et comparer les quatre handlers source sur PocketBase
+  0.22.27 jetable, conserver notamment le défaut SQL2 (`200 null`).
+- [x] Porter `/sql`, `/api/sql2`, `/master/article/executeSql` et `deleteSql`.
+- [x] Vérifier projection, types, mot de passe, validation, mutation de vue,
+  suppression de collection et restauration (`scripts/c10_legacy_sql_runtime.py`).
+- [ ] Compléter la parité des dialectes SQL/erreurs/types non couverts.
+- [x] Porter et vérifier les cinq routes `/api2/stockage` (C10.2), y compris
+  stock négatif, sauvegardes partielles et réponses aux erreurs legacy.
+- [ ] Porter et vérifier les routes legacy `/api2/*` encore absentes.
+- [x] Porter et vérifier les hooks natifs de création/mise à jour/suppression
+  dans le périmètre de la preuve C10.3 ; les cas non exercés restent ouverts.
+- [x] Porter et vérifier `/master/employee/payDebt` avec la dette native C10.3.
+- [ ] Porter les routes master restantes (PDV, pilotage, rupture).
+- [ ] Exécuter la gate C10 globale avant clôture.
+- [x] Sous-lot hooks natifs : auteur/statut, caisse CLOSE, dette employé,
+  protection SIM et neuf gardes suppression (`scripts/c10_native_hooks_runtime.py`).
 
 ## Règle de suivi
 

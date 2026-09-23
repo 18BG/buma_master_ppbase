@@ -1,8 +1,9 @@
 # Structure du dépôt
 
 Ce dépôt était vide au départ. Il contient maintenant le socle technique et les
-preuves nécessaires pour réécrire progressivement `buma_master_hooks`. Il ne
-contient pas encore les routes métier ni les données de production.
+preuves nécessaires pour réécrire progressivement `buma_master_hooks`. Les
+domaines C3 à C9 sont présents dans le périmètre enregistré dans le ledger ;
+aucune donnée de production n'est importée.
 
 ## Fichiers racine
 
@@ -38,6 +39,10 @@ contient pas encore les routes métier ni les données de production.
   transactionnel et des verrous PostgreSQL.
 - `app/hooks/poc.py` : POC technique, route de test, hook CRUD et endpoints de
   transaction/rollback. Ce n’est pas une route métier BUMA.
+- `app/commerce/service.py`, `returns.py`, `reports.py` et
+  `app/hooks/commerce.py` : les 29 routes C9 commerce/rapports et les cinq
+  routes caisse transverses ; `docs/contracts/commerce.md` précise leurs
+  contrats et D-0009 leurs limites transactionnelles.
 - `app/__init__.py`, `app/core/__init__.py`, `app/hooks/__init__.py` : fichiers
   Python qui marquent les dossiers comme modules.
 
@@ -80,6 +85,9 @@ BUMA.
   `users.username`/`agent_users.username`.
 - `scripts/c7_stockage_runtime.py` : preuve HTTP PostgreSQL du checkpoint C7,
   avec rollback, idempotence, concurrence, permissions et nettoyage.
+- `scripts/c9_commerce_runtime.py` : preuve HTTP PostgreSQL C9 avec contrôles
+  persistés, défaut de stockage injecté, concurrence, CRUD natif et nettoyage
+  systématique ; résultat dans `docs/c9-runtime-report.json`.
 - `scripts/__init__.py`, `scripts/.gitkeep` : support du package et conservation
   initiale du dossier.
 
@@ -123,3 +131,14 @@ BUMA.
 
 Les dossiers `__pycache__`, `.pytest_cache`, `.ruff_cache` et `pb_data` sont des
 artefacts locaux ignorés ; ils ne constituent pas du code métier à reprendre.
+
+## Ajouts C10
+
+- `app/commerce/sequential.py` : ordre des sauvegardes non transactionnelles C9,
+  correction D-0009.
+- `app/hooks/legacy_sql.py`, `legacy_stockage.py`, `legacy_records.py` : routes
+  SQL, cinq routes stock legacy et hooks CRUD natifs, plus payDebt.
+- `app/legacy/stockage.py` : effets séquentiels du stockage `/api2`.
+- `scripts/c10_legacy_sql_runtime.py`, `c10_stockage_runtime.py`,
+  `c10_native_hooks_runtime.py` : preuves isolées avec nettoyage et rapports
+  `docs/c10-*-runtime-report.json`.

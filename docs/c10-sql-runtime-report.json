@@ -1,0 +1,15 @@
+{
+  "timestamp_utc": "2026-09-23T21:11:55.329237+00:00",
+  "status": "passed",
+  "scope": [
+    "/sql",
+    "/api/sql2",
+    "/master/article/executeSql",
+    "/master/article/deleteSql"
+  ],
+  "reference": "PocketBase 0.22.27; extracted frozen handlers in isolated reference",
+  "cleanup": true,
+  "limitations": [
+    "General SQLite-to-PostgreSQL SQL dialect/error parity remains open"
+  ]
+}

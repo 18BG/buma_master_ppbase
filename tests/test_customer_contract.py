@@ -16,6 +16,10 @@ def test_customer_route_and_create_hook_are_registered() -> None:
         "app.hooks.pdv",
         "app.hooks.finance",
         "app.hooks.stockage",
+        "app.hooks.commerce",
+        "app.hooks.legacy_sql",
+        "app.hooks.legacy_stockage",
+        "app.hooks.legacy_records",
         "app.hooks.poc",
     )
 

@@ -1,6 +1,6 @@
 {
   "source": "buma_master_hooks@530018c",
-  "status": "c7-article-stockage-reviewed",
+  "status": "c10-sql-stockage-native-hooks-validated-remaining-open",
   "routes": [
     {
       "method": "GET",
@@ -11,7 +11,10 @@
       "request": "Authorization header optional",
       "response": "200 {message:true} when authRecord; 400 {message:false} otherwise",
       "errors": "none beyond optional-auth token rejection",
-      "status": [200, 400]
+      "status": [
+        200,
+        400
+      ]
     },
     {
       "method": "GET",
@@ -22,7 +25,10 @@
       "request": "Authorization header optional",
       "response": "200 text true when authRecord, otherwise 200 text false",
       "errors": "500 Internal Server Error only if auth lookup throws",
-      "status": [200, 500]
+      "status": [
+        200,
+        500
+      ]
     },
     {
       "method": "POST",
@@ -33,7 +39,10 @@
       "request": "{identity, password}; identity is username",
       "response": "200 {token, record}; 400 validation_invalid_credentials for bad credentials",
       "errors": "400 missing fields or invalid credentials",
-      "status": [200, 400]
+      "status": [
+        200,
+        400
+      ]
     },
     {
       "method": "POST",
@@ -44,7 +53,10 @@
       "request": "{identity, password}; identity accepts email or username",
       "response": "200 {token, record}; 400 validation_invalid_credentials for bad credentials",
       "errors": "400 missing fields or invalid credentials",
-      "status": [200, 400]
+      "status": [
+        200,
+        400
+      ]
     },
     {
       "method": "POST",
@@ -55,7 +67,10 @@
       "request": "Authorization header with record token",
       "response": "200 refreshed {token, record}; 401 without/invalid token",
       "errors": "401 The request requires valid auth token to be set",
-      "status": [200, 401]
+      "status": [
+        200,
+        401
+      ]
     },
     {
       "method": "POST",
@@ -66,7 +81,12 @@
       "request": "{articles:[{designation,sell_price,buy_price,categorie,barcode,kind,trackStock}]}",
       "response": "200 {message:Operation effectuee}; article and zero main-stock row persist",
       "errors": "401/403 permission or 400 validation/transaction failure",
-      "status": [200, 400, 401, 403]
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
     },
     {
       "method": "POST",
@@ -77,7 +97,12 @@
       "request": "{articleStockId,quantity,isEntry,notes?}",
       "response": "200 {message,transaction,type}; quantity and buma_transaction persist",
       "errors": "401/403 permission or 400 invalid/insufficient stock",
-      "status": [200, 400, 401, 403]
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
     },
     {
       "method": "POST",
@@ -88,7 +113,12 @@
       "request": "{movements:[{articleStockId,quantity,isEntry,notes?}]}",
       "response": "200 {message,transactions}; all rows commit atomically",
       "errors": "401/403 permission or 400 validation/insufficient stock with rollback",
-      "status": [200, 400, 401, 403]
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
     },
     {
       "method": "POST",
@@ -96,10 +126,15 @@
       "source_file": "src/entries/master.stockage.ts",
       "source_line": 31,
       "auth": "record auth; stockage.transfer or admin",
-      "request": "{from,destination,deliveryMan,note,articles:[{stockId,articleId,quantity}]}" ,
+      "request": "{from,destination,deliveryMan,note,articles:[{stockId,articleId,quantity}]}",
       "response": "200 transfer record with transfer-in/out and quantity updates",
       "errors": "401/403 permission or 400 invalid/insufficient source stock",
-      "status": [200, 400, 401, 403]
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
     },
     {
       "method": "POST",
@@ -110,10 +145,633 @@
       "request": "{fromId,toId,quantity,system_id?,mobile_message_id?,transaction_date?}",
       "response": "200 {id,message}; conversion and two stock transactions persist",
       "errors": "401/403 permission or 400 invalid/insufficient stock; retry is idempotent",
-      "status": [200, 400, 401, 403]
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/new",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1007,
+      "auth": "auth; sale.create",
+      "request": "{customer,items:[{article,article_stock,stockage,quantity,sell_price}],payed,debt,caisse?,method?,created?,note?}",
+      "response": "200 {message:Operation effectuee}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/recharge",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1014,
+      "auth": "auth; sale.create === true",
+      "request": "{amount,sim,articleStock,transaction_date?,system_id?,mobile_message_id?,sent?,notes?}",
+      "response": "200 {id:transaction_id}; retries return the same id",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/cancel_recharge",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1021,
+      "auth": "auth; sale.remove === true",
+      "request": "{sale_id:sale_record_id}",
+      "response": "200 {message:Enregistrement reussi !}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/cancel",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1028,
+      "auth": "auth; sale.remove",
+      "request": "{saleId}",
+      "response": "200 {message:Enregistrement reussi !}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/recharge_stats",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1035,
+      "auth": "auth; sale.read",
+      "request": "{startDate?,endDate?,phoneNumber?,author?,network?}",
+      "response": "200 {stats:{total_count,total_amount}}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/sold_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1043,
+      "auth": "public; no source middleware",
+      "request": "{startDate,endDate,filter?,page?,perPage?}",
+      "response": "200 {page,perPage,totalPages,totalItems,items:[{id,name,quantity,price,saleCount,revenue,profit,stockage,articleStock}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/sold_products_info",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1049,
+      "auth": "public; no source middleware",
+      "request": "{startDate,endDate,filter?}",
+      "response": "200 {totalQuantity,totalRevenue,totalProfit}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/product_sales_by_customer",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1055,
+      "auth": "public; no source middleware",
+      "request": "{articleStockId,startDate,endDate,page?,perPage?}",
+      "response": "200 paginated {items:[{customer,customerName,totalQuantity,totalRevenue,totalProfit,salesCount}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/check_caisse_transactions",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1061,
+      "auth": "public; no source middleware",
+      "request": "{saleId}",
+      "response": "200 {hasCaisseTransactions}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_summary_by_period",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1067,
+      "auth": "public; no source middleware",
+      "request": "{startDate,endDate,filter?,page?,perPage?}",
+      "response": "200 paginated {items:[{customerId,customerName,totalRevenue,totalVersements,totalMissing}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_summary_info_by_period",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1073,
+      "auth": "public; no source middleware",
+      "request": "{startDate,endDate,filter?}",
+      "response": "200 {totalRevenue,totalVersements,totalMissing,customersCount}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customer_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1079,
+      "auth": "public; no source middleware",
+      "request": "{customerId,startDate,endDate,filter?,page?,perPage?}",
+      "response": "200 paginated {items:[{articleId,articleName,totalQuantity,totalRevenue}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/sale/customers_products_report",
+      "source_file": "src/entries/master.sale.ts",
+      "source_line": 1085,
+      "auth": "public; no source middleware",
+      "request": "{customers?:string[],startDate,endDate}",
+      "response": "200 {items:[{customerId,customerName,totalRevenue,totalVersements,totalMissing,products:[{articleId,articleName,totalQuantity,totalRevenue,totalProfit}]}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/new",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 150,
+      "auth": "auth; purchase.create; wallet.transaction for payed>0",
+      "request": "{supplier,items:[{article,stockage,article_stock,quantity,buy_price}],payed,wallet?,received?,note?}",
+      "response": "200 {id,message:Achat créé avec succès}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/cancel",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 157,
+      "auth": "auth; purchase.remove === true",
+      "request": "{buyId}",
+      "response": "200 {message:ok}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/receive",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 164,
+      "auth": "auth; purchase.update",
+      "request": "{buyId}",
+      "response": "200 {message:Achat marqué comme reçu avec succès}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/add-payment",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 178,
+      "auth": "auth; wallet.transaction",
+      "request": "{purchaseId,walletId,amount,note?}",
+      "response": "200 {message:Paiement ajouté avec succès,transactionId}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/purchase/cancel-wallet-transaction",
+      "source_file": "src/entries/master.purchase.ts",
+      "source_line": 171,
+      "auth": "auth; purchase.remove === true",
+      "request": "{id:wallet_transaction_id}",
+      "response": "200 {message:Transaction de portefeuille annulée avec succès}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/new",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 295,
+      "auth": "auth; retour.create",
+      "request": "{articleStock,sim_number,amount,transaction_date?,system_id?,mobile_message_id?,transaction_message?,note?,receipt?}",
+      "response": "200 {id:transaction_id}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/update",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 302,
+      "auth": "auth; retour.update",
+      "request": "{returnId,articleStock,amount,customer,pdv,pdv_number?,caisse?,payed?}",
+      "response": "200 {message:Retour mis à jour}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/updatePDV",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 309,
+      "auth": "auth; reject only retour.update === false",
+      "request": "{returnId,pdv,pdv_number}",
+      "response": "200 empty body",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/master/retour/cancel/:id",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 316,
+      "auth": "auth; retour.remove; admin required for paid return",
+      "request": "return record id in path",
+      "response": "200 {message:Retour annulé}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/master/retour/info/:id",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 323,
+      "auth": "auth; no domain read guard",
+      "request": "return record id in path",
+      "response": "200 {pdv,customer,articleStock,caisse,returnRecord}; native record serialization",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/retour/return_stats",
+      "source_file": "src/entries/master.retour.ts",
+      "source_line": 330,
+      "auth": "auth; retour.read",
+      "request": "{startDate?,endDate?,phoneNumber?,author?,network?}",
+      "response": "200 {stats:{total_count,total_amount,total_payed,total_not_payed,total_payed_count}}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/return",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 739,
+      "auth": "auth; reject only caisse.transaction === false with HTTP 400",
+      "request": "{returnId,caisse,note?}",
+      "response": "200 {message:Ok}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/versement_uv",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 725,
+      "auth": "auth; caisse.transaction or caisse.manage",
+      "request": "{returnId? OR grouped:true,returnIds:[],target_customer; caisse,note?,fromUnknown?,target_customer?}",
+      "response": "200 {success,message,caisse_transaction}; grouped adds return_count,amount",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/caisse/add_payment_to_sale",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 795,
+      "auth": "auth; caisse.transaction or caisse.manage",
+      "request": "{saleId,caisse,amount,method,note?}",
+      "response": "200 {success,message,caisse_transaction,payment,sale:{id,newPayed,newRemaining}}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/reportByExpenseType/:id/:start/:end",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 816,
+      "auth": "auth; caisse.read or caisse.manage",
+      "request": "caisse id and dates in path",
+      "response": "200 {datas:[{amount,count,label}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/master/caisse/reportByCaisseType/:id/:start/:end",
+      "source_file": "src/entries/master.caisse.ts",
+      "source_line": 823,
+      "auth": "public; no source middleware",
+      "request": "caisse id and dates in path",
+      "response": "200 {datas:[{amount,count,label}]}",
+      "errors": "Legacy message envelopes; see commerce.md and D-0009 for technical/atomicity limits",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/sql",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 37,
+      "auth": "public; password literal SuperSakone",
+      "request": "{query,fields,password}",
+      "response": "200 shaped array; 400 missing query/model; 403 Forbidden; 500 SQL error",
+      "errors": "See legacy-sql.md and D-0010",
+      "status": [
+        200,
+        400,
+        403,
+        500
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/sql2",
+      "source_file": "src/entries/index.pb.ts",
+      "source_line": 62,
+      "auth": "public",
+      "request": "{sql?}",
+      "response": "200 null; source async handler does not execute SQL",
+      "errors": "See legacy-sql.md and D-0010",
+      "status": [
+        200
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/executeSql",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 87,
+      "auth": "public",
+      "request": "{query}",
+      "response": "200 collection export after query/options mutation; 400 source error",
+      "errors": "See legacy-sql.md and D-0010",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/article/deleteSql",
+      "source_file": "src/entries/master.article.ts",
+      "source_line": 91,
+      "auth": "public",
+      "request": "{collection}",
+      "response": "200 {message:Operation effectuee}; 400 missing collection",
+      "errors": "See legacy-sql.md and D-0010",
+      "status": [
+        200,
+        400
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/transfer",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 418,
+      "auth": "record auth; source has no domain guard",
+      "request": "{from,destination,deliveryMan,note,articles:[{stockId,articleId,quantity}]}",
+      "response": "200 {message:ok}; sequential writes and partial failures",
+      "errors": "See legacy-stockage.md and D-0011",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api2/stockage/stock_info/:name",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 419,
+      "auth": "record auth; no domain read guard",
+      "request": "path name (source reads stockId bug)",
+      "response": "200 {totalItems,noStockCount,stockCount,value,benefice} using empty ID",
+      "errors": "See legacy-stockage.md and D-0011",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/add_article",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 420,
+      "auth": "record auth; only explicit stockage.update=false rejects 401",
+      "request": "{articles,stockage}",
+      "response": "200 {message:ok}; inserted status false",
+      "errors": "See legacy-stockage.md and D-0011",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/remove_article",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 421,
+      "auth": "record auth; no domain guard",
+      "request": "{articles,stockage}",
+      "response": "200 {message:ok} or empty body after caught exception",
+      "errors": "See legacy-stockage.md and D-0011",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api2/stockage/convert",
+      "source_file": "src/entries/stockage.ts",
+      "source_line": 422,
+      "auth": "record auth; canManage && canConvert",
+      "request": "{fromId,toId,quantity}",
+      "response": "200 {message:okay} even after caught error; 403 explicit permission",
+      "errors": "See legacy-stockage.md and D-0011",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/master/employee/payDebt",
+      "source_file": "src/entries/master.employee.ts",
+      "source_line": 77,
+      "auth": "record auth; employee.update",
+      "request": "{debt,amount}",
+      "response": "200 {message:Debt paid}; partial payment sets status false, PAID only at exact equality",
+      "errors": "400 Employee not found; 403 permission",
+      "status": [
+        200,
+        400,
+        401,
+        403
+      ]
     }
   ],
-  "route_status_values": ["active", "commented", "deprecated", "collision-review"],
-  "required_fields": ["method", "path", "source_file", "source_line", "auth", "request", "response", "errors", "status"],
-  "note": "Use source-inventory.json as the machine-generated route list, then fill auth/request/response/error contracts route by route."
+  "route_status_values": [
+    "active",
+    "commented",
+    "deprecated",
+    "collision-review"
+  ],
+  "required_fields": [
+    "method",
+    "path",
+    "source_file",
+    "source_line",
+    "auth",
+    "request",
+    "response",
+    "errors",
+    "status"
+  ],
+  "note": "D-0009 corrected. C10 SQL, /api2/stockage and native CRUD hooks/payDebt pass scoped gates. Remaining legacy routes and arbitrary SQL dialect coverage stay open."
 }

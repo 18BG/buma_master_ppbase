@@ -76,3 +76,25 @@ La preuve `scripts/c7_stockage_runtime.py` démontre : batch rejeté sans
 écriture partielle, transfert et annulation avec quantités restaurées,
 conversion et retry sans double débit, sortie concurrente avec une seule
 réussite, pont wallet/UV cohérent et nettoyage complet.
+
+## Gate C9 — commerce
+
+La preuve runtime C9 vérifie un seul effet stock/dette pour les retries et
+requêtes concurrentes recharge/retour, et un seul paiement accepté quand deux
+requêtes concurrentes tentent de solder la même vente. Un retour groupé qui
+contient un retour déjà payé ne persiste aucun sous-effet.
+
+La faute de stockage injectée après un premier article vérifie le rollback
+de l'agrégat vente, stock et historique. Cette atomicité est une différence
+explicite vis-à-vis des anciennes fonctions vente/achat sans transaction
+englobante, voir D-0009. Les contrôles ne normalisent pas les effets legacy :
+annuler une vente laisse ses transactions caisse actives ; annuler un retour
+ne diminue pas `due` et ne désactive pas sa transaction initiale.
+
+
+Actualisation D-0009 (2026-09-23) : l'atomicité ajoutée aux fonctions vente/achat
+legacy non transactionnelles a été retirée. Les tests exigent maintenant la
+persistance des sauvegardes antérieures à l'échec, dans l'ordre TypeScript.
+Les mentions précédentes d'un rollback global conservé comme divergence sont
+supplantées par cette correction. Les vraies transactions source restent
+atomiques et leur preuve reste applicable.

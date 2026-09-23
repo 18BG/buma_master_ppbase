@@ -705,6 +705,71 @@ Décision : fermer C7 et reprendre ensuite C8 avec ses sessions ouverture/
 fermeture de caisse et annulations/compensations. C9 reste bloqué jusqu'à la
 fermeture de C8.
 
+## Checkpoint C8 — wallet et caisse — 2026-09-23
+
+Statut : terminé pour le périmètre wallet/caisse autonome. Les routes caisse
+qui dépendent des ventes, retours et rapports sont explicitement réservées à
+C9 et ne sont pas comptées dans cette fermeture.
+
+Source couverte : `src/entries/master.wallet.ts`,
+`master.wallet.functions.ts`, `master.caisse.ts`,
+`master.caisse.functions.ts` et `master.caisse.functions2.ts`, sans modifier le
+dépôt TypeScript gelé.
+
+Fichiers ajoutés ou modifiés :
+
+- `app/finance/service.py` : wallet, sessions caisse, soldes, transferts,
+  annulations, corrections, versements, dépenses, banque, dettes, accès et
+  vérification de session ;
+- `app/hooks/finance.py` : routes C8 et leurs permissions ;
+- `tests/test_finance_contract.py` ;
+- `scripts/c8_finance_runtime.py` ;
+- `docs/contracts/wallet-caisse.md`, cette tasklist et ce ledger.
+
+Contrats C8 couverts :
+
+- wallet : deposit, withdrawal, transfer, cancel_transaction, updateNote ;
+- caisse/session : requestOpen, openCaisse, requestClose, closeCaisse,
+  deposit, withdraw, transfer, cancel ;
+- opérations internes : correction, versement, dépense, versement bancaire et
+  annulation, désallocation, updateAmount, changement de client/note/caissier,
+  archive de type de dépense, employee debt/repayment, verifySession et
+  accessible.
+
+Les mutations utilisent `run_record_storage_transaction`, les lignes de
+soldes/session sont verrouillées avec `FOR UPDATE`, les compteurs de
+transactions avec des verrous advisory et les doublons avec les fenêtres de
+détection de la source. Les réponses et messages principaux ont été réalignés
+sur les enveloppes legacy (`Requete envoyer`, `Transaction reussis`,
+`Transaction effectuée`, `Transaction annulée`, etc.).
+
+Preuves exécutées :
+
+- `scripts/c8_finance_runtime.py` :
+  `auth=OK wallet_crud=OK wallet_cancel=OK caisse_session=OK
+  caisse_crud=OK caisse_transfer=OK caisse_cancel=OK correction=OK
+  versement=OK expense=OK bank=OK employee_debt=OK verify=OK accessible=OK
+  permission=OK concurrency=OK cleanup=OK` ;
+- login/401, permissions, rollback transactionnel, sessions, annulations,
+  dettes, changement client, vérification de session et nettoyage PostgreSQL ;
+- suite locale : `36 passed`, Ruff/format et `git diff --check` OK ;
+- migrations : 7 appliquées, 0 en attente, 0 orpheline ; schéma 114/114 et
+  vues 42/42 inchangés ;
+- aucune fixture C8 persistée après le scénario.
+
+Routes explicitement reportées à C9 : `/master/caisse/return`,
+`/master/caisse/versement_uv`, `/master/caisse/add_payment_to_sale`,
+`reportByExpenseType` et `reportByCaisseType`, car elles dépendent des familles
+retour, paiement, vente et rapports.
+
+Comportement source/schéma C8 documenté en D-0008 : aucune correction du
+schéma PocketBase ou du TypeScript n'est appliquée. PPBase conserve les valeurs
+source et le comportement des clés non déclarées ; `DEBT` n'est pas normalisé.
+
+Décision : fermer C8 pour son périmètre autonome et passer à C9, en conservant
+la règle de parité stricte. C9 devra intégrer les routes transverses reportées
+et les flux vente/recharge/achat/paiement/retour/rapports avant toute clôture.
+
 ## Reprise par un autre agent
 
 Lire dans cet ordre :
@@ -719,3 +784,384 @@ Lire dans cet ordre :
 L'agent doit reprendre au premier checkpoint dont le statut n'est pas
 « terminé », sans refaire les checkpoints validés et sans modifier la source
 TypeScript.
+
+## Note de reprise — C9 interrompu le 2026-09-23
+
+La session précédente a commencé C9 après la fermeture de C8 et a ajouté le
+socle `app/commerce/service.py`, `app/hooks/commerce.py`, leur enregistrement,
+`tests/test_commerce_contract.py` et le brouillon
+`scripts/c9_commerce_runtime.py`. Le dernier point atteint est la création de
+ce script de preuve ; le contexte a ensuite dépassé la limite avant toute
+exécution de `scripts/c9_commerce_runtime.py`.
+
+État constaté lors de la reprise : les 11 routes cœur vente/recharge/achat/
+retour sont enregistrées ; les 18 routes C9 restantes (paiements transverses,
+rapports, informations/statistiques et mises à jour retour) ne le sont pas.
+`pytest -p no:cacheprovider -q` passe (`38 passed`) et `git diff --check` passe,
+mais le script de runtime C9 n'a aucune preuve d'exécution. Le contrôle Ruff
+actuel reste ouvert : le nouveau script C9 et quatre tests d'enregistrement
+existants nécessitent encore le formatage, et le script C9 contient aussi des
+diagnostics de longueur de ligne.
+
+Référence retrouvée : tâche « salut »,
+`01a0c3c7-6db7-7233-b918-b5b5c4722e19`, tour interrompu
+`01a0ce86-255e-7ec3-bb3e-62aceb7ca46b`. Dernier ajout réussi à 14:14:36 UTC,
+erreur `context_length_exceeded` à 14:14:43 UTC. Le dernier résultat historique
+à 14:11:33 UTC était `38 passed` et Ruff OK, avant ajout du script runtime.
+
+Les dix fichiers du tour interrompu sont `app/commerce/__init__.py`,
+`app/commerce/service.py`, `app/hooks/commerce.py`, `app/hooks/register.py`,
+`scripts/c9_commerce_runtime.py`, `tests/test_commerce_contract.py`,
+`tests/test_auth_contract.py`, `tests/test_customer_contract.py`,
+`tests/test_foundation.py` et `tests/test_poc_contract.py`. Les autres
+modifications non commitées préexistaient à ce tour, notamment C8.
+
+Cette session de reconstitution ne modifie que ce ledger et la tasklist.
+Commandes/lectures : procédure de handoff, `git status --short --branch`,
+`git diff --stat`, lecture ciblée du journal de l'ancienne session,
+comparaison AST des routes avec `source-inventory.json`,
+`git -C ../buma_master_hooks rev-parse HEAD` et statut source. La source reste
+propre sur le commit du manifeste `530018cd20c2acbe88f38b3639e500b5271e2eb2`.
+
+Vérifications locales actuelles :
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  `38 passed in 0.56s` ;
+- `.venv/bin/ruff check --no-cache --output-format json app tests scripts` :
+  20 diagnostics dans `scripts/c9_commerce_runtime.py` (1 I001, 19 E501) ;
+- `.venv/bin/ruff format --no-cache --check app tests scripts` : 5 fichiers
+  à formater (script C9 et les quatre tests d'enregistrement ci-dessus),
+  60 déjà formatés ; `git diff --check` : OK.
+
+Contrats comparés dans cette reconstitution : méthodes et chemins de
+`master.sale.ts`, `master.purchase.ts`, `master.retour.ts` et des cinq routes
+transverses de `master.caisse.ts` via l'inventaire gelé. Les payloads,
+enveloppes, messages/codes, permissions, effets hooks, persistance, rollback,
+concurrence et opérations SDK/CRUD C9 restent à vérifier contre la source et
+en runtime. Les deux tests C9 existants inspectent surtout le texte source ;
+le brouillon runtime vérifie principalement des succès HTTP et ne couvre pas
+encore la gate complète. Aucun serveur ni fixture C9 lancé dans cette session.
+
+Décision : arrêter ici la reconstitution demandée ; C9 reste ouvert.
+Prochaine action d'implémentation : corriger les diagnostics statiques,
+compléter les assertions et le nettoyage garanti du script runtime, vérifier
+le socle en PostgreSQL/HTTP isolé, puis porter les 18 routes manquantes et
+exécuter la gate C9 complète avant clôture. C10 et l'import restent ouverts.
+
+## Checkpoint C9 — commerce et rapports — 2026-09-23
+
+Statut : portage et gate locale terminés pour les 29 routes listées dans
+`docs/c9-runtime-report.json`. Clôture limitée aux contrats et preuves ci-dessous,
+avec la différence D-0009 explicitement documentée. La parité absolue sur les
+échecs des anciens flux non transactionnels, et le cutover, restent ouverts.
+
+### Périmètre et provenance
+
+Reprise du code interrompu après C8 : 11 routes existaient mais n'avaient
+aucune preuve runtime. Les 18 routes restantes sont maintenant portées :
+4 retour, 9 vente/recharge/statistiques/rapports et 5 caisse transverses.
+
+Source lue et comparée : `master.sale.ts`, `master.sale.functions.ts`,
+`master.sale.types.ts`, `master.purchase.ts`, `master.purchase.functions.ts`,
+`master.retour.ts`, `master.retour.functions.ts`, `master.retour.type.ts`,
+`master.caisse.ts`, `master.caisse.functions.ts`, `master.caisse.functions2.ts`,
+`master.utility.ts`, `master.constants.ts`, inventaire et baseline corrigée.
+Le dépôt TypeScript reste propre sur la branche `fix/uv-paani-sup`, commit
+`530018cd20c2acbe88f38b3639e500b5271e2eb2` identique au manifeste. Aucun
+inventaire source ni migration officielle n'a été régénéré.
+
+Fichiers repris/ajoutés/modifiés pendant cette session :
+
+- `app/commerce/service.py`, nouveaux `app/commerce/returns.py` et `reports.py` ;
+- `app/hooks/commerce.py` ; l'enregistrement `app/hooks/register.py` et
+  `app/commerce/__init__.py` de la session précédente sont conservés ;
+- `tests/test_commerce_contract.py` ; formatage des listes de modules dans
+  `tests/test_auth_contract.py`, `test_customer_contract.py`,
+  `test_foundation.py`, `test_poc_contract.py` ;
+- `scripts/c9_commerce_runtime.py`, `docs/c9-runtime-report.json` ;
+- `docs/contracts/commerce.md`, `README.md`, `routes.json`,
+  `transaction-invariants.md` ;
+- `docs/decisions-and-divergences.md`, `docs/test-matrix.md`,
+  `docs/project-structure.md`, `docs/implementation-plan.md`,
+  `docs/migration-ppbase-tasklist.md`, ce ledger et `AGENTS.md`.
+
+Les changements C8 déjà présents (`app/finance/*`, `app/hooks/finance.py`,
+`scripts/c8_finance_runtime.py`, etc.) n'ont pas été annulés ou réécrits.
+Aucun commit, staging, reset ou import de production.
+
+### Contrats comparés et corrigés
+
+- 29 méthodes/chemins comparés à l'inventaire gelé ; noms de paramètres legacy
+  préservés : `articleStock`/`article_stock`, `sale_id`/`saleId`,
+  `buyId`/`purchaseId`, `walletId`, `returnId` et IDs de transaction/vente/retour
+  conservés distincts.
+- Vente : `200 {message:"Operation effectuee"}` ; `kind=AUTRES` conservé,
+  état par défaut, dette/paiement initial et timestamps autorisés. Recharge :
+  `{id}` de transaction, supplément agent et bonus PAANI distincts, annulation
+  sans état `CANCELED` ajouté et préfixe d'erreur exact.
+- Achat : cinq réponses/messages, réception NAFAMA, snapshots wallet,
+  changement fournisseur, refus d'annuler un achat payé et compensations.
+- Retour : `{id}` transaction, lecture avec sérialisation native et relations,
+  `updatePDV` 200 vide, stock/due/statuts legacy, création « Client Inconnu »
+  uniquement prévue par le source, interdiction non-admin d'annuler un retour
+  payé et 404 métier explicites.
+- Caisse transverse : retour `{message:"Ok"}`, versement UV simple/groupé,
+  compensation caisse et crédit cible, snapshots/notes/numéros, paiement vente
+  avec enveloppe `{success,message,caisse_transaction,payment,sale}`.
+- Permissions/enveloppes : 401 anonyme, refus 403/400 selon la route, flag absent
+  distinct de `=== false`, permission wallet supplémentaire pour achat payé,
+  rapports publics et `retour/info` sans garde de lecture ajouté.
+- Rapports : JSON camelCase, GROUP BY, filtres, pagination, bornes temporelles,
+  revenus/bonus/coûts et distinction du calcul `totalMissing` source conservés.
+- Effets hooks/CRUD : les routes custom portent leurs propres agrégats ; CRUD
+  natif retour ne déclenche pas implicitement les mutations de stock/dette.
+  Login, GET, liste filtrée, expand, PATCH, POST et DELETE natifs exercés.
+
+### Commandes et preuves exécutées
+
+- `docker compose ps` : PostgreSQL isolé `healthy` sur 55434 (accès socket
+  initial refusé par le sandbox puis obtenu via exécution autorisée).
+- `make start` : PPBase 0.3.1 sur `127.0.0.1:8090`, jobs internes désactivés.
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **69 passed** ; Ruff check : OK ; format check : **67 files already formatted** ;
+  `git diff --check` : OK.
+- `.venv/bin/python scripts/c9_commerce_runtime.py` :
+  **C9 runtime PASSED; 29 distinct called paths**, **cleanup=OK**.
+  Contrôles : effets financiers/stock, antidatage, bonus PAANI/supplément agent,
+  annulations, idempotence/retry et concurrence recharge/retour, paiement
+  concurrent sans dépassement, réception NAFAMA, identités nouvelles prévues
+  par la source, retour payé/groupé, rollback de groupe, rapports non vides,
+  permissions et CRUD natif/filtre/expand.
+- Injection d'une erreur de stockage après création d'une vente et d'un premier
+  mouvement : aucun effet résiduel vente/client/stock ; trigger et fonction
+  de test supprimés en `finally`. Cette atomicité est l'écart D-0009, pas une
+  prétention que toutes les fonctions TypeScript avaient cette atomicité.
+- `.venv/bin/python scripts/c8_finance_runtime.py` rejoué avec C9 chargé :
+  tous les contrôles C8 passent (auth, wallet, sessions, caisse, annulations,
+  correction, versement, dépenses, banque, dettes, vérification, accès,
+  permissions, concurrence, nettoyage).
+- `make migrate-status` : **7 applied, 0 pending, 0 orphaned**.
+- `make verify-all` : **114/114 définitions**, aucun mismatch/relation manquante,
+  **42/42 vues**, aucun échec. Rapports de schéma/vues inchangés.
+- Serveur de cette session arrêté proprement après la gate ; fixtures C9/C8,
+  config synthétique éventuellement créée et trigger de faute nettoyés.
+
+Les premiers essais ont identifié puis corrigé : identifiants camelCase non
+quotés dans l'ancien brouillon de fixtures ; bonus recharge absent dans le
+processus serveur encore chargé ; deux guillemets SQL manquants dans les
+nouveaux rapports ; casse physique PostgreSQL `authorname`. Aucun de ces essais
+échoués n'est compté comme preuve passante. La preuve finale ci-dessus porte
+sur le code rechargé et les assertions complètes.
+
+### Écarts, limites et décision
+
+D-0009 décrit l'atomicité ajoutée aux anciens agrégats vente/achat non
+transactionnels, son impact client et sa régression. Les écritures historiques
+`AUTRES`/`DEBT` et les champs inconnus sont conservés sans migration correctrice
+ni changement du dépôt PocketBase. Une lecture comparée du TypeScript et une
+gate PPBase locale ne remplacent pas une comparaison des deux serveurs avec
+fixtures identiques.
+
+Restent non prouvés : parité exhaustive des erreurs techniques moteur,
+toutes les formes de payload malformé, toutes les combinaisons de règles/SDK,
+files/realtime et comportement de production. C10 `/api2/*`/legacy et
+backup/import restent ouverts. Décision : clôturer le périmètre C9 porté et
+testé avec ces limites explicites ; prochaine famille de code C10. Avant un
+cutover exigeant une stricte parité des erreurs tardives, traiter D-0009.
+
+## Correction C9 — D-0009 refusé, sauvegardes legacy rétablies — 2026-09-23
+
+L'utilisateur précise que la réécriture doit conserver les problèmes éventuels
+de l'ancien backend. La différence D-0009 n'est donc pas une option acceptée.
+Les sept fonctions vente/achat concernées sont reprises dans
+`app/commerce/sequential.py`, appelées depuis `app/commerce/service.py` :
+vente/création et annulation, achat/création, réception, annulation, ajout de
+paiement et annulation de paiement wallet. Chaque sauvegarde persiste à l'endroit
+prévu par `master.sale.functions.ts` / `master.purchase.functions.ts`, sans
+transaction ou verrou ajouté autour de l'ensemble.
+
+La source a été relue pour les chemins d'échec : fournisseur débité avant
+validation wallet, achat marqué reçu avant lecture des articles, transaction
+wallet persistée avant débit, annulation enregistrée avant remboursement et
+mouvements stock sauvegardés avant leur transaction associée. Recharges,
+retours et paiements caisse explicitement transactionnels restent atomiques.
+
+Preuve : `scripts/c9_commerce_runtime.py` modifié et rejoué avec succès sur
+PPBase/PostgreSQL local : **29 routes, cleanup=OK**. L'échec de la seconde
+transaction d'article laisse désormais la vente de 150, la dette de 150,
+les deux débits stock (2+13) et seulement la première transaction, comme
+l'ordre source. L'achat sans wallet conserve le débit fournisseur de 6 avant
+son HTTP 400. La réception sans article conserve `received=true` ; le retry
+répond qu'il est déjà reçu. Ces effets étaient auparavant annulés à tort.
+
+Commandes : lecture des documents de handoff/source, `git status`, source HEAD
+`530018c` propre, `.venv/bin/ruff check app tests scripts`, format,
+`PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` (**69 passed**),
+`make start`, `.venv/bin/python scripts/c9_commerce_runtime.py` (passant).
+Fichiers métier changés : `service.py`, nouveau `sequential.py`, script C9.
+Rapport C9 actualisé ; documentation D-0009/tasklist/contrats actualisée.
+
+Décision : D-0009 corrigé, aucune acceptation d'un durcissement du legacy.
+Poursuivre C10. Les preuves précédemment listées restent limitées à leurs
+scénarios ; l'ancienne assertion de rollback global C9 est remplacée par la
+preuve des sauvegardes partielles. Source TypeScript, baseline et production
+inchangées.
+
+## Checkpoint C10.1 — SQL legacy — 2026-09-23
+
+Statut : terminé pour le sous-lot SQL uniquement ; C10 global reste ouvert.
+
+Source couverte : `src/entries/index.pb.ts` (`/sql`, `/api/sql2`) et
+`src/entries/master.article.ts` (`/master/article/executeSql`,
+`/master/article/deleteSql`). Le commit source reste
+`530018cd20c2acbe88f38b3639e500b5271e2eb2`, dépôt TypeScript propre.
+
+Fichiers : `app/hooks/legacy_sql.py`, `app/hooks/register.py`,
+`tests/test_legacy_sql_contract.py`, `scripts/c10_legacy_sql_runtime.py`,
+`docs/contracts/legacy-sql.md`, `docs/c10-sql-runtime-report.json`,
+`docs/contracts/routes.json`, `docs/decisions-and-divergences.md`, cette
+migration/tasklist et les contrats C10.
+
+Contrats comparés : méthodes/chemins publics, mot de passe `SuperSakone`,
+projection/type coercion DynamicModel, erreurs de requête, suppression et
+mutation de collection. PocketBase 0.22.27 jetable a confirmé : `/api/sql2`
+répond HTTP 200 JSON `null` sans exécuter SQL ; `/sql` façonne les résultats
+selon `fields`; les routes article mutent/suppriment réellement la collection.
+Ce défaut est conservé en PPBase ; aucune authentification ou validation SQL
+supplémentaire n'a été ajoutée.
+
+Preuves : `.venv/bin/python scripts/c10_legacy_sql_runtime.py` passe
+(`raw_projection=OK password=OK broken_sql2_null=OK view_update=OK
+collection_delete=OK restore=OK`). La vue `buma_sql_table` est restaurée et
+la collection de test aléatoire supprimée. `pytest` global passe ensuite à
+`71 passed`, Ruff/format et `git diff --check` OK. Migrations/schema/vues
+restent `7/0/0`, `114/114`, `42/42`.
+
+Limites : SQL SQLite arbitraire, toutes les erreurs moteur, inférences de
+colonnes et routes `/api2/*`/hooks legacy restent ouverts. Décision : poursuivre
+C10 avec les routes legacy `/api2` et les hooks de middleware, sans corriger les
+problèmes du backend source.
+
+## Checkpoint C10.2 — `/api2/stockage` legacy — 2026-09-23
+
+Statut : terminé pour les cinq routes stockage legacy ; C10 global reste ouvert.
+
+Source couverte : `src/entries/stockage.ts`, `getStockageRole`,
+`transferStockage`, `getStockInfo`, `addArticle`, `removeArticle` et
+`convertStock`. Portage : `app/legacy/stockage.py`,
+`app/hooks/legacy_stockage.py`, registration/tests et
+`scripts/c10_stockage_runtime.py`.
+
+Contrats et défauts préservés : transfer séquentiel et stock négatif, absence de
+garde transfer/remove, `stock_info` qui lit `stockId` alors que le chemin expose
+`:name`, add_article avec status false omis par le Record interne, remove_article
+silencieux après exception et convert qui renvoie 200 `okay` après erreur.
+Permission explicite `update=false` produit 401 pour add ; conversion exige
+`canManage && canConvert` et NAFAMA applique `ceil(5%)`.
+
+Preuve : `make start`, `.venv/bin/python scripts/c10_stockage_runtime.py` :
+**5 routes, effets persistés, échecs partiels, permissions et cleanup OK**.
+Tests globaux : **78 passed**, Ruff/format/diff OK. Les fixtures/collections de
+ce scénario sont supprimées. Rapport : `docs/c10-stockage-runtime-report.json`.
+
+Décision : poursuivre C10 avec les routes `/api2/caisse`, customer/PDV,
+sale/purchase/return et les hooks legacy de middleware. Aucune correction du
+source n'est acceptée.
+
+## Checkpoint C10.3 — hooks CRUD natifs legacy — 2026-09-23
+
+Statut : terminé pour les hooks natifs portés ; C10 global reste ouvert.
+
+Source couverte : `index.pb.ts`, `caisse.ts`, `master.employee.ts` et
+`master.middleware.ts`. Fichiers : `app/hooks/legacy_records.py`,
+`tests/test_legacy_records_contract.py`, `scripts/c10_native_hooks_runtime.py`,
+`docs/contracts/legacy-records.md`, D-0012 et cette tasklist/ledger.
+
+Contrats : auteur/statut sur le chemin CRUD pour les collections source,
+`buma_caisse.state=CLOSE`, dette employé (débit avant création, UNPAID),
+paiement dette partiel, protection des champs SIM avec transaction, et neuf
+gardes de suppression (SIM, caisse, article, stockage, client, wallet,
+fournisseur, employé, agent). Les messages et le statut HTTP 400/204 sont
+conservés ; les écritures internes hors API ne reçoivent pas ces hooks.
+
+Preuve : `make start`, `.venv/bin/python scripts/c10_native_hooks_runtime.py` :
+**create defaults, debt, SIM updates, deletion guards and cleanup OK**.
+Le scénario couvre login/CRUD natif, création forcée auteur/statut, caisse,
+dette et retries partiels, SIM protected/unprotected, relations actives/inactives
+et nettoyage. `pytest` global : **89 passed** ; Ruff/format/diff OK.
+
+Décision : conserver les défauts source et poursuivre C10 avec les routes
+`/api2/caisse`, customer/PDV, sale/purchase/return, master pilotage/rupture et
+les hooks restants. Aucun import de production ni modification TypeScript.
+
+
+### Correction C10.3 — validation ID avant hook — 2026-09-23
+
+Une référence PocketBase 0.22.27 a montré qu'un ID CRUD fourni de longueur
+incorrecte est rejeté avant le hook dette (400 `validation_length_invalid`) et
+ne débite pas l'employé. PPBase acceptait initialement cet ID.
+`app/hooks/legacy_records.py` ajoute le garde générique exact pour les IDs
+fournis, avant les hooks métier ; les IDs internes restent générés comme avant.
+La preuve native C10 a été rejouée avec le garde et le rollback de l'INSERT
+dette forcé : passante, nettoyage OK. C9 et C8 rejoués sans régression.
+
+### Gate de fin de session — C9 corrigé, C10.1 à C10.3 — 2026-09-23
+
+Périmètre final : suppression de l'atomicité ajoutée D-0009 sur sept fonctions
+C9, puis quatre routes SQL, cinq routes stockage legacy, les hooks CRUD natifs
+et `/master/employee/payDebt`. C10 global n'est pas clôturé.
+
+Validation finale :
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **104 passed** ; Ruff : OK ; format : **79 files already formatted** ;
+  `git diff --check` : OK.
+- `scripts/c10_legacy_sql_runtime.py`, `c10_stockage_runtime.py` et
+  `c10_native_hooks_runtime.py` : scénarios passants, fixtures/collections
+  jetables nettoyées et vue SQL restaurée.
+- Après correction du hook dette : C10 natif, C9 complet (29 routes) et C8
+  complet rejoués avec succès et nettoyage vérifié.
+- PocketBase **0.22.27** officiel téléchargé dans un dossier temporaire :
+  handlers SQL extraits du commit gelé et transpilation TypeScript en modules
+  isolés. Comparaisons supplémentaires de `DynamicModel` : les NULL typés
+  produisent une erreur 500 de scan, `"false"`/`"0"` booléens deviennent false,
+  les colonnes absentes conservent la valeur du modèle. Régressions unitaires
+  explicites ajoutées. Ce runtime est une référence locale de la famille
+  d'API source, pas une preuve de la version actuellement en production.
+- Hook dette source exécuté dans la référence : échec de longueur d'ID sans
+  débit, échec d'INSERT forcé sans débit résiduel, succès avec débit réel.
+  PPBase utilise `event.engine` pour conserver ce résultat sur erreur native.
+  La règle d'ID est placée avant les hooks métier. Triggers de faute supprimés.
+- `make migrate-status` : **7 appliquées, 0 pending, 0 orphaned**.
+  `make verify-all` : **114/114** et **42/42**, aucun écart de métadonnées/relation.
+- Les serveurs PPBase et PocketBase de cette session sont arrêtés ; le dépôt
+  TypeScript est toujours propre sur `530018cd20c2acbe88f38b3639e500b5271e2eb2`.
+  Aucune donnée de production, migration officielle ou intégration externe
+  métier modifiée. Aucun commit/staging/reset.
+
+Documentation actualisée : AGENTS, plan, tasklist, ledger, matrice de tests,
+structure, contrats commerce/SQL/stockage/hooks, routes et D-0009 à D-0012.
+Les sections historiques qui décrivent un rollback C9 renforcé sont
+supplantées par la correction D-0009, conformément à la demande utilisateur.
+
+Limites encore ouvertes : SQL arbitraire SQLite/PostgreSQL, toutes les erreurs
+moteur/formes de champs, toutes les combinaisons de permissions CRUD, files et
+realtime. Les contrats source actifs des sous-lots restants n'ont pas été
+remplacés par des alias vers les routes master.
+
+Prochaine action exacte : reprendre **C10.4 `/api2/caisse`** à partir de
+`src/entries/caisse.ts` (`getCaisseRole`, open/reject/reject_closing/openAgain,
+report/rangeReport/reportByExpenseType, cancel/cancel2 et withdrawal), avec
+l'ordre des sauvegardes, réponses vides et anomalies source conservés. Puis
+customer/PDV, sale/purchase/return et routes master PDV/pilotage/rupture.
+
+### Complément D-0009 — préparation d'identités retour — 2026-09-23
+
+`app/commerce/returns.py::_sim_customer` ne regroupe plus les sauvegardes
+SIM/PDV/client dans une transaction ajoutée. La source réalise cette préparation
+séquentiellement avant sa transaction stock/retour. Régression PostgreSQL :
+un trigger de test fait échouer l'INSERT du PDV, le client précédent reste
+persisté comme dans l'ordre source, puis toutes les fixtures sont nettoyées.
+`c9_commerce_runtime.py` passe à nouveau pour les 29 routes ; rapport actualisé.
+Les vraies transactions source (stock/retour/recharge/paiement) sont conservées.
+Le serveur local a été arrêté après cette dernière preuve.

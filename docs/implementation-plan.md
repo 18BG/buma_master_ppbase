@@ -7,6 +7,25 @@ un périmètre limité, contient ses tests et reste ouvert jusqu'à validation.
 
 Source gelée : branche `fix/uv-paani-sup`, commit `530018c`.
 
+## Règle de parité PocketBase obligatoire
+
+La cible doit être interchangeable avec l'ancien backend pour les applications
+qui utilisent les SDK PocketBase ou les appels HTTP directs. La validation se
+fait donc sur le comportement observable exact, pas uniquement sur le résultat
+métier ou la présence de données.
+
+Chaque checkpoint doit comparer et tester, selon son périmètre : méthode et
+route legacy, payload et valeurs par défaut, auth/middleware/permissions,
+codes HTTP, content type, enveloppe JSON, messages et noms de champs, ordre et
+effets des hooks, relations persistées, rollback, verrouillage, idempotence,
+retry et opérations CRUD/SDK PocketBase consommées par les clients.
+
+Un HTTP 200, un lint/build passant ou une écriture PostgreSQL ne prouve pas la
+parité. Toute différence doit être enregistrée avant clôture dans
+`docs/decisions-and-divergences.md`, avec impact client et test de régression.
+Il est interdit de renommer, normaliser ou « améliorer » silencieusement un
+contrat legacy.
+
 ## Checkpoints
 
 ### C0 — Provenance et inventaire
@@ -64,9 +83,17 @@ Un checkpoint par famille :
 
 Pour chaque famille : lire le TypeScript, écrire les tests de contrat,
 implémenter service puis route/hook, tester DB/réponse/auth/rollback et mettre à
-jour la matrice.
+jour la matrice. La gate compare aussi les enveloppes/réponses et les effets de
+hooks avec la source, ainsi que les appels SDK PocketBase utilisés par les apps.
+
+État C9 au 2026-09-23 : les 29 routes sont portées et leur gate locale est
+passante (`docs/c9-runtime-report.json`). D-0009 a ensuite été corrigé : les sauvegardes partielles des anciens flux
+non transactionnels sont conservées et testées. Cette preuve locale ne
+constitue pas une autorisation de cutover.
 
 ### C10 — Compatibilité legacy
+
+État au 2026-09-23 : les sous-lots SQL, `/api2/stockage` et hooks CRUD natifs sont portés et validés ; les autres routes `/api2/*`, master legacy et hooks restants restent ouverts.
 
 Porter séparément les routes `/api2/*`, `/isConnected`, les hooks de
 `index.pb.ts` et les routes `/master/*`. Les routes SQL doivent faire l'objet
@@ -83,6 +110,8 @@ et bascule progressive.
 - périmètre et fichiers touchés ;
 - contrats couverts ;
 - tests exécutés et résultats ;
+- contrats exacts comparés : requête, réponse, codes, hooks et compatibilité
+  SDK/CRUD ;
 - écarts et risques ;
 - décision de passage au checkpoint suivant ;
 - commit du nouveau dépôt uniquement.
