@@ -47,6 +47,7 @@ from app.commerce.service import (
     receive_purchase,
     versement_uv,
 )
+from app.legacy.http import UNAUTHORIZED
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
 
@@ -93,9 +94,7 @@ def register(pb: Any) -> None:
         deny_only_false=None,
     ):
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         denied = (
             (await _explicitly_denied(deny_only_false))
             if deny_only_false
@@ -296,9 +295,7 @@ def register(pb: Any) -> None:
         auth: dict[str, Any] | None = AUTH_DEPENDENCY,
     ):
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         if not _allowed("retour.remove"):
             return JSONResponse(status_code=403, content={"message": "Vous n'avez pas les droits"})
         try:

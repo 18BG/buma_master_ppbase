@@ -171,3 +171,265 @@ est couverte par les scénarios natifs ID invalide et trigger d'échec.
 Complément D-0009 : la préparation SIM/PDV/client de `newReturn` est également
 séquentielle, avant la transaction stock/retour. Un échec du PDV laisse le
 client créé ; la régression C9 injecte cette faute et contrôle la persistance.
+
+## D-0013 — C10 caisse legacy : ordre, permissions et sérialisation
+
+Les dix handlers actifs de `caisse.ts` sont portés séparément de C8. Aucune
+atomicité globale ni idempotence n'est ajoutée : une session peut être OPEN
+alors que la sauvegarde caisse échoue ; un mouvement wallet peut exister alors
+que l'insertion caisse échoue. `cancel2` conserve le statut actif de l'original
+et peut créditer plusieurs fois, même pour un non-admin dont le flag isAdmin
+est absent. La valeur REVERSAL reste une écriture DAO interne.
+
+Les rapports session/plage restent publics, et le rapport par type de dépense
+ne reçoit pas de permission read supplémentaire. La visibilité email et les
+dates vides sont alignées sur `Record.PublicExport` PocketBase 0.22.27. Le
+rapport SQL garde l'interpolation source et ses erreurs de syntaxe ; les autres
+requêtes conservent les paramètres source. Aucun durcissement n'est présenté
+comme une correction acceptée du backend.
+
+Régressions : `tests/test_legacy_caisse_contract.py` et
+`scripts/c10_caisse_runtime.py`. Limites explicites dans
+`docs/contracts/legacy-caisse.md` : ce portage ne ferme ni la comparaison
+exhaustive de ces handlers ni C10 global.
+
+## D-0014 — C10 : écarts de portage corrigés par comparaison exécutée
+
+Les 18 handlers restants et les dix handlers caisse sont comparés avec le
+TypeScript gelé transpilé sur PocketBase 0.22.27 jetable. Le 401 middleware
+exact contient code/message/data ; les anciens messages raccourcis ont été
+remplacés dans les guards correspondants. Un DAO ErrNoRows non capturé est 404,
+un GoError capturé est `{value:{}}`, un Error JavaScript capturé est `{}`. Les
+régressions et les 94 comparaisons enregistrent ces différences de forme.
+
+La traduction initiale de neuf vues avait perdu la casse de 27 alias. Ceci est
+une erreur cible, pas un défaut source à conserver. `1789236847` renomme les
+colonnes physiques sans supprimer les dépendances et conserve les requêtes
+dans les métadonnées. Son rollback/replay a été exécuté. Le traducteur source
+et le vérificateur sont corrigés ; C9 utilise maintenant `v."authorName"`.
+
+Le SDK a révélé l'absence du rôle vivant de l'abonné dans les règles realtime.
+L'adaptateur BUMA recharge cette identité pour chaque événement et l'isole de
+celle de l'émetteur. Les fichiers du framework PPBase restent inchangés. La
+preuve SDK utilise deux utilisateurs distincts et contrôle émission, refus
+après révocation puis reprise après rétablissement du droit. Les événements
+delete, toutes les options SSE et les fichiers protégés restent hors de cette
+preuve ciblée ; ils ne sont pas déclarés vérifiés.
+
+## D-0015 — C10 non clôturé : SQL SQLite et pseudo-colonnes
+
+Un écart réel subsiste, mesuré sur les deux serveurs :
+`SELECT strftime('%Y-%m-%d', '2026-09-24') AS day` avec fields `{day:""}` renvoie
+200 `[{day:"2026-09-24"}]` dans `/sql` source, contre 500 UndefinedFunction dans
+PPBase. Artefact : `docs/c10-sql-dialect-gap.json`. Il ne s'agit pas d'un défaut
+source : un appel existant peut casser après changement d'URL. Aucun changement
+client n'est accepté implicitement ; la gate C10 reste ouverte.
+
+Le contrôle physique ajouté signale aussi `rowid` absent des deux projections
+`buma_article_with_no_stock_list_view` et `buma_stockage_no_manager`. D-0006
+avait prévu sa traduction vers id, mais la suppression de la projection en
+double a retiré ce nom de champ. Le rapport de schéma expose maintenant ces
+deux cas explicitement ; son succès structurel ne ferme pas cette parité.
+Ne pas les masquer en ajoutant un fallback applicatif ni modifier le source.
+
+Précision après demande utilisateur : strftime était une **sonde synthétique**
+envoyée à `/sql` par l'agent, pas une requête extraite d'une route métier. La
+recherche dans src/, migrationsDir/ et l'export corrigé Master n'en trouve aucun
+usage. Elle démontre une différence de dialecte du SQL fourni librement par un
+appelant, sans établir qu'un client Master utilise cette fonction. Pour le cas
+testé, PostgreSQL utilise `to_char(DATE '2026-09-24', 'YYYY-MM-DD')`.
+
+Troisième usage source de rowid identifié dans l'export :
+`buma_stock_transaction_list_view` sélectionne `a.rowid AS article_id` ; le
+portage sélectionne `a.id AS article_id`. Le nom est présent mais le sens de la
+valeur a changé. Il doit être examiné avec les deux projections absentes.
+
+## D-0016 — rowid vérifié et corrigé, remplace la traduction de D-0006
+
+Les trois usages ont été relus dans la source et l'export. La documentation
+SQLite, le code PocketBase 0.22.27 et le DDL/les réponses d'un serveur jetable
+confirment un entier de stockage distinct de l'ID texte. Il est rendu comme
+nombre JSON dans les vues. Voir `docs/contracts/rowid.md` pour les références
+primaires et les limites, notamment la stabilité après opérations de maintenance.
+
+`1789236848` restaure rowid/`article_id` avec un bigint interne et l'allocation
+max+1 transactionnelle observée. Le statut public JSON des champs de vue reste
+inchangé, et les collections de base n'exposent pas le champ. Les données
+existantes ne sont pas numérotées arbitrairement : migration sur tables vides,
+import C11 explicitement responsable de conserver les rowid du snapshot source.
+Le fallback `rowid -> id` de D-0006 est abandonné car il changeait le contrat.
+
+Preuves : 12 comparaisons des deux serveurs, 20 insertions concurrentes,
+maximum signé, rollback/réutilisation, filtres natifs, absence du champ dans
+le CRUD de base, rollback/replay de migration et vérificateur de projection strict.
+
+## D-0017 — périmètre SQL libre et clôture du code C10
+
+**RETIRÉE comme décision de clôture.** Cette section conserve le raisonnement
+historique, mais n'est pas une différence acceptée par l'utilisateur. L'agent
+a clos C10 à tort en présentant l'exécution directe PostgreSQL comme une
+réserve suffisante. C10 est rouvert pour finaliser le contrat SQL entrant.
+
+La source index.pb.ts:37 exécute le texte reçu dans query sur son moteur,
+sans interpréteur ni traducteur SQL. Le portage conserve ce contrat d'exécution
+directe avec le moteur cible PostgreSQL, les mêmes chemins/champs/guards et la
+projection DynamicModel vérifiée. executeSql modifie la vue sur ce même moteur ;
+SQL2 garde son défaut source. Aucune permission supplémentaire n'est ajoutée.
+
+La compatibilité universelle des deux dialectes SQL n'est **pas** revendiquée :
+une requête libre utilisant une fonction SQLite peut nécessiter une traduction
+PostgreSQL. L'exemple strftime reste une limite mesurée, conservée dans
+c10-sql-dialect-gap.json, sans usage trouvé dans le code ou les vues BUMA gelés.
+Il ne devient pas une nouvelle fonction métier inventée pour ce chantier.
+Les requêtes client ad hoc et les erreurs propres au moteur restent à contrôler
+avant cutover, conformément à cette limite explicitement documentée.
+
+C10 est clôturé pour le portage du code gelé, du schéma fourni et des contrats
+exercés par la gate locale. Cette clôture ne signifie ni émulation complète de
+SQLite, ni validation de données/clients de production, ni autorisation de
+cutover. Les 114 définitions, 42 vues et API/SDK testées restent conformes au
+périmètre de preuve ; l'import des rowid historiques relève explicitement de C11.
+
+## D-0018 — console PostgreSQL acceptée et étude de /sql reportée
+
+Décision explicite de l'utilisateur le 2026-09-26, après présentation de l'appel
+desktop retrouvé : l'administrateur écrira des requêtes PostgreSQL dans la
+console ; faute d'appel `/sql` identifié, cette route est mise de côté pour
+le moment. Cette autorisation nouvelle remplace le cadrage SQL ouvert de
+D-0015/D-0017 ; elle ne valide pas rétroactivement la clôture retirée D-0017.
+
+- `POST /master/article/executeSql` garde son chemin, le corps `{query}`, sa
+  réponse collection et la modification de la vue `buma_sql_table`. Le SQL
+  accepté pour cette console est celui de PostgreSQL ; aucune traduction
+  générale SQLite vers PostgreSQL n'est requise dans ce périmètre.
+- La route définit une vue : la requête doit fournir une sélection exploitable
+  comme vue, avec une colonne `id`. Cette décision ne transforme pas la console
+  en exécuteur de toutes les commandes SQL, notamment INSERT/UPDATE/DDL.
+- Impact accepté : les requêtes saisies par l'administrateur doivent utiliser
+  le dialecte PostgreSQL ; les anciennes expressions spécifiques SQLite ne
+  sont pas promises compatibles. Aucun changement du transport QML, des noms
+  de champs, des permissions ou des règles métier n'est autorisé par extension.
+- `POST /sql` reste implémenté et enregistré. Son audit d'usage et sa parité
+  de dialecte sont **reportés**, sans suppression ni désactivation, et ne
+  bloquent plus la gate C10 du périmètre retenu. L'absence de résultat dans
+  le desktop fourni ne prouve pas l'absence d'autres consommateurs.
+
+Preuve ayant motivé la décision : `docs/c10-desktop-sql-usage-audit.json`.
+La route utilise déjà PostgreSQL (`app/hooks/legacy_sql.py`) ; aucune modification
+applicative n'est nécessaire pour enregistrer ce choix. Les preuves SQL ciblées
+existantes restent dans `docs/c10-sql-runtime-report.json` et les régressions
+`tests/test_legacy_sql_contract.py` ; elles ne couvrent pas encore tout le
+parcours desktop découvert. La régression runtime attendue avant clôture C10
+est : `{query: "SELECT * FROM users"}`, mutation de la vue, lecture native
+`getList(1, 1000)`, champs/types/enveloppe exploitables, erreur sans mutation
+résiduelle et restauration des fixtures. Ajouter un cas PostgreSQL spécifique
+pour vérifier le dialecte accepté. Le helper de comparaison SQLite interrompu
+et son rapport absent ne sont pas transformés en preuves passantes ; la partie
+de cette comparaison consacrée à `/sql` est reportée avec la route.
+
+C10 reste ouvert pour cette validation ciblée de la console et sa gate finale.
+Cette décision ne clôture pas C10 et n'autorise ni C11, ni import, ni cutover.
+
+## D-0019 — préparation C11 : relations multiples bloquées, aucune perte acceptée
+
+Constat du 2026-09-26 pendant la préparation C11 explicitement autorisée dans
+une session séparée : `buma_customer.pdv`, `buma_pilotage_ticket.tag` et
+`buma_wallet.managers` ont `maxSelect: null` dans l'export corrigé. Une base
+créée par PocketBase 0.22.27 stocke ces relations sous forme de tableaux JSON,
+y compris `[]`. PPBase traite actuellement cette option comme 1 ; les trois
+colonnes PostgreSQL observées après les neuf migrations sont
+`character varying`, pas des tableaux.
+
+Impact potentiel : aplatir une liste, choisir un seul ID ou copier sa chaîne
+JSON dans une colonne scalaire changerait le contrat de relation et pourrait
+perdre les références, filtres, expands ou permissions. **Aucune de ces
+transformations n'est acceptée ni implémentée.** Le diagnostic C11 refuse
+l'import de records dans ces trois collections ; s'il n'y en a aucun, il
+conserve l'avertissement structurel.
+
+Preuves : `scripts/c11_fixture.py` crée une référence PB sans hooks métier,
+`scripts/c11_rehearsal.py` mesure les colonnes cibles et vérifie le rejet
+d'une source avec deux IDs. `tests/test_c11_import.py` couvre les valeurs
+`[]` et multi-IDs pour `maxSelect` null/0. Le rapport
+`docs/c11-rehearsal-report.json` sépare ce scénario négatif du scénario
+positif sur les collections représentables.
+
+Décision : conserver le blocage et les données originales, attendre le
+diagnostic du backup pour mesurer les lignes affectées. Aucun changement de
+schéma/framework/routes et aucune reprise/clôture C10 dans cette session.
+C11 reste ouvert. Ce constat ne concerne pas D-0018 ni le report de `/sql`.
+
+Les primitives d'import C11 archivent également les rowids de toutes les
+tables et les trois dates internes auth legacy ; le SQLite complet est
+conservé octet pour octet. Elles ne restaurent pas les paramètres/secrets,
+admins, OAuth ni anciens tokens dans le runtime. Cette limite est ouverte,
+pas une autorisation de perdre ou de modifier ces comportements au cutover.
+
+## D-0020 — clôture C10 décidée par l'utilisateur le 2026-09-28
+
+L'utilisateur confirme « ppbase a été correctement corrigée » et demande
+explicitement que C10 soit considéré comme totalement fini et clôturé.
+**C10 est terminé.** Cette décision nouvelle remplace son statut ouvert/en
+attente et les conditions supplémentaires de validation qui bloquaient la
+clôture. Elle ne réhabilite pas la clôture unilatérale D-0017 retirée.
+
+Le périmètre D-0018 demeure : SQL PostgreSQL pour la console administrateur,
+étude de `/sql` reportée, route conservée. Les 106 comparaisons ciblées,
+corrections alias/rowid, preuves SDK, 131 tests et vérifications 9 migrations /
+114 définitions / 42 vues restent les preuves enregistrées de leurs sessions.
+La correction PPBase est confirmée par l'utilisateur ; elle n'est pas
+réauditée ni retestée dans ce tour. Les modifications locales du framework
+issues de cette correction sont laissées intactes.
+
+Cette clôture de suivi ne prétend pas produire un nouveau résultat de test
+Qt/desktop ou du scénario SQL interrompu. L'absence du rapport
+`c10-stored-sql-runtime-report.json`, les limites des scénarios antérieurs et
+les anciens diagnostics des scripts restent identifiables ; ils ne sont pas
+convertis en tests passants. Aucune nouvelle différence de comportement ou
+modification de code n'est introduite par D-0020.
+
+La suite est C11, déjà préparé et toujours ouvert. Son blocage D-0019 sur les
+relations multiples reste à résoudre/vérifier ; les arrays ne doivent jamais
+être aplatis. La fermeture C10 n'autorise aucun import de production ni cutover.
+
+## D-0021 — C11 : historique réel incompatible avec l'import préparé
+
+Le 2026-09-28, après explication des étapes C11, l'utilisateur autorise
+l'examen de `master-backup.zip` et le diagnostic d'une copie hors ligne. Il
+fournit la version **PocketBase 0.22.34**. Aucun import PostgreSQL, réparation
+de données, changement de clé ou bascule n'est autorisé par ce tour.
+
+L'archive contient 1 188 247 records et le même schéma corrigé de 114
+définitions. Son diagnostic révèle trois catégories distinctes :
+
+- **Limites cible/importeur** : D-0019 concerne 5 841 records dans les trois
+  collections à relations multiples. L'index unique mobile C4 rejette aussi
+  **877 groupes** `(type, author, mobile_message_id)` RETURN, soit **2 391
+  transactions**. Tous comportent des différences métier après exclusion des
+  IDs/timestamps. Suppression, fusion ou changement de clés perdraient le legacy.
+- **Anomalies source** : 195 795 références sans cible, dont 115 325 ventes vers
+  `buma_customer_old` vide. 115 168 correspondent à `buma_customer`, sans que
+  cela justifie une redirection automatique. Autres cas : sentinelles `0`/`1`,
+  `PERSONNE` dans une relation, deux IDs joints dans un élément de liste managers.
+- **Fichiers** : 2 303 fichiers référencés absents du ZIP, dont 2 302 ressources
+  et une image wallet. S3 est désactivé dans les paramètres archivés. Aucun
+  autre serveur/backup consulté, aucun remplacement créé. Les 601 `.attrs`,
+  80 miniatures et cinq objets non directement référencés sont conservés.
+
+La source gelée `master.idempotency.ts` et `master.retour.functions.ts` a été
+relue : elle recherche un premier record correspondant ; elle ne définit pas
+de suppression des transactions historiques. Cette session n'affaiblit pas
+l'index C4 et ne réouvre pas son implémentation. Une stratégie conservant les
+lignes existantes et le comportement futur doit être conçue/testée séparément.
+
+Preuves : `docs/c11-master-diagnostic-report.json`, rapports détaillés et
+`docs/c11-master-diagnostic.md`. L'audit `scripts/c11_snapshot_audit.py` vérifie
+tous les champs même après un premier défaut ; trois tests couvrent tableaux,
+comptage des références et fichiers. Les compteurs initiaux partiels ne sont
+pas présentés comme exhaustifs. Les données auth sont présentes mais aucune
+connexion réelle n'est testée ; 0.22.34 reste la version déclarée, sans binaire.
+
+Décision : diagnostic terminé, **import bloqué et C11 ouvert**. Aucune perte
+ou divergence acceptée, aucun correctif de données/migration/schéma applicatif.
+Conserver les anomalies source jusqu'à une décision explicite ; ne jamais
+inventer leurs cibles, IDs, rowids ou fichiers.

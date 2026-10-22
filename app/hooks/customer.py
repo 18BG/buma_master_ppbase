@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.auth.context import AUTH_RULE_CONTEXT
 from app.customers.service import CustomerValidationError, create_customers_batch
+from app.legacy.http import UNAUTHORIZED
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
 
@@ -33,7 +34,7 @@ def register(pb: Any) -> None:
         if not auth:
             return JSONResponse(
                 status_code=401,
-                content={"message": "The request requires authentication."},
+                content=UNAUTHORIZED,
             )
         if not _customer_create_allowed():
             return JSONResponse(

@@ -1,0 +1,250 @@
+{
+  "date": "2026-09-28",
+  "scope": "authorized_steps_1_and_2_read_only_backup_diagnosis",
+  "status": "diagnosis_complete_import_blocked",
+  "archive": "/Users/omarsisss/Documents/wproject/protech/master-backup.zip",
+  "source_version": {
+    "value": "0.22.34",
+    "evidence": "explicit user response",
+    "binary_not_present": true,
+    "isolated_rehearsal_version": "0.22.27"
+  },
+  "archive_sha256": "541ca900839207c53dedb19b51e329bbec89c8e98774043c7b9dab2bbcd61295",
+  "data_db_sha256": "3539f3eb1c8659421526ede0e47ccc60482aaf0abd2c114282c05719d02b1afd",
+  "integrity": {
+    "all_1290_zip_members_crc_ok": true,
+    "sqlite_data_db_integrity_check": "ok",
+    "no_nonempty_wal": true,
+    "original_archive_and_extracted_members_unchanged": true
+  },
+  "schema": {
+    "collections": 114,
+    "base_auth": 72,
+    "views": 42,
+    "differences_from_corrected_export": 0
+  },
+  "records": 1188247,
+  "storage": {
+    "storage_objects": 1282,
+    "storage_bytes": 4890458144,
+    "referenced_unique_files": 2899,
+    "present_referenced_files": 596,
+    "missing_unique_files": 2303,
+    "unreferenced_files": 686,
+    "unreferenced_by_collection": {
+      "buma_ressources": 506,
+      "buma_wallet": 21,
+      "buma_employee_contract": 10,
+      "buma_person_entity": 21,
+      "buma_invoice": 47,
+      "buma_article": 67,
+      "buma_agent": 6,
+      "buma_config": 6,
+      "buma_pdv": 2
+    }
+  },
+  "unbounded_relations": [
+    {
+      "collection": "buma_wallet",
+      "field": "managers",
+      "target": "users",
+      "rows": 11,
+      "multiple": true,
+      "invalid_array_rows": 0,
+      "array_length_distribution": {
+        "0": 10,
+        "1": 1
+      },
+      "references": 1,
+      "rows_with_references": 1,
+      "missing_references": 1,
+      "rows_with_missing_references": 1,
+      "distinct_missing_targets": 1,
+      "missing_reference_lengths": {
+        "31": 1
+      }
+    },
+    {
+      "collection": "buma_customer",
+      "field": "pdv",
+      "target": "buma_pdv",
+      "rows": 5826,
+      "multiple": true,
+      "invalid_array_rows": 0,
+      "array_length_distribution": {
+        "0": 5495,
+        "1": 331
+      },
+      "references": 331,
+      "rows_with_references": 331,
+      "missing_references": 0,
+      "rows_with_missing_references": 0,
+      "distinct_missing_targets": 0
+    },
+    {
+      "collection": "buma_pilotage_ticket",
+      "field": "tag",
+      "target": "buma_pilotage_ticket_tag",
+      "rows": 4,
+      "multiple": true,
+      "invalid_array_rows": 0,
+      "array_length_distribution": {
+        "1": 4
+      },
+      "references": 4,
+      "rows_with_references": 4,
+      "missing_references": 0,
+      "rows_with_missing_references": 0,
+      "distinct_missing_targets": 0
+    }
+  ],
+  "dangling_relations": [
+    {
+      "collection": "buma_article",
+      "field": "categorie",
+      "target": "buma_article_categorie",
+      "rows": 44,
+      "multiple": false,
+      "references": 39,
+      "rows_with_references": 39,
+      "missing_references": 7,
+      "rows_with_missing_references": 7,
+      "distinct_missing_targets": 1,
+      "missing_reference_lengths": {
+        "1": 7
+      }
+    },
+    {
+      "collection": "buma_sale",
+      "field": "customer",
+      "target": "buma_customer_old",
+      "rows": 115326,
+      "multiple": false,
+      "references": 115325,
+      "rows_with_references": 115325,
+      "missing_references": 115325,
+      "rows_with_missing_references": 115325,
+      "distinct_missing_targets": 1097,
+      "missing_reference_lengths": {
+        "15": 115325
+      }
+    },
+    {
+      "collection": "buma_wallet",
+      "field": "managers",
+      "target": "users",
+      "rows": 11,
+      "multiple": true,
+      "invalid_array_rows": 0,
+      "array_length_distribution": {
+        "0": 10,
+        "1": 1
+      },
+      "references": 1,
+      "rows_with_references": 1,
+      "missing_references": 1,
+      "rows_with_missing_references": 1,
+      "distinct_missing_targets": 1,
+      "missing_reference_lengths": {
+        "31": 1
+      }
+    },
+    {
+      "collection": "buma_customer",
+      "field": "type",
+      "target": "buma_customer_type",
+      "rows": 5826,
+      "multiple": false,
+      "references": 1,
+      "rows_with_references": 1,
+      "missing_references": 1,
+      "rows_with_missing_references": 1,
+      "distinct_missing_targets": 1,
+      "missing_reference_lengths": {
+        "8": 1
+      }
+    },
+    {
+      "collection": "buma_sim_balance_activity",
+      "field": "author",
+      "target": "users",
+      "rows": 80461,
+      "multiple": false,
+      "references": 80461,
+      "rows_with_references": 80461,
+      "missing_references": 80461,
+      "rows_with_missing_references": 80461,
+      "distinct_missing_targets": 1,
+      "missing_reference_lengths": {
+        "1": 80461
+      }
+    }
+  ],
+  "idempotency": [
+    {
+      "field": "system_id",
+      "scope": [
+        "type",
+        "author",
+        "system_id"
+      ],
+      "groups": 0,
+      "rows_in_groups": 0,
+      "rows_above_one_per_key": 0,
+      "largest_group": 0
+    },
+    {
+      "field": "mobile_message_id",
+      "scope": [
+        "type",
+        "author",
+        "mobile_message_id"
+      ],
+      "groups": 877,
+      "rows_in_groups": 2391,
+      "rows_above_one_per_key": 1514,
+      "largest_group": 16
+    }
+  ],
+  "auth": [
+    {
+      "collection": "users",
+      "records": 20,
+      "empty_password_hash": 0,
+      "bcrypt_hashes": 20,
+      "token_key_min_length": 50,
+      "token_key_max_length": 50
+    },
+    {
+      "collection": "agent_users",
+      "records": 3,
+      "empty_password_hash": 0,
+      "bcrypt_hashes": 3,
+      "token_key_min_length": 50,
+      "token_key_max_length": 50
+    }
+  ],
+  "admin_accounts": 1,
+  "readiness": {
+    "diagnostic_finished": true,
+    "production_import_authorized": false,
+    "postgresql_import_executed": false,
+    "cutover_authorized": false,
+    "ready_for_full_import": false
+  },
+  "limits": [
+    "PocketBase patch version supplied by user, no runtime or binary version verification.",
+    "No auth/API/SDK/client requests made with real data.",
+    "Existing source orphans and differing duplicate transactions must not be silently repaired or deleted.",
+    "Missing files are absent in this archive; their existence on an old server or other backup was not checked.",
+    "ZIP timestamps and newest business rows point to September 15-16, not proof of exact consistent capture time.",
+    "Initial diagnostic stops at first error per record. Detailed independent audit checks all 191 relation fields and all 20 file fields; its counts supersede the initial partial reference/file counts.",
+    "Logs database bytes were CRC/hash checked but log contents were not queried or imported."
+  ],
+  "next_actions": [
+    "Design an import strategy preserving all legacy arrays and every duplicate transaction without changing original keys.",
+    "Document preservation of existing orphan values; do not invent targets or retarget old-customer relations.",
+    "Locate or explicitly account for the 2303 absent files and preserve attrs/thumbnails.",
+    "Prepare a fresh isolated rehearsal on authorized real-data scope, with PB 0.22.34 evidence before any production decision."
+  ]
+}

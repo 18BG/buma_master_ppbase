@@ -42,6 +42,7 @@ from app.finance.service import (
     wallet_update_note,
     wallet_withdraw,
 )
+from app.legacy.http import UNAUTHORIZED
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
 
@@ -77,9 +78,7 @@ def register(pb: Any) -> None:
         forbidden_message: str = "Vous n'etes pas autoriser",
     ):
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         if permission is not None:
             permissions = (permission,) if isinstance(permission, str) else permission
             if not _can_any(*permissions):
@@ -105,7 +104,7 @@ def register(pb: Any) -> None:
         if not auth:
             return JSONResponse(
                 status_code=401,
-                content={"message": "The request requires authentication."},
+                content=UNAUTHORIZED,
             )
         try:
             body = await request.json()
@@ -332,7 +331,7 @@ def register(pb: Any) -> None:
         if not auth:
             return JSONResponse(
                 status_code=401,
-                content={"message": "The request requires authentication."},
+                content=UNAUTHORIZED,
             )
         try:
             return JSONResponse(
@@ -477,7 +476,7 @@ def register(pb: Any) -> None:
         if not auth:
             return JSONResponse(
                 status_code=401,
-                content={"message": "The request requires authentication."},
+                content=UNAUTHORIZED,
             )
         if not _can_any("caisse.manage"):
             return JSONResponse(

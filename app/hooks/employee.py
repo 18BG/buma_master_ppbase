@@ -11,6 +11,7 @@ from ppbase.db.engine import get_engine
 
 from app.auth.context import AUTH_RULE_CONTEXT
 from app.employees.service import EmployeeValidationError, create_employees_batch
+from app.legacy.http import UNAUTHORIZED
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
 
@@ -26,9 +27,7 @@ def _allowed() -> bool:
 def register(pb: Any) -> None:
     async def handler(request: Request, auth: dict[str, Any] | None) -> JSONResponse:
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         if not _allowed():
             return JSONResponse(
                 status_code=403,

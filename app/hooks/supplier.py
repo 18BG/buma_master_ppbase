@@ -10,6 +10,7 @@ from ppbase.api.deps import get_optional_auth
 from ppbase.db.engine import get_engine
 
 from app.auth.context import AUTH_RULE_CONTEXT
+from app.legacy.http import UNAUTHORIZED
 from app.suppliers.service import SupplierValidationError, create_suppliers_batch
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
@@ -32,7 +33,7 @@ def register(pb: Any) -> None:
         if not auth:
             return JSONResponse(
                 status_code=401,
-                content={"message": "The request requires authentication."},
+                content=UNAUTHORIZED,
             )
         if not _supplier_create_allowed():
             return JSONResponse(status_code=403, content={"message": "Your are not allowed"})

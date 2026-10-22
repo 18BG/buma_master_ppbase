@@ -10,6 +10,7 @@ from ppbase.api.deps import get_optional_auth
 
 from app.auth.context import is_record_auth, register_context_middleware
 from app.auth.login import register_login_middleware
+from app.auth.realtime import install_realtime_context_patch
 
 AUTH_DEPENDENCY = Depends(get_optional_auth)
 
@@ -30,6 +31,7 @@ async def user_health(auth: dict[str, Any] | None) -> PlainTextResponse:
 def register(pb: Any) -> None:
     register_context_middleware(pb)
     register_login_middleware(pb)
+    install_realtime_context_patch()
 
     @pb.get("/isConnected")
     async def legacy_connection_probe(auth: dict[str, Any] | None = AUTH_DEPENDENCY):

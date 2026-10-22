@@ -129,7 +129,11 @@ async def test_permission_and_anonymous_envelopes(routes, monkeypatch, path, sta
         handler = routes["POST", path]
         unauthorized = await handler(request({}), auth=None)
         assert unauthorized.status_code == 401
-        assert json.loads(unauthorized.body) == {"message": "The request requires authentication."}
+        assert json.loads(unauthorized.body) == {
+            "code": 401,
+            "message": "The request requires admin or record authorization token to be set.",
+            "data": {},
+        }
         denied = await handler(request({}), auth={"id": "user", "type": "auth"})
         assert denied.status_code == status
         assert json.loads(denied.body) == {"message": message}

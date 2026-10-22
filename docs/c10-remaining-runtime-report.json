@@ -1,0 +1,544 @@
+{
+  "timestamp_utc": "2026-09-24T21:06:20.462340+00:00",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "reference_version": "0.22.27",
+  "status": "passed",
+  "routes": 18,
+  "comparisons": 60,
+  "mismatches": {},
+  "responses_and_effects": {
+    "legacy_401": {
+      "status": 401,
+      "body": {
+        "code": 401,
+        "message": "The request requires admin or record authorization token to be set.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "manager_create_denied": {
+      "status": 403,
+      "body": {
+        "message": "Your are not allowed"
+      },
+      "content_type": "application/json"
+    },
+    "customer_batch": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "customer_persistence": [
+      [
+        -3,
+        "CUSTOMER_PDV",
+        "",
+        true
+      ],
+      [
+        12,
+        "CUSTOMER_PDV",
+        "",
+        true
+      ]
+    ],
+    "sim_import": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "pdv_import_existing_sim": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "pdv_defaults": {
+      "firstname": "",
+      "lastname": "",
+      "status": false,
+      "author": "<record-id>"
+    },
+    "pdv_missing_sim_partial": {
+      "status": 400,
+      "body": {
+        "code": 400,
+        "message": "Something went wrong while processing your request.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "pdv_new_sim": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "new_sim_defaults": {
+      "status": false,
+      "author": "",
+      "network": "RS"
+    },
+    "broken_parent_lookup": {
+      "status": 400,
+      "body": {
+        "code": 400,
+        "message": "Something went wrong while processing your request.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "purchase_no_create_guard": {
+      "status": 200,
+      "body": {
+        "id": "<record-id>",
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "purchase_values": {
+      "amount": 10,
+      "remaining": 10,
+      "payed": 0,
+      "invoice_no": 1,
+      "state": "",
+      "received": false
+    },
+    "purchase_payment_denied": {
+      "status": 403,
+      "body": {
+        "message": "Vous ne pouvez pas effectuer cette transaction"
+      },
+      "content_type": "application/json"
+    },
+    "purchase_payment": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "purchase_cancel": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "purchase_cancel_repeat": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "purchase_after_repeat": {
+      "status": false,
+      "state": "CANCELED",
+      "remaining": 7,
+      "payed": 3
+    },
+    "supplier_after_repeat": {
+      "solde": 7
+    },
+    "stock_after_repeat": {
+      "quantity": 8
+    },
+    "caisse_after_repeat": {
+      "balance": 103
+    },
+    "purchase_late_failure": {
+      "status": 500,
+      "body": {
+        "message": {
+          "value": {}
+        }
+      },
+      "content_type": "application/json"
+    },
+    "stock_after_partial_purchase": {
+      "quantity": 10
+    },
+    "supplier_after_partial_purchase": {
+      "solde": -13
+    },
+    "purchase_payment_swallowed": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "purchase_infos": {
+      "status": 200,
+      "body": {
+        "totalAmount": 20,
+        "totalRemaining": 20,
+        "totalPayed": 0,
+        "totalProfit": 0,
+        "totalPayedPercent": 100,
+        "totalItems": 1
+      },
+      "content_type": "application/json"
+    },
+    "purchase_infos_malformed": {
+      "status": 500,
+      "body": {
+        "message": {}
+      },
+      "content_type": "application/json"
+    },
+    "sale_payment": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "sale_payment_too_large": {
+      "status": 400,
+      "body": {
+        "message": "Montant trop supérieur"
+      },
+      "content_type": "application/json"
+    },
+    "sale_infos": {
+      "status": 200,
+      "body": {
+        "payments": [
+          {
+            "name": "C10R9c58e04f",
+            "totalAmount": 5
+          }
+        ],
+        "totalAmount": 20,
+        "totalItems": 1,
+        "totalPayed": 5,
+        "totalPayedPercent": 75,
+        "totalProfit": 0,
+        "totalRemaining": 15
+      },
+      "content_type": "application/json"
+    },
+    "sale_cancel": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "sale_cancel_repeat": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "sale_after_repeat": {
+      "status": false,
+      "state": "CANCELED",
+      "remaining": 0,
+      "payed": 5
+    },
+    "sale_stock_after_repeat": {
+      "quantity": 14
+    },
+    "sale_payment_missing": {
+      "status": 404,
+      "body": {
+        "code": 404,
+        "message": "The requested resource wasn't found.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "return_no_domain_guard": {
+      "status": 200,
+      "body": {
+        "message": "OK"
+      },
+      "content_type": "application/json"
+    },
+    "return_defaults": {
+      "amount": 4.8,
+      "status": false,
+      "author": "",
+      "payed": false,
+      "caisse": "",
+      "caisseSession": ""
+    },
+    "return_confirm": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "return_confirm_repeat": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "return_after_repeat": {
+      "payed": true,
+      "caisse": "",
+      "caisseSession": ""
+    },
+    "return_late_failure": {
+      "status": 500,
+      "body": {
+        "message": {
+          "value": {}
+        }
+      },
+      "content_type": "application/json"
+    },
+    "assign_unauthenticated": {
+      "status": 401,
+      "body": {
+        "message": "Vous devez être connecté pour effectuer cette action"
+      },
+      "content_type": "application/json"
+    },
+    "assign_without_agent": {
+      "status": 403,
+      "body": {
+        "message": "Vous n'êtes pas associé à un agent"
+      },
+      "content_type": "application/json"
+    },
+    "assign_missing_id": {
+      "status": 400,
+      "body": {
+        "message": "ID du point de vente manquant"
+      },
+      "content_type": "application/json"
+    },
+    "assign": {
+      "status": 200,
+      "body": {
+        "data": {
+          "agent": "<record-id>",
+          "message": "Point de vente assigné avec succès",
+          "pdv": "<record-id>",
+          "success": true
+        },
+        "message": "PDV assigné avec succès"
+      },
+      "content_type": "application/json"
+    },
+    "assign_repeat": {
+      "status": 200,
+      "body": {
+        "data": {
+          "agent": "<record-id>",
+          "message": "Point de vente assigné avec succès",
+          "pdv": "<record-id>",
+          "success": true
+        },
+        "message": "PDV assigné avec succès"
+      },
+      "content_type": "application/json"
+    },
+    "unassign": {
+      "status": 200,
+      "body": {
+        "data": {
+          "message": "Point de vente dissocié avec succès",
+          "pdv": "<record-id>",
+          "success": true
+        },
+        "message": "PDV dissocié avec succès"
+      },
+      "content_type": "application/json"
+    },
+    "unassign_repeat": {
+      "status": 400,
+      "body": {
+        "message": "Ce point de vente n'est assigné à aucun agent"
+      },
+      "content_type": "application/json"
+    },
+    "turnover_forbidden": {
+      "status": 403,
+      "body": {
+        "message": "Vous n'êtes pas autorisé à voir les chiffres d'affaires"
+      },
+      "content_type": "application/json"
+    },
+    "turnover_dates_required": {
+      "status": 400,
+      "body": {
+        "message": "Les dates de début et de fin sont requises"
+      },
+      "content_type": "application/json"
+    },
+    "turnover_invalid_dates": {
+      "status": 400,
+      "body": {
+        "message": "Format de date invalide"
+      },
+      "content_type": "application/json"
+    },
+    "turnover_aggregate": {
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "averageAchievementRate": 16.666666666666664,
+            "averageDailyTurnover": 16.666666666666668,
+            "firstname": "C10R9c58e04f",
+            "goalTurnover": 100,
+            "lastname": "Turnover",
+            "network": "RS",
+            "number": "C10R9c58e04f",
+            "numberOfDays": 2,
+            "pdvId": "<record-id>",
+            "totalDaysInPeriod": 3,
+            "totalTurnover": 50,
+            "total_turnover_nafama": 30,
+            "total_turnover_single_wallet": 20,
+            "turnovers": [
+              {
+                "daily_goal_turnover": 100,
+                "daily_turnover": 20,
+                "date": "1985-01-01 00:00:00.000Z",
+                "firstname": "C10R9c58e04f",
+                "id": "<record-id>",
+                "isNafama": false,
+                "isPaani": false,
+                "isSingleWallet": true,
+                "lastname": "Turnover",
+                "msisdn": "C10R9c58e04f",
+                "network": "RS",
+                "pdvId": "<record-id>",
+                "revendeur": "C10R9c58e04f",
+                "sim": "<record-id>",
+                "turnover_nafama": 0,
+                "turnover_single_wallet": 20
+              },
+              {
+                "daily_goal_turnover": 100,
+                "daily_turnover": 30,
+                "date": "1985-01-02 00:00:00.000Z",
+                "firstname": "C10R9c58e04f",
+                "id": "<record-id>",
+                "isNafama": false,
+                "isPaani": false,
+                "isSingleWallet": false,
+                "lastname": "Turnover",
+                "msisdn": "C10R9c58e04f",
+                "network": "RS",
+                "pdvId": "<record-id>",
+                "revendeur": "C10R9c58e04f",
+                "sim": "<record-id>",
+                "turnover_nafama": 30,
+                "turnover_single_wallet": 0
+              }
+            ]
+          }
+        ],
+        "message": "Chiffres d'affaires récupérés avec succès",
+        "pagination": {
+          "page": 1,
+          "perPage": 10,
+          "totalPages": 1,
+          "totalRecords": 1
+        }
+      },
+      "content_type": "application/json"
+    },
+    "turnover_filter_empty": {
+      "status": 200,
+      "body": {
+        "data": [],
+        "message": "Chiffres d'affaires récupérés avec succès",
+        "pagination": {
+          "page": 2,
+          "perPage": 1,
+          "totalPages": 0,
+          "totalRecords": 0
+        }
+      },
+      "content_type": "application/json"
+    },
+    "pilotage_missing_middleware": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "pilotage_authenticated_same": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "rupture_invalid": {
+      "status": 400,
+      "body": {
+        "message": "Données manquantes ou format invalide"
+      },
+      "content_type": "application/json"
+    },
+    "rupture_batch": {
+      "status": 200,
+      "body": {
+        "file_name": "C10R9c58e04f",
+        "message": "Données de rupture sauvegardées avec succès",
+        "results": [
+          {
+            "action": "created",
+            "balance": 4,
+            "number": "C10R9c58e04f"
+          },
+          {
+            "action": "updated",
+            "balance": 9,
+            "number": "C10R9c58e04f"
+          }
+        ],
+        "total_processed": 2,
+        "total_received": 25,
+        "user_id": null
+      },
+      "content_type": "application/json"
+    },
+    "rupture_persistence": {
+      "number": "C10R9c58e04f",
+      "balance": 9,
+      "user_id": null,
+      "file_name": null
+    },
+    "rupture_repeat": {
+      "status": 200,
+      "body": {
+        "file_name": null,
+        "message": "Données de rupture sauvegardées avec succès",
+        "results": [
+          {
+            "action": "updated",
+            "balance": 11,
+            "number": "C10R9c58e04f"
+          }
+        ],
+        "total_processed": 1,
+        "total_received": 1,
+        "user_id": null
+      },
+      "content_type": "application/json"
+    },
+    "rupture_partial": {
+      "status": 400,
+      "body": {
+        "message": "Erreur lors de la sauvegarde: Cannot read property 'Number' of undefined"
+      },
+      "content_type": "application/json"
+    }
+  },
+  "cleanup": true
+}

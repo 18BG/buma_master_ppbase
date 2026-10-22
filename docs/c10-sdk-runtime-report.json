@@ -1,0 +1,34 @@
+{
+  "timestamp_utc": "2026-09-24T21:06:23.001016+00:00",
+  "pocketbase": {
+    "status": "passed",
+    "proof": {
+      "authRefresh": true,
+      "authWithPassword": true,
+      "expand": true,
+      "filter": true,
+      "create": true,
+      "fileUploadAndDownload": true,
+      "realtime": true,
+      "update": true,
+      "realtimePermissionRevocationAndRestore": true,
+      "delete": true
+    }
+  },
+  "ppbase": {
+    "status": "passed",
+    "proof": {
+      "authRefresh": true,
+      "authWithPassword": true,
+      "expand": true,
+      "filter": true,
+      "create": true,
+      "fileUploadAndDownload": true,
+      "realtime": true,
+      "update": true,
+      "realtimePermissionRevocationAndRestore": true,
+      "delete": true
+    }
+  },
+  "status": "passed"
+}

@@ -1,0 +1,71 @@
+{
+  "pocketbase_version": "0.22.27",
+  "sqlite_version": "3.46.0",
+  "article_rowid_trace": [
+    1,
+    2,
+    2,
+    3,
+    3,
+    4
+  ],
+  "rollback": {
+    "attempted": 4
+  },
+  "view_statuses": [
+    200,
+    200,
+    200
+  ],
+  "article_view": {
+    "collectionId": "zpcsx7d1kalm1kn",
+    "collectionName": "buma_article_with_no_stock_list_view",
+    "designation": "updated",
+    "id": "u2xsw9qmgaxterm",
+    "rowid": 2,
+    "stockages": "",
+    "trackStock": false
+  },
+  "user_view": {
+    "collectionId": "wc65f77lnd4rkus",
+    "collectionName": "buma_stockage_no_manager",
+    "id": "de9wwpsgupe8tz0",
+    "name": "",
+    "rowid": 1,
+    "stockage": "",
+    "username": "rowidproof"
+  },
+  "transaction_view": {
+    "article": "u2xsw9qmgaxterm",
+    "article_id": 2,
+    "article_stock": "",
+    "author": "",
+    "buy": "",
+    "collectionId": "h4rh3uyxsbaqqji",
+    "collectionName": "buma_stock_transaction_list_view",
+    "created": "2026-09-24 20:40:56.548Z",
+    "credited_amount": 0,
+    "customer_name": "",
+    "designation": "updated",
+    "id": "b1wbgf2hh4477dy",
+    "manual": false,
+    "mobile_transaction_date": "",
+    "network": "",
+    "notes": "",
+    "number": "",
+    "old_quantity": 0,
+    "operator_bonus_amount": 0,
+    "operator_bonus_rate": 0,
+    "price": 0,
+    "quantity": 1,
+    "sale": "",
+    "sim": "",
+    "status": true,
+    "stock_debit_amount": 0,
+    "stockage": "xh6lwiliqluys0o",
+    "stockage_name": "rowid-proof",
+    "transfer": "",
+    "type": "SALE"
+  },
+  "base_article_has_rowid_in_api": false
+}

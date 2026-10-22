@@ -1,0 +1,23 @@
+{
+  "buma_customer": [
+    {
+      "field": "pdv",
+      "code": "unbounded_relation_target_scalar",
+      "rows": 5826
+    }
+  ],
+  "buma_wallet": [
+    {
+      "field": "managers",
+      "code": "unbounded_relation_target_scalar",
+      "rows": 11
+    }
+  ],
+  "buma_pilotage_ticket": [
+    {
+      "field": "tag",
+      "code": "unbounded_relation_target_scalar",
+      "rows": 4
+    }
+  ]
+}

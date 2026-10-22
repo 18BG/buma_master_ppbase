@@ -10,6 +10,7 @@ from ppbase.api.deps import get_optional_auth
 from ppbase.db.engine import get_engine
 
 from app.auth.context import AUTH_RULE_CONTEXT
+from app.legacy.http import UNAUTHORIZED
 from app.stockage.service import (
     StockageValidationError,
     cancel_stock_conversion,
@@ -43,9 +44,7 @@ def _body_id(body: dict[str, Any], key: str) -> str:
 def register(pb: Any) -> None:
     async def guard(request: Request, auth: dict[str, Any] | None, permission: str):
         if not auth:
-            return None, JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return None, JSONResponse(status_code=401, content=UNAUTHORIZED)
         if not _allowed(auth, permission):
             return None, JSONResponse(
                 status_code=403, content={"message": "Vous n'avez pas les permissions necessaires"}

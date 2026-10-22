@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.auth.context import AUTH_RULE_CONTEXT
 from app.auth.permissions import parse_permission
 from app.legacy import stockage
+from app.legacy.http import UNAUTHORIZED
 
 AUTH = Depends(get_optional_auth)
 
@@ -45,9 +46,7 @@ async def source_permission():
 def register(pb: Any):
     async def run(request, auth, operation, guard=None):
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         try:
             permissions = await source_permission()
             if guard == "update" and permissions.get("update") is False:

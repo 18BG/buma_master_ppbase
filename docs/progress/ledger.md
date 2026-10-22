@@ -1,5 +1,10 @@
 # Journal de progression
 
+Statut courant au **2026-09-28 : C10 terminé sur décision explicite de
+l'utilisateur (D-0020)**, après sa confirmation de la correction PPBase.
+Le prochain checkpoint ouvert est C11. Les anciennes mentions C10 ouvert/en
+attente ci-dessous sont historiques ; voir la dernière entrée de clôture.
+
 ## Checkpoint C0 — provenance et inventaire
 
 Statut : terminé côté source statique, runtime PocketBase non exécuté.
@@ -1165,3 +1170,1215 @@ persisté comme dans l'ordre source, puis toutes les fixtures sont nettoyées.
 `c9_commerce_runtime.py` passe à nouveau pour les 29 routes ; rapport actualisé.
 Les vraies transactions source (stock/retour/recharge/paiement) sont conservées.
 Le serveur local a été arrêté après cette dernière preuve.
+
+## C10 — point d'avancement et portage caisse legacy — 2026-09-24
+
+Statut : C10 global reste ouvert. La demande de point d'avancement a confirmé
+que le dépôt était propre, et que la reprise précédente s'était arrêtée à
+l'inventaire des routes restantes. Les libellés historiques C10.1/C10.2/C10.3
+et « prochaine action C10.4 » ci-dessus sont des subdivisions de travail ; le
+plan officiel n'a qu'un checkpoint C10.
+
+Handoff relu : baseline, plan, tasklist, ledger, README contrats/inventaire,
+git status et source HEAD propre sur
+`530018cd20c2acbe88f38b3639e500b5271e2eb2`. Aucun inventaire régénéré. Le relevé
+AST des méthodes/chemins confirme après portage 18 routes actives manquantes.
+Les déclarations `return.ts` ne sont pas appelées par `index.pb.ts` ou
+`master.pb.ts` : les deux routes retour actives viennent de `sale.ts`, et
+`/api2/test` est dormant dans ces bootstraps.
+
+Périmètre implémenté : les dix routes actives `/api2/caisse` de `caisse.ts`.
+Fichiers métier : `app/legacy/caisse.py`, `app/hooks/legacy_caisse.py`, registre
+de hooks ; tests : nouveau `tests/test_legacy_caisse_contract.py`, mise à jour
+des registres attendus dans tests auth/customer/foundation/poc ; preuve runtime
+`scripts/c10_caisse_runtime.py` et `docs/c10-caisse-runtime-report.json`.
+Documentation : contrat legacy-caisse, matrice routes/tests, plan, tasklist,
+AGENTS, README contrats, D-0013 et ce ledger.
+
+Contrats comparés au TypeScript : méthodes/chemins, données caisse/wallet/amount,
+ordre auth puis rôle caisse, rôle isAdmin absent pour non-admin, 401, erreurs
+400/403, enveloppes `{message}`, `{error}`, `{success,...}` et corps 200 vide,
+rapports publics `{caisse,report,cashier,transactions}`/`{caisse,transactions}`,
+agrégat `{datas}`. Dates comparées lexicalement comme SQLite, expand auteur et
+type de dépense, status actif/non actif et relations wallet/session conservés.
+Lecture complémentaire du code officiel PocketBase 0.22.27
+`models/record.go:518-568` : emailVisibility et PublicExport. Régressions pour
+email non visible, dates vides et scan entier du montant agrégé.
+
+Preuve PostgreSQL/HTTP : dix routes passantes, ouverture/rejet/réouverture,
+permissions avec rôles modifiés à chaud, rapports non vides anonymes, retrait
+fractionnaire avec soldes tronqués, compteur wallet toujours 1, mouvement wallet
+restant actif après annulation WITHDRAWAL, double reversal non-admin, rejet
+d'une transaction inactive. Une faute sur UPDATE caisse laisse la session OPEN.
+Une faute sur INSERT transaction caisse laisse le mouvement wallet précédent
+mais aucun changement de solde. Fixtures et triggers supprimés en finally et
+absence des fixtures recontrôlée. Aucune atomicité englobante ajoutée.
+
+Commandes et résultats :
+
+- `make start` a d'abord échoué : PostgreSQL/Docker arrêtés. Relance de Docker
+  Desktop et `make postgres-up`, puis démarrage PPBase réussi, jobs désactivés.
+- `.venv/bin/python scripts/c10_caisse_runtime.py` : passant après correction
+  de la fixture session (REQUEST_OPEN n'appartient pas à son select), transaction
+  unitaire requise par PPBase pour la suppression et sérialisation PublicExport.
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **115 passed** ; Ruff OK ; format : **83 files already formatted**.
+- `make migrate-status` : **7 applied / 0 pending / 0 orphaned**.
+  `make verify-all` : **114/114**, **42/42**, aucune erreur de relation/métadonnées.
+
+Limites : tests source + PPBase, sans replay des dix handlers caisse sur un
+serveur PocketBase dans cette session. Toutes les branches d'annulation et
+formes malformées, erreurs moteur/dialecte SQL, concurrence, SDK files/realtime
+restent non prouvées. La preuve de caisse ne clôture pas C10. Aucun import de
+production, intégration externe métier, modification TS/framework, migration,
+commit ou staging.
+
+Prochaine action exacte : poursuivre C10 avec les quatre routes de
+`src/entries/customer.ts` (conserver `pvd`, permission create absente pour le
+manager, sauvegardes partielles et champ `parent` défectueux), puis quatre
+purchase, cinq sale/return et cinq master PDV/pilotage/rupture. La gate C10
+globale et la comparaison des comportements encore ouverts restent à faire.
+
+Validation finale de cette reprise : le script caisse a été rejoué après le
+dernier ajustement SQL avec succès, y compris la date contenant une apostrophe
+(400 `{message:"Error",error:{}}`). Suite 115 tests, Ruff, format et diff check
+passants. Le serveur PPBase démarré pour la preuve est arrêté ; le service
+PostgreSQL local reste disponible. La source TypeScript est toujours propre.
+
+## C10 — 18 routes restantes portées, comparaison et SDK — 2026-09-24
+
+Statut : toutes les routes actives inventoriées sont implémentées ; **C10 reste
+ouvert**, car des écarts SQL/projection ont été mis en évidence. L'utilisateur
+demande d'avancer avec prudence ; les résultats ci-dessous remplacent le relevé
+précédent de 18 routes manquantes, sans annoncer une clôture prématurée.
+
+Handoff relu, état Git existant conservé, source propre confirmée sur
+`530018cd20c2acbe88f38b3639e500b5271e2eb2`. Pas de régénération de l'inventaire
+source ni de modification TS/framework. Les changements de la session caisse
+précédente étaient encore non commités et ont été conservés.
+
+### Code et contrats
+
+Portage de `customer.ts` (4 routes), `purchase.ts` (4), `sale.ts` (5) et
+`master.pdv.ts`/`master.pilotage.ts`/`master.rupture.ts` (5). Nouveaux services
+`app/legacy/{records,customer,commerce,master,http}.py`, hooks
+`app/hooks/{legacy_people,legacy_commerce,legacy_master}.py`, registre et tests
+de contrat. `return.ts` est dormant dans les deux bootstraps ; `/api2/test`
+n'est pas ajouté et ses déclarations retour ne remplacent pas celles de sale.ts.
+
+Les sauvegardes internes conservent leur ordre et leurs effets partiels :
+personne/PDV avant erreur SIM, achat/dette/stock avant article absent, paiement
+vente avant session, annulations répétées et confirmation retour répétée.
+Le manager customer ne gagne pas create, purchase/add et return ne reçoivent
+pas de garde métier inventée, la numérotation facture défectueuse reste à 1,
+le mauvais champ parent et la compensation vente filtrant buy restent inchangés.
+
+Une référence PocketBase 0.22.27 officielle a été téléchargée et lancée sur
+127.0.0.1:8098. `scripts/c10_prepare_reference.py` transpile les modules gelés
+dans un dossier temporaire, importe l'export corrigé avec `new Collection`,
+puis enregistre seulement les modules de test. L'ordre initial de migration
+et l'import de simples objets JS ont échoué ; l'import correct a été exécuté
+sans retirer d'index, relation, vue ou champ de l'export.
+
+Le contrôle automatique avait refusé un lancement en interprétant le log
+rupture « cron configurée » comme un job actif. Vérification du JS compilé :
+cronAdd et fetchAndPrintReports sont entièrement commentés dans run(). Après
+présentation de cette preuve, le lancement local a été approuvé. Aucun cron ni
+appel Orange n'a démarré ; le test pilotage confirme son échec avant config.
+
+Comparaisons exécutées : méthodes/chemins, guard/middleware, 401/403/404/500,
+content type, enveloppes message/error/data/success et corps 200 vides,
+relations stock/caisse/session/personne/SIM/PDV/agent, soldes/statuts et retries.
+Les différences découvertes ont été corrigées : 401 guard complet, 404 DAO
+non capturé, GoError capturé `{value:{}}` distinct d'Error JS `{}`, et 404 d'un
+rapport caisse absent. Le message SQL caisse est maintenant `{error:{value:{}}}`.
+Les guards correspondants des anciens modules ont reçu l'enveloppe exacte ;
+les permissions elles-mêmes n'ont pas été élargies.
+
+### Vues et SDK
+
+Le scénario PDV non vide a révélé une erreur cible : 27 alias de neuf vues
+avaient été convertis en minuscules par PostgreSQL. Migration
+`1789236847_c10_view_alias_case.py`, traducteur et vérification physique des
+colonnes corrigés. Rollback puis réapplication de cette seule migration testés.
+La requête C9 `transaction_stats` est adaptée à `v."authorName"`. Un redémarrage
+après migration renouvelle les plans préparés ; le cached-plan error observé
+pendant les essais n'est pas masqué par un retry métier.
+
+Le SDK JS PocketBase installé dans le dépôt web est utilisé réellement via
+Node 26 et EventSource natif : login, refresh, CRUD, filtre, expand, fichier PNG
+uploadé puis retéléchargé octet pour octet, et événement realtime update.
+Le premier test realtime PPBase a échoué : sa règle ne chargeait pas la relation
+role de l'abonné et comparait une chaîne vide à un booléen. Le nouvel adaptateur
+`app/auth/realtime.py` recharge le contexte propre à l'abonné à chaque événement,
+isolé par ContextVar ; `context.py` partage le chargeur HTTP/realtime. Le
+framework sibling n'est pas édité. Une révocation de lecture supprime l'événement
+puis son rétablissement réactive la réception. Un test concurrent vérifie que
+deux abonnés ne partagent ni contexte ni droit de l'émetteur.
+
+### Commandes et preuves finales
+
+- `scripts/c10_remaining_runtime.py` : **18 routes, 60 comparaisons égales**,
+  fixtures nettoyées et absence recontrôlée sur les deux serveurs.
+- `scripts/c10_caisse_reference_runtime.py` : **10 routes, 34 comparaisons égales**,
+  dont EXPENSE/VERSEMENT/DEPOSIT/WITHDRAWAL, rapports publics et emailVisibility.
+- `scripts/c10_sdk_runtime.py` : **passant sur les deux serveurs**, y compris
+  permission de l'abonné révoquée/rétablie et suppression de la fixture/fichier.
+- `c10_legacy_sql_runtime.py`, `c10_stockage_runtime.py`,
+  `c10_native_hooks_runtime.py`, `c10_caisse_runtime.py` : passants et cleanup OK.
+- `c8_finance_runtime.py` : passant, concurrence et cleanup OK.
+  `c9_commerce_runtime.py` : **29 routes, assertions et cleanup OK**, rejoué après
+  correction authorName de la requête de statistiques.
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **126 passed**. Ruff OK ; **98 fichiers formatés** ; git diff check OK.
+- `make migrate-status` : **8 appliquées / 0 pending / 0 orphaned**.
+  `make verify-all` : **114 définitions**, **42/42 vues** ; aucun alias camelCase
+  manquant. Deux pseudo-colonnes rowid de D-0006 sont signalées séparément.
+
+Documentation et artefacts : rapports remaining/caisse-reference/SDK/global C10,
+contrat legacy-remaining, legacy-caisse actualisé, routes, matrice de tests,
+AGENTS, plan, tasklist, D-0014/D-0015 et ce ledger. Le rapport global a le statut
+**incomplete**, même si ses scénarios de routes et SDK sont passants.
+
+### Blocages et prochaine action exacte
+
+`/sql` reste incompatible avec certaines expressions SQLite : la même requête
+constante strftime renvoie 200 sur PocketBase et 500 UndefinedFunction sur
+PPBase (`docs/c10-sql-dialect-gap.json`). Ce n'est pas un défaut source à
+conserver ; un client existant peut casser après changement d'URL.
+Les vues `buma_article_with_no_stock_list_view` et `buma_stockage_no_manager`
+ont aussi perdu la projection rowid lorsque D-0006 a mappé rowid vers id puis
+retiré la projection en double. Le nouveau contrôle l'expose, sans fallback.
+
+Prochaine action : traiter la compatibilité SQL SQLite des routes publiques
+SQL et la projection de ces deux vues, avec preuve comparée, puis clôturer
+uniquement si la gate globale passe. Aucun nouveau groupe de routes ne reste
+à porter. Les variantes SSE delete/options, fichiers protégés et autres formes
+non exercées restent des limites de preuve distinctes. Aucun import production,
+cutover, commit, staging ou changement du dépôt TypeScript/framework.
+
+État de fin de cette reprise : rapports globaux/routes mis à jour ; source
+toujours propre ; diff check et Ruff/format passants. Les serveurs PPBase
+8090 et PocketBase de référence 8098 ont été arrêtés après les preuves. Docker/
+PostgreSQL local reste disponible. Le dossier temporaire de référence contient
+uniquement son schéma et ses fixtures synthétiques ; les fixtures des scripts
+comparatifs et SDK ont été nettoyées et leur absence recontrôlée.
+
+## C10 — clarification des usages rowid/strftime — 2026-09-24
+
+Demande utilisateur : expliquer concrètement les champs/fonctions, leurs
+équivalents PostgreSQL et les fichiers/routes où ils sont utilisés. Session
+d'analyse et correction du suivi uniquement ; aucun code métier modifié,
+serveur démarré ni test runtime rejoué.
+
+Handoff relu, état Git conservé, HEAD source confirmé à 530018c. Commandes :
+git status/rev-parse, git grep puis grep récursif src/ et migrationsDir/, lecture
+JSON des 114 définitions et de source-inventory, lectures numérotées du
+traducteur, de la migration vues et des deux handlers SQL. Recherche auxiliaire
+dans le dépôt Boutique : des usages strftime existent dans ses propres hooks,
+mais ils n'établissent pas un usage du backend Master gelé.
+
+Résultat : **aucune occurrence SQL strftime dans le code/migrations/schéma
+Master examinés**. L'expression du rapport c10-sql-dialect-gap était une sonde
+synthétique envoyée par l'agent à POST /sql. Le handler source index.pb.ts:37
+exécute requestData.query ; son portage legacy_sql.py:72 envoie cette requête
+sans traduction à PostgreSQL. PostgreSQL peut produire le même texte via
+`to_char(DATE '2026-09-24', 'YYYY-MM-DD')`. La différence de dialecte mesurée est
+réelle, mais son utilisation par une fonctionnalité cliente n'avait pas été
+établie et ne doit pas être présentée comme telle.
+
+Les deux rowid manquants sont dans l'export corrigé :
+buma_article_with_no_stock_list_view (ligne 10311) lit a.rowid depuis
+buma_article ; buma_stockage_no_manager (15705) le lit depuis users. Le
+traducteur generate_native_baseline.py:98 remplace a.rowid par a.id puis supprime
+le doublon ; migration vues aux lignes 1077/6213. Les tables et les IDs existent,
+mais la valeur rowid attendue par le schéma de ces vues n'est plus projetée.
+Accès : API/SDK native de collection, aucun handler métier explicite lisant
+rowid trouvé dans src/entries (seulement les types de tables).
+
+La même règle affecte une troisième vue, buma_stock_transaction_list_view :
+`a.rowid AS article_id` dans l'export/migration source
+1774706510_updated_buma_stock_transaction_list_view.js:7 devient `a.id AS article_id`
+dans la migration Python:6148. Le nom reste présent, mais sa valeur change de
+sens (identifiant entier SQLite contre ID PocketBase texte).
+
+Tasklist, plan, AGENTS, D-0015 et rapports globaux sont précisés. C10 reste
+ouvert pour les traductions rowid ; le volet SQL libre doit être cadré selon
+ses appels réels. Prochaine action : corriger ces projections en préservant leur
+contrat, puis vérifier les requêtes des clients SQL. Aucun changement source,
+staging, commit ou modification de données.
+
+## C10 — recherche rowid, correction sourcée et clôture locale — 2026-09-24
+
+L'utilisateur exige une relecture de `/Users/omarsisss/Documents/wproject/protech/buma_master_hooks`
+et une recherche PocketBase/SQLite fondée, puis demande où rowid est réellement
+utilisé. Handoff relu, Git/source HEAD revérifiés, changements existants conservés.
+Le source demeure propre sur `530018cd20c2acbe88f38b3639e500b5271e2eb2`.
+
+### Provenance et recherche
+
+L'usage SQL dans le dépôt BUMA est la migration
+`migrationsDir/1774706510_updated_buma_stock_transaction_list_view.js:7`,
+`a.rowid AS article_id`, ainsi que ses versions antérieures. Dans src/entries,
+les occurrences rowid sont uniquement les types aux lignes 1013/1450 de
+master.tables.types.ts. Les requêtes des deux autres vues proviennent de
+l'export corrigé (article_with_no_stock et stockage_no_manager), distinction
+explicitement expliquée à l'utilisateur. Aucun handler métier rowid inventé.
+
+Sources primaires téléchargées/lues : sqlite.org/rowidtable.html, autoinc.html,
+lang_createtable.html, lang_vacuum.html ; PocketBase v0.22.27
+daos/record_table_sync.go, base.go, record.go, view.go, models/record.go et
+models/schema/schema_field.go. Références exactes dans docs/contracts/rowid.md.
+La création officielle utilise `id TEXT PRIMARY KEY`, sans WITHOUT ROWID.
+Le DDL réel d'une base créée par le binaire officiel a confirmé l'absence de
+colonne déclarée masquant rowid pour users/article. Le moteur du serveur donne
+sqlite_version()=3.46.0 ; la version sqlite3 du lecteur Python n'est pas confondue
+avec celle du serveur. La version effectivement déployée en production reste
+inconnue, à identifier avec le backup C11.
+
+La preuve PocketBase a observé les valeurs [1,2,2,3,3,4] après créations,
+update, suppression d'un trou, suppression du maximum et rollback. Les trois
+API renvoient rowid/article_id sous forme de nombres JSON ; le CRUD de base ne
+les expose pas. L'affectation SQL explicite du maximum signé provoque ensuite
+l'allocation d'un entier positif libre. PocketBase utilise son inférence JSON
+pour un champ SQL inconnu, sans transformer ce nombre en objet JSON.
+
+### Correction et périmètre
+
+Migration `pb_migrations/1789236848_c10_sqlite_rowid.py` : bigint interne dans
+users/article, allocation max+1 sous verrou transactionnel, réutilisation après
+suppression/rollback et gestion du maximum signé. Elle restaure les expressions
+a.rowid des trois vues au lieu de les remplacer par l'ID texte. Aucun champ
+public n'est ajouté aux collections de base ; le contexte auth exclut rowid.
+Le schéma PocketBase et le code TypeScript ne sont pas modifiés. Les deux tables
+locales étaient vides (comptage avant migration). La migration refuse tout
+backfill arbitraire si elles contiennent des lignes ; C11 devra importer les
+valeurs SQLite originales explicitement. Son rollback exige également une cible
+vide pour ne pas perdre ces identifiants.
+
+`scripts/generate_native_baseline.py` conserve les expressions source ;
+`verify_complete_schema.py` ne tolère plus les deux projections manquantes.
+`app/legacy/views.py`, installé par legacy_records, reproduit PublicExport sur
+ces trois vues : dates système absentes omises et NULL de LEFT JOIN préparés
+suivant le type source. Le stockage SQL reste entier, ce qui conserve les filtres
+numériques natifs. Fichiers framework sibling inchangés.
+
+Reproduction ajoutée à `c10_prepare_reference.py --rowid-only` : copie de l'export
+et helper temporaire seulement, aucun module métier/cron/intégration. Nouveau
+`scripts/c10_rowid_runtime.py`, tests rowid/migration et régression traduction.
+Artefacts : docs/c10-rowid-reference-research.json, c10-rowid-runtime-report.json,
+contrat rowid.md, D-0016/D-0017, tasklist/plan/AGENTS/matrice/rapport global.
+
+### Résultats
+
+- Référence PocketBase 0.22.27 sur 8099, fraîche et jetable : trois vues natives,
+  filtres/fields, type numérique, champ caché et cycle d'allocation comparés.
+- `c10_rowid_runtime.py` : **12 comparaisons passantes**, 20 insertions PG
+  concurrentes avec 20 valeurs uniques, rollback et cas du maximum signés,
+  fixtures nettoyées et absence recontrôlée.
+- Rollback puis replay de la seule migration rowid sur cible vide : passants.
+- `c10_remaining_runtime.py` : 60 comparaisons ; caisse-reference : 34 ;
+  SDK : login/refresh/CRUD/filter/expand/PNG/realtime et révocation/rétablissement
+  passent sur les deux serveurs. Toutes les gates C10 antérieures rejouées.
+- C8 complet et C9 complet (29 routes) : passants, cleanup OK.
+- pytest sans cache : **131 passed** ; Ruff et format **101 fichiers** OK ;
+  diff check OK. `make migrate-status` : **9 applied / 0 pending / 0 orphaned**.
+  `make verify-all` : **114 définitions / 42 vues**, zéro projection manquante.
+
+### Décision
+
+**C10 clôturé pour le code gelé, le schéma fourni et la gate locale documentée.**
+La sonde strftime était synthétique et n'est pas transformée en fonctionnalité
+BUMA à inventer. D-0017 fixe explicitement la limite du SQL fourni librement :
+exécution native PostgreSQL, aucune émulation complète de SQLite revendiquée.
+L'artefact de cette différence est conservé et son impact potentiel sur des
+requêtes ad hoc doit être contrôlé avant cutover ; il n'est pas présenté comme
+un appel métier retrouvé. Les comportements de maintenance SQLite comme VACUUM
+ne sont pas une promesse de stabilité du rowid ni une émulation implémentée.
+
+Le prochain checkpoint est C11, **non commencé** : backup/version source,
+diagnostic d'import, IDs/relations/fichiers et rowid historiques à conserver,
+tests clients de staging, rollback et décision de bascule. Aucun import
+production, cutover, commit ou staging n'a été effectué pendant C10.
+
+Fin de cette reprise : source toujours propre, diff check passant, absence des
+fixtures users/article recontrôlée. Les serveurs PPBase 8090, référence source
+8098 et référence rowid 8099 ont été arrêtés. PostgreSQL local reste disponible.
+
+## Rectification — SQL libre et clôture C10 retirée — 2026-09-24
+
+L'utilisateur demande ce que signifie la « limite du SQL libre exécuté sur
+PostgreSQL ». Relecture de index.pb.ts:37 et master.article.ts:30, ainsi que
+legacy_sql.py:72/115 : les deux handlers reçoivent une chaîne query. Le portage
+l'envoie directement au moteur PostgreSQL ; cela ne garantit pas l'acceptation
+des requêtes que l'exécution SQLite acceptait auparavant.
+
+L'agent avait transformé cette différence en limite supposée acceptable et
+annoncé la clôture C10. Cette clôture est retirée : la documentation ne constitue
+ni une correction technique ni une acceptation de changements côté client.
+D-0017 est marquée retirée ; tasklist, plan, AGENTS, README, matrice et rapport
+global reprennent le statut ouvert/incomplete. Les 131 tests, 106 comparaisons,
+SDK et correction rowid restent acquis ; aucun code métier n'a changé ici.
+
+Commandes : git status, lectures source/portage/suivi et correction documentaire,
+git diff --check. Aucun test runtime rejoué ni serveur démarré pour cette
+clarification. Prochaine action : finaliser la compatibilité des deux routes
+SQL à partir de leur contrat source, sans imposer un dialecte différent aux
+clients par décision unilatérale. C11 reste non commencé.
+
+## Reconstitution de la session C10 SQL interrompue — 2026-09-25
+
+Demande actuelle : relire le projet et retrouver précisément le point d'arrêt.
+Cette session effectue la reconstitution et les contrôles statiques ; elle ne
+modifie que ce ledger et la tasklist. Aucun code applicatif, script, migration
+ou rapport de preuve antérieur n'est modifié. Les changements non commités de
+la session précédente sont conservés.
+
+### État confirmé et provenance
+
+Handoff relu : baseline, plan, tasklist, ledger, README des contrats et inventaire.
+La source est propre sur `fix/uv-paani-sup`, HEAD
+`530018cd20c2acbe88f38b3639e500b5271e2eb2`, conforme au manifeste. Le SHA-256
+de l'export corrigé reste
+`9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d`.
+C9 est fermé pour sa gate locale corrigée D-0009. C10 reste ouvert ; la
+clôture D-0017 a été retirée. Les rapports du 24 septembre conservent leurs
+106 comparaisons ciblées (60 + 34 + 12), les preuves SDK/rowid et les validations
+9 migrations / 114 définitions / 42 vues. Ces gates runtime ne sont pas
+rejouées dans cette reconstitution. C11 et l'import restent non commencés.
+
+### Travaux effectivement laissés par la session précédente
+
+Tâche retrouvée : « Reprendre le travail C9 »,
+`01a0ced1-b5b1-78c0-be9b-e04c1ef22195`. Son tour
+`01a0d83d-d808-7852-901e-b782e0f3bf7f` se termine le 25 septembre à
+11:25:53 UTC par `context_length_exceeded`. Les sorties des outils du journal
+de session permettent de distinguer préparation, essai échoué et preuve.
+
+- `scripts/c10_sql_usage_audit.py` a été exécuté : rapport
+  `docs/c10-sql-usage-audit.json` daté de 11:13:27 UTC. Il examine 416 fichiers
+  backend et 2 205 fichiers dans huit chemins clients candidats. Aucun motif
+  d'appel n'est retrouvé dans ces clients. Le frontend Master n'est pas fourni ;
+  ce résultat ne prouve pas l'absence d'utilisation des routes. La recherche
+  n'est pas réexécutée aujourd'hui ; son rapport et sa méthode sont relus.
+- `scripts/c10_prepare_reference.py --sql-only` prépare une référence
+  PocketBase 0.22.27 avec les handlers gelés et un helper de fixtures/restauration.
+- `scripts/c10_stored_sql_runtime.py` doit comparer deux requêtes exactes :
+  la somme par `type` de `buma_caisse_transactions`, filtrée sur la session
+  `bra4vsynv2vrpih` et `status=true` dans l'export ; puis
+  `SELECT (ROW_NUMBER() OVER()) as id` dans
+  `migrationsDir/1736833029_created_buma_sql_table.js`.
+  Ces requêtes sont sourcées ; les lignes de test et le paramètre `fields`
+  du script restent synthétiques, et aucun appel frontend n'est établi.
+
+Un essai HTTP isolé antérieur au script, consigné à 11:17:14 UTC, obtient pour
+la requête ROW_NUMBER via `/sql` : `200 [{"id":"1"}]` sur les deux serveurs
+alors interrogés. Ce seul succès ne valide pas les deux requêtes/deux routes.
+
+Le script complet a bien été lancé deux fois. Les sorties de 11:20:27 et
+11:25:27 UTC échouent toutes deux dans `replay(True)`, sur
+`fixture_api(action="restore_collection", table="buma_sql_table")` : HTTP 400
+`{"code":400,"message":"Something went wrong while processing your request.","data":{}}`.
+`replay(False)` n'est donc pas atteint. La restauration manuelle intermédiaire
+a annoncé 200 et un nettoyage, mais l'essai suivant échoue encore. La cause
+interne du 400 n'est pas établie par ces sorties. Ne pas le présenter comme
+une incompatibilité SQL métier. Aucun fichier
+`docs/c10-stored-sql-runtime-report.json` n'a été produit.
+
+### Vérifications effectuées dans cette reprise
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **131 passed in 0.82s**, code de sortie 0.
+- `.venv/bin/ruff check --no-cache app tests scripts` : **5 diagnostics**
+  dans les deux nouveaux scripts SQL : deux E501 dans l'audit, un I001 et
+  deux F401 dans le script runtime. Le lint historique passant du rapport
+  du 24 septembre ne décrit donc plus l'ensemble des fichiers actuels.
+- `.venv/bin/ruff format --no-cache --check app tests scripts` :
+  **103 files already formatted** ; `git diff --check` : passant.
+- Lectures des handlers `index.pb.ts:37`, `master.article.ts:30/87`, du portage
+  `app/hooks/legacy_sql.py`, des trois scripts et des rapports C10. `/sql`
+  exécute `query` et façonne les résultats avec `fields` ; `executeSql` modifie
+  la définition persistante de `buma_sql_table` puis renvoie la collection.
+  Les statuts/enveloppes, inférences de champs et lectures natives attendues
+  sont identifiés dans le source et le script, sans nouvelle preuve HTTP.
+- `lsof` identifie une référence PocketBase toujours en écoute sur 8098 dans
+  le dossier temporaire `buma-c10-reference-lqk8119d`. Le processus qui écoute
+  actuellement sur 8090 a pour cwd `mali_foot/backend_mf`, **pas BUMA**. Aucun
+  de ces services n'est arrêté, relancé ou utilisé pour une mutation ici.
+  La commande `ps` a été refusée par le sandbox ; `lsof -d cwd` suffit pour
+  ce constat. Ne pas lancer le script tel quel contre le port 8090 actuel.
+- Lecture SQLite en mode `ro` de cette seule référence jetable : zéro ligne
+  pour la session de test et zéro ligne avec la note `C10 source query proof`.
+  La requête agrégée est présente. Cette lecture ne remplace pas la comparaison
+  au snapshot initial du script : la restauration exacte des métadonnées
+  reste non certifiée après l'échec du helper. Le PostgreSQL BUMA n'a pas été
+  réinterrogé dans cette session.
+
+### Décision et prochaine action exacte
+
+Reconstitution terminée ; C10 reste ouvert. La suite précise est de corriger
+les diagnostics des scripts, diagnostiquer le helper PocketBase de restauration
+et vérifier son snapshot aller/retour sur une référence fraîche, puis démarrer
+BUMA sur un port libre explicitement identifié et rendre ce port configurable
+dans le scénario. Rejouer les deux requêtes sans les réécrire, comparer HTTP,
+enveloppes, métadonnées de vue, lectures natives et restauration/nettoyage,
+et produire le rapport avant de conclure sur ces cas. Le frontend ou des
+captures de ses appels restent nécessaires pour établir les usages clients.
+La sonde `strftime` demeure synthétique. Aucun changement client, clôture C10,
+cutover, import, staging ou commit n'est décidé par cette reprise.
+
+## C10 — recherche des appels dans le desktop fourni — 2026-09-26
+
+Demande : explorer en lecture seule le dossier
+`/Users/omarsisss/Documents/wproject/protech/buma-master-desktop-2.3.1` pour
+retrouver les appels aux deux routes SQL. Handoff relu avec les constats de
+la reprise précédente ; inventaire/source confirmés sur le commit gelé
+`530018cd20c2acbe88f38b3639e500b5271e2eb2`, source TypeScript propre. Le desktop
+est une copie sans métadonnées `.git` ; aucune correspondance avec une version
+effectivement déployée n'est présumée. Son AGENTS.md a été lu.
+
+### Preuve d'appel retrouvée
+
+`qml/BuMa/Apps/UserSetting/Component_SQL.qml:412-441` contient un appel actif :
+`PocketBaseClient.collection("any").send("/master/article/executeSql", "POST", data)`.
+`data` contient uniquement `{query: editor.text}` ; le texte par défaut de
+l'éditeur est **`SELECT * FROM users`** (ligne 170). Ni `fields` ni mot de passe
+SQL ne sont ajoutés au corps de cet appel. Le client C++ joint le token de
+session dans l'en-tête Authorization et sérialise ce corps en JSON.
+
+Après le succès du POST, le client appelle
+`PocketBaseClient.collection("buma_sql_table").getList(1, 1000)`, soit le GET
+natif `/api/collections/buma_sql_table/records` avec page 1/perPage 1000.
+Le corps du POST n'est pas exploité pour l'affichage ; le JSON du GET doit
+contenir `items`. Le tableau retire `collectionId`/`collectionName`, puis tire
+ses colonnes de la première ligne. Ce parcours est donc à comparer dans son
+ensemble, pas uniquement par le statut HTTP du POST.
+
+Chaîne d'accès vérifiée dans les fichiers :
+
+- `qml/BuMa/Apps/CMakeLists.txt:19/40` inclut et lie UserSetting ; son
+  CMakeLists ajoute les fichiers QML au module `BuMa.Apps.UserSetting`.
+- `qml/BuMa/Pages/ConstantBackends.qml:180/192` enregistre le module
+  « Administration » ; `Model/AppsModel.qml:236` utilise `role.isAdmin`.
+- `Apps/UserSetting/Main.qml` charge `List` et affiche NotAllowed hors admin.
+- `Apps/UserSetting/List.qml:368/383/407/720` présente « Console administrateur »,
+  ouvre une vérification locale de mot de passe et instancie `Component_SQL`.
+- `3rd/PocketBase/src/PocketBaseCollection.cpp:80-87` transmet l'appel en POST ;
+  `PocketRequest.cpp:188-190/433-445` construit l'URL racine + chemin, sans
+  ajouter `/api` au chemin custom, avec JSON et Authorization.
+  Le GET de collection emprunte le chemin natif avec `/api`.
+
+La requête dépend de la saisie libre de l'administrateur. Aucun catalogue
+exhaustif de SQL métier n'est fourni. Une liste de requêtes sauvegardées est
+prévue dans l'interface (`Settings.sqlQuery`, `List.qml:347-350`), mais ses
+valeurs runtime ne sont pas dans cette copie et le flux sauvegarder/recharger
+n'a pas été exécuté. Il présente aussi des références `query.text`/`field.text`
+dans le bouton sauvegarder alors que l'éditeur utilisé pour envoyer est
+`editor.text` ; aucune correction du frontend n'est faite dans cet audit.
+
+### Étendue de recherche et résultats négatifs
+
+Recherche par `grep -RInE` dans QML/C++/JS, puis balayage Python de **26 659
+fichiers / 193 435 093 octets**, sans exclusion d'extension, avec recherche des
+routes, noms de fonctions et segments SQL. Les fichiers binaires sont parcourus
+comme octets ; les archives ne sont pas décompressées. Le rapport
+`docs/c10-desktop-sql-usage-audit.json` contient motifs, chemins, lignes,
+SHA-256 des fichiers avec correspondance et empreinte du manifeste parcouru.
+
+- `/master/article/executeSql` : un site d'appel explicite, ci-dessus.
+- `buma_sql_table` : une lecture explicite, au même endroit.
+- `/sql` : aucune requête HTTP identifiée ; cinq correspondances concernent
+  uniquement l'icône `sql.svg`/`sql.qml` de Qaterial.
+- `/api/sql2`, `/master/article/deleteSql`, segments littéraux isolés
+  `sql`/`executeSql`/`deleteSql` : aucune autre correspondance trouvée.
+- `strftime` : aucune occurrence littérale retrouvée dans ce balayage.
+- Les autres `executeSql` de `Model/StorageModel.qml` et
+  `Providers/StorageModel.qml` passent par les drivers de stockage local
+  (Database QSQLITE/QtQuick.LocalStorage), pas par ces routes HTTP.
+
+Ces résultats remplacent le constat « frontend Master non fourni » pour
+**cette copie** seulement. Une absence de résultat ne prouve pas l'absence
+d'usage dans une autre version, une construction encodée ou du trafic réel.
+La console trouvée établit un appel prévu par le frontend ; elle ne démontre
+ni son utilisation effective en production ni les requêtes saisies dans le passé.
+
+### Validation, périmètre et suite
+
+Fichiers ajoutés/modifiés dans le dépôt PPBase : nouveau rapport d'audit,
+tasklist et présent ledger uniquement. Aucun fichier desktop, source gelée,
+code applicatif, script de test ou migration modifié. Pas de build Qt, appel
+HTTP, lancement de serveur, fixture ou test runtime pendant cette exploration.
+Validation documentaire : JSON du rapport relu/parsable, liens de preuve
+contrôlés dans les sources, `git diff --check` passant. Les statuts/réponses,
+permissions effectives, mutations de vue, hooks, rollback et concurrence du
+parcours desktop restent à comparer en runtime.
+
+Décision : exploration demandée terminée, **C10 reste ouvert**. Prochaine
+action : réparer la restauration du scénario de test déjà bloqué, utiliser
+une référence PocketBase fraîche et un port BUMA identifié, puis reproduire
+le parcours desktop exact à partir de sa requête initiale et des deux requêtes
+stockées déjà identifiées. Vérifier les réponses et la liste native obtenue.
+La saisie SQL libre est désormais une fonction cliente concrètement retrouvée ;
+ne pas supposer que quelques requêtes statiques couvrent tous ses usages,
+ni imposer une modification de dialecte au client sans décision utilisateur.
+Les requêtes réellement utilisées/sauvegardées restent à recueillir si une
+validation des usages historiques est requise. C11 n'est pas commencé.
+
+## C10 — décision utilisateur sur la console et /sql — 2026-09-26
+
+Après l'audit desktop, l'utilisateur décide explicitement : « comme le backend
+est ppbase, quand l'admin écrit des requêtes postgresql ça passera normalement »
+et, sans usage `/sql` trouvé, « le mettre de côté pour le moment ».
+
+Décision enregistrée sous **D-0018** : la console `executeSql` accepte le SQL
+PostgreSQL saisi par l'administrateur. Son transport `{query}`, sa réponse
+collection, sa modification de vue et le GET natif de `buma_sql_table` restent
+le contrat à préserver. La requête doit rester utilisable comme définition de
+vue avec `id`, comme l'exige cette route ; toutes les commandes SQL ne sont
+pas promises exécutables. La route `/sql` reste dans le code ; ses recherches
+d'usage et sa compatibilité SQLite sont reportées et ne bloquent plus C10.
+Il ne s'agit ni de la supprimer ni de déclarer qu'elle est inutilisée partout.
+
+Handoff et état Git relus ; source toujours propre au commit gelé `530018c`.
+Lecture du handler `app/hooks/legacy_sql.py` : il utilise déjà PostgreSQL,
+donc cette décision ne nécessite aucune modification de code. L'ancienne
+décision D-0017 reste retirée : D-0018 est une autorisation nouvelle donnée
+après découverte de l'appel frontend, pas une clôture rétroactive.
+
+Fichiers documentaires mis à jour : `AGENTS.md`,
+`docs/decisions-and-divergences.md`, `docs/contracts/legacy-sql.md`,
+`docs/contracts/README.md`, `docs/implementation-plan.md`,
+`docs/migration-ppbase-tasklist.md`, `docs/test-matrix.md`,
+`docs/c10-runtime-report.json` et ce ledger. Le rapport global conserve la date
+et les résultats de la gate historique ; son périmètre/décision/blocage actuels
+sont actualisés séparément. Aucun rapport d'audit ou runtime antérieur n'est
+présenté comme réexécuté.
+
+Commandes : git status/rev-parse, lectures ciblées des documents et des tests
+SQL existants, mise à jour documentaire, parse JSON et `git diff --check`.
+Aucun test applicatif, serveur, requête HTTP, migration ou fixture lancé ;
+aucun changement de frontend/source/backend, commit ou staging. Le contrat
+méthode/chemin/{query}/vue/GET natif est relu ; réponses, permissions, champs,
+persistance, rollback et comportement Qt ne sont pas nouvellement validés.
+
+Décision de fin : cadrage demandé enregistré ; **C10 reste ouvert** uniquement
+pour les validations de son périmètre retenu. Prochaine action exacte : préparer
+un scénario console isolé sur un port BUMA identifié, garantir la restauration
+de la vue, puis tester `SELECT * FROM users`, un cas PostgreSQL spécifique,
+le POST executeSql → GET natif page 1/perPage 1000, les champs/types/enveloppes
+et les effets des erreurs, avant la gate finale. Reprendre le helper de référence
+si nécessaire à la comparaison du contrat ; ne pas relancer l'audit SQLite
+global ni faire de `/sql` un blocage tant que son report n'est pas levé.
+Les cinq diagnostics Ruff constatés le 25 septembre sur les scripts préparatoires
+ne sont pas corrigés par cette décision. C11/import/cutover non commencés.
+
+## Coordination C10 en attente et préparation C11 autorisée — 2026-09-26
+
+L'utilisateur demande de suspendre le travail C10 dans cette session jusqu'à
+disponibilité du build BUMA Master desktop pour les tests réels. C10 reste
+ouvert et sa validation/clôture restent à la charge de cette session
+(`01a0d862-ed57-7083-a12c-cfca5f38235b`). Aucun suivi automatique n'est demandé
+ou créé ; la reprise dépendra du retour utilisateur avec le build.
+
+L'utilisateur souhaite poursuivre la suite dans une nouvelle session et
+demande uniquement un mini prompt de transmission. La préparation C11 est
+donc explicitement autorisée malgré C10 ouvert : diagnostic des artefacts,
+plan/outillage d'import et vérifications sur environnement isolé. Ne pas
+reprendre ou clôturer C10 dans cette autre session. D-0018 demeure applicable
+(console PostgreSQL, `/sql` reporté mais présent). Préserver les changements
+existants, la source gelée, les IDs/relations/fichiers et les rowid historiques.
+Aucune autorisation d'import de production ou de cutover n'est déduite.
+
+Périmètre de ce tour : coordination uniquement ; `AGENTS.md`, plan, tasklist
+et ledger mis à jour. Commandes : `git status --short --branch`, lectures des
+consignes/suivi et `git diff --check`. Aucun code, route, enveloppe, hook,
+permission ou comportement SDK changé ; aucun test/runtime exécuté.
+Décision : attendre sur C10 et remettre le prompt demandé. C11 n'est pas
+exécuté ici et aucune nouvelle session n'est créée par cet agent.
+
+## C11 — préparation et répétition synthétique isolée — 2026-09-26
+
+Statut : préparation effectuée ; **C11 ouvert**, backup réel en téléchargement
+chez l'utilisateur. C10 reste volontairement en attente du build desktop,
+réservé à sa session d'origine. Aucune reprise des scénarios console, aucune
+clôture C10 et aucune modification de D-0018 ou de `/sql`.
+
+### Périmètre et artefacts
+
+Handoff complet relu avant les changements : AGENTS, baseline, plan, tasklist,
+ledger, contrats/inventaire. `git status --short --branch` a montré les
+changements C10 déjà présents ; ils sont conservés. Source TypeScript propre
+sur `fix/uv-paani-sup`, HEAD `530018cd20c2acbe88f38b3639e500b5271e2eb2`, égal au
+manifeste. Aucune régénération d'inventaire, aucun changement TS/framework.
+L'export corrigé possède toujours l'empreinte `9d99e7b5…b2313d` attendue.
+
+Recherche bornée par noms dans le projet, source, Downloads et temporaire :
+export corrigé disponible ; sauvegardes nommées BUMO/ACME/PPBase non identifiées
+comme Master, donc non ouvertes. Après demande de chemin, l'utilisateur
+précise qu'il télécharge le backup, volumineux. Aucun contenu de backup réel
+lu, copié ou importé. Le binaire PB 0.22.27 de référence locale antérieure
+est réutilisé uniquement pour créer de nouvelles fixtures synthétiques.
+Rapport d'artefacts : `docs/c11-artifact-diagnostic.json`.
+
+Fichiers ajoutés : `scripts/c11_import.py`, `scripts/c11_fixture.py`,
+`scripts/c11_rehearsal.py`, `tests/test_c11_import.py`,
+`docs/c11-preparation.md`, `docs/c11-artifact-diagnostic.json` et
+`docs/c11-rehearsal-report.json`. Fichiers de suivi actualisés : AGENTS,
+tasklist, D-0019 dans `docs/decisions-and-divergences.md`, présent ledger.
+Aucun fichier applicatif ou migration officielle modifié dans cette session.
+
+### Outils et contrats conservés
+
+Le diagnostic propose un inventaire ZIP sans extraction (empreinte en flux,
+taille décompressée déclarée, chemins/doublons/WAL, aucun CRC/donnée prétendu
+validé) et une lecture SQLite hors ligne `ro&immutable`, jamais sur un serveur.
+Il compare les 114 définitions avec l'export, puis comptes, valeurs, relations,
+fichiers et doublons d'idempotence. Rapport privé sans valeurs des records.
+Les snapshots/version inconnus, WAL actifs, schémas dérivés, relations
+orphelines et conversions avec perte sont bloqués.
+
+La répétition n'accepte aucune URL de DB ni source externe : création d'un
+conteneur PostgreSQL local jetable, neuf migrations officielles, fixtures PB
+nouvelles et copie privée vérifiée. L'import SQL lit cette copie, garde IDs,
+relations, dates, booléens, JSON, listes, fichiers, hashes auth/token keys,
+statuts et soldes, sans hook métier/recalcul. Rowids users/article natifs
+préservés ; tous les autres rowids et dates auth legacy également archivés
+dans une table technique privée. Le SQLite complet original est conservé.
+Refus de cible non vide et verrouillage avant contrôle ; aucune fusion.
+Les 24 seeds C5 ne sont retirés que dans la cible neuve possédée par le harness.
+
+Source de comparaison : export corrigé, contrat rowid et migration 1789236848,
+contraintes C4/seed C5, stockage/auth PPBase lus sans modification, véritable
+DDL et records créés par PB 0.22.27. Le source TS n'est pas réexécuté et aucun
+nouveau contrat de route métier n'est porté.
+
+### Commandes et résultats
+
+- `.venv/bin/pytest -p no:cacheprovider tests/test_c11_import.py -q` :
+  **23 tests C11** (conversions, rowid obligatoire, refus tableaux non
+  représentables, lecture seule, fichiers/empreintes, chemins, ZIP, non-écrasement).
+- `.venv/bin/python -m scripts.c11_rehearsal --pocketbase <binaire local
+  0.22.27> --schema /Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json
+  --report /private/tmp/buma-c11-rehearsal-attempt5.json` : **passant**.
+  Copie du résultat et limites dans `docs/c11-rehearsal-report.json`.
+- **9 migrations ; 114 définitions / 42 vues** contrôlées avant et après.
+  **9 records / 8 collections, 6 relations, 3 fichiers / 38 octets** conservés.
+  users rowids 41/93, article 7001 et fournisseur -17 archivé ; dates
+  millisecondes, statut false, solde -17.25 et JSON imbriqué vérifiés.
+- Erreur forcée après trois insertions : rollback des 72 tables, valeurs
+  initiales des **24 seeds** exactement restaurées, table technique annulée,
+  fichiers de staging supprimés. Deux importeurs concurrents : **9** records
+  une seule fois ; second résultat **target_not_empty**, sans duplication.
+- Scénarios négatifs passants : relation orpheline, clé C4 dupliquée, schéma
+  dérivé, nombre invalide, fichier absent et relation multiple non représentable.
+- HTTP cible après import : `users` login/refresh 200 `{token,record}`,
+  `agent_users` login avec hash PB et lecture owner 200 ; mauvais mot de passe
+  400 ; accès caisse admin 200/non-admin 404 ; fournisseur anonyme 404 ; article
+  public 200 selon sa règle source. Liste native avec enveloppe
+  `{page,perPage,totalItems,totalPages,items}`, filtre article, expand
+  article/auteur ; trois GET fichiers identiques octet pour octet. Aucun hash,
+  tokenKey ou rowid interne dans le record public. Relecture SQL/fichiers après
+  HTTP sans modification métier. **Pas de nouveau replay HTTP PocketBase
+  comparé, SDK JS, desktop ni E2E de production.**
+- Suite finale : **154 passed in 0.82s** ; Ruff et format des quatre fichiers
+  C11 passent ; `git diff --check` passe. Ruff global retrouve uniquement les
+  **cinq diagnostics préexistants C10** documentés le 25 septembre ; ils ne
+  sont pas corrigés dans cette session réservée à C11.
+- Serveur de répétition arrêté ; conteneur et dossiers temporaires supprimés.
+  Le conteneur exploratoire C11 initial et ses deux fixtures préparatoires
+  sont également supprimés. Aucun service existant arrêté/modifié, aucun
+  commit, staging ou reset.
+
+Les premiers essais ne sont pas comptés comme preuves passantes : accès Docker
+sandbox refusé puis autorisé ; une mutation de schéma de test initialement
+identique au source a été remplacée par une vraie dérive ; le test HTTP initial
+attendait à tort 404 pour l'article public et a été réaligné sur les règles
+exportées, avec contrôle séparé d'une collection réellement privée.
+
+### Blocages et décision
+
+**D-0019** : PB traite `maxSelect: null` comme une relation multiple ; les
+colonnes cibles observées `buma_customer.pdv`, `buma_pilotage_ticket.tag` et
+`buma_wallet.managers` sont scalaires. Le diagnostic refuse leurs records,
+y compris avec `[]`, au lieu d'aplatir ou de stocker une fausse référence.
+Le scénario positif exclut ces trois tables et un scénario négatif teste
+explicitement deux IDs. Cette preuve limitée ne valide donc pas l'import
+d'un Master complet. Aucun correctif de domaine ou reprise C10 engagé ici.
+
+Restent ouverts : backup/version réels et anomalies effectives, import de
+toutes les tables peuplées, performance gros volumes, configuration/admins/
+OAuth et anciens tokens, fichiers protégés/S3, récupération SIGKILL/disque
+plein et validations staging/client. La copie SQLite conserve les informations
+internes, mais elles ne sont pas activées arbitrairement dans PPBase.
+
+Décision : préparation et première répétition synthétique terminées, C11
+non clôturé. **Prochaine action exacte** : après réception du chemin du backup
+téléchargé, lancer l'inventaire ZIP en lecture seule, identifier provenance et
+version, vérifier l'espace disque puis diagnostiquer une copie hors ligne.
+Présenter les anomalies sans corriger les données. Aucun import de production
+ni bascule n'est autorisé par cette préparation.
+
+## C10 — build reçu et instructions de démarrage local — 2026-09-26
+
+L'utilisateur indique avoir reçu le build desktop et demande les commandes
+pour lancer le serveur local puis configurer son tunnel. Le préalable matériel
+à l'attente est donc levé ; aucun test desktop n'est encore déclaré effectué.
+
+Vérifications : lecture Makefile/README/Compose, configuration `.env` limitée
+aux paramètres utiles sans divulgation de secrets, `ppbase serve --help`,
+`git status`, HEAD source toujours `530018c`, `lsof` ports et cwd. Le port 8090
+est occupé par `mali_foot/backend_mf` ; aucun listener trouvé sur 8091 au moment
+du contrôle. Le venv existe et le CLI répond. La cible `.env` est PostgreSQL
+local sur 55434/base `buma_master_ppbase`, avec jobs internes désactivés.
+
+Instructions à remettre : ouvrir Docker Desktop, `make postgres-up`, puis
+`make start HOST=127.0.0.1 PORT=8091 BUMA_MASTER_ENABLE_INTERNAL_JOBS=false`.
+Le Makefile charge `.env`, les hooks BUMA et les migrations ; celles en attente
+sont appliquées au démarrage. Vérifier `/api/health`, diriger le tunnel vers
+`http://127.0.0.1:8091`, puis saisir l'URL HTTPS racine du tunnel dans l'app.
+
+Fichiers changés : ledger et tasklist uniquement. `git diff --check` exécuté.
+Aucun serveur/tunnel lancé par l'agent, aucune migration appliquée ici, aucun
+contrat HTTP/permission/persistance/SDK ou comportement desktop validé dans ce
+tour. Décision : C10 reste ouvert, prochaine action utilisateur démarrage puis
+test du build ; cette session accompagnera les résultats avant clôture.
+
+## C10 — absence de lien de premier administrateur — 2026-09-26
+
+L'utilisateur confirme la connexion réseau du desktop au serveur, mais ne
+connaît pas l'administrateur et attend le lien de création initiale PPBase.
+Lecture du framework editable (`ppbase/app.py:174-196`) : le lien unique
+`/_/setup?token=...` est généré/affiché uniquement si `count_admins == 0`.
+
+Vérification en transaction PostgreSQL READ ONLY sur la base locale configurée :
+un superuser `admin@admin.ad` existe ; `users=0`, `roles=0`, `buma_config=0`.
+Cette base n'est donc pas neuve au niveau des comptes techniques. GET `/` et
+`/_/` sur 8091 répondent 200 (JSON BUMA et HTML dashboard). L'accès réseau
+sandbox initial a échoué ; la vérification locale autorisée a réussi ensuite.
+Un unique essai avec les identifiants d'initialisation présents dans le source
+desktop a retourné 400 ; aucun mot de passe valide n'est connu et aucun jeton
+n'a été affiché. Aucun compte/mot de passe n'a été créé, supprimé ou modifié.
+
+Le desktop s'authentifie via la collection `users` et lit `roles.permission`.
+Son contrôle initial lit également `buma_config.CONFIGURATION_1.adminSetup` :
+le superuser du dashboard seul ne suffit donc pas à initialiser le desktop.
+Les données de bootstrap absentes sont signalées, sans inventer de configuration
+ni importer le schéma desktop sur la baseline officielle.
+
+Commandes : CLI `--help` et `create-admin --help`, lectures framework/frontend,
+HTTP local, comptages SQL READ ONLY, git status/source HEAD et diff check.
+La commande interactive `.venv/bin/python -m ppbase create-admin` lit `.env`,
+demande email/mot de passe et refuse de remplacer un email existant. Elle est
+indiquée à l'utilisateur pour créer son propre accès technique avec un autre
+email sans effacer la base. Pas de test de parité métier/console dans ce tour.
+
+Fichiers modifiés : ledger et tasklist uniquement ; les nouveaux fichiers C11
+apparus dans le checkout sont laissés intacts. C10 reste ouvert. Prochaine
+action : accès dashboard personnel, puis initialisation explicite du compte
+`users`, rôle administrateur et configuration métier avant le test desktop.
+
+## C10 — clarification des champs système users — 2026-09-26
+
+L'utilisateur a accédé au dashboard et demande la provenance des champs
+`id` et `tokenKey`. Vérification du schéma local en SQL READ ONLY : aucun
+champ métier `tokenKey` ni `rowid` ajouté à users ; password est matérialisé
+avec min=5 et username par la migration de compatibilité prévue. Les relations
+métier correspondent à l'export corrigé.
+
+Le framework `record_service.py` génère l'id si absent et la token_key lors de
+la création auth. L'UI `system-fields-display.tsx` affiche id/tokenKey dans
+la description des champs système, avec le badge Nonempty ; ce n'est pas une
+demande de fournir une valeur technique. Réponse : ne pas les renseigner,
+ils sont gérés automatiquement. Aucun identifiant/secret n'est inventé.
+
+Commandes : lectures export/migrations/record-editor/system-fields-display et
+record_service, schéma SQL READ ONLY, git status/source HEAD et diff check.
+Aucun compte, collection, donnée, frontend ou framework modifié. Ledger et
+tasklist seuls actualisés ; nouveaux travaux C11 préservés. Pas de test runtime
+de création exécuté ; C10 reste ouvert, création de l'utilisateur par le
+dashboard puis validation desktop toujours attendues.
+
+## Rectification — id et tokenKey réellement affichés en création — 2026-09-26
+
+L'utilisateur précise l'écran exact : « New users record », avec Email,
+Password, Confirm, **id*** et **tokenKey***. L'explication précédente supposant
+qu'il s'agissait seulement de la description des champs système était erronée.
+
+Cause identifiée en lecture du framework/dashboard PPBase :
+`ppbase/models/collection.py::CollectionResponse.from_record` ajoute les champs
+système auth au contrat public, dont `id` required et `tokenKey` required,
+system/hidden, avec génération automatique. `admin-ui/src/components/record-editor.tsx`
+prend `collection.fields` en priorité et, lors de la création auth, ne retire
+que `email` de la liste générique ; id/tokenKey sont donc rendus par
+`RecordFieldInput` comme des champs texte. `record_service.py` génère pourtant
+ces valeurs à la création. Le problème est l'édition de ces champs internes
+dans le dashboard, pas l'absence de données métier BUMA.
+
+Correction attendue dans le framework PPBase : ne pas demander tokenKey dans
+le formulaire, traiter id comme généré automatiquement (éventuelle édition
+explicite/avancée conforme au dashboard de référence), exclure ces valeurs
+internes du payload générique et éviter les doublons de champs auth dédiés.
+Ne pas supprimer les métadonnées système du contrat API ni modifier le schéma
+BUMA pour contourner le formulaire. Cette correction n'est pas réalisée ici.
+
+Commandes : lectures ciblées record-editor/record-field-input, sérialisation
+CollectionResponse et génération côté record_service ; `git -C ../ppbase status`
+(checkout propre au contrôle), diff check. Aucun test runtime de création,
+compte, secret, donnée, code BUMA/frontend/framework modifié ; ledger/tasklist
+seuls actualisés. C10 reste ouvert ; le formulaire dashboard est un blocage
+concret supplémentaire à résoudre pour l'initialisation manuelle du test.
+
+## C10 — origine historique de la régression dashboard auth — 2026-09-26
+
+L'utilisateur relève que les anciennes versions PPBase n'affichaient pas id et
+tokenKey en création, et suspecte le travail `pocketbase-auth-parity-v0404`.
+Audit en lecture seule du framework : hypothèse confirmée. Aucun code corrigé.
+
+Git blame/log/show identifient le commit
+`8aec0617e0af5a55b1f0374e60e01eca6a9ed72f`, daté du **2026-09-21 à 14:35:03 UTC**,
+`fix(auth): align password field resolution with PocketBase`. Il ajoute onze
+lignes dans `ppbase/models/collection.py::CollectionResponse.from_record`,
+incluant id/password/tokenKey/email/emailVisibility/verified lorsque
+`record.type == "auth"`. id et tokenKey sont marqués required et ajoutés aux
+deux représentations publiques schema/fields, sans modifier le stockage.
+
+Le journal de la tâche PPBase `01a0ba03-d5cd-7b61-8245-43cfcc3b7330` date
+l'édition agent originale du **2026-09-19 à 15:27:13 UTC** (apply_patch réussi ;
+la tentative de 15:26:44 avait échoué). Cette édition faisait partie du travail
+de parité auth utilisé par le handoff C3 BUMA, puis a été incluse dans le commit
+du 21 septembre. Ce n'est pas une modification du formulaire desktop BUMA.
+
+`admin-ui/src/components/record-editor.tsx` est inchangé entre le parent
+`54a3b99`, le commit fautif et HEAD PPBase `5cc3dc0`. Le filtre générique ne
+retire qu'email en création auth ; les nouveaux champs serveur apparaissent
+donc comme des entrées à renseigner. Le `main` local (`aaa7c5a`) ne contient pas
+cet ajout. Aucune consultation distante/fetch n'a été réalisée ; les références
+origin citées sont les références locales connues.
+
+Preuve comparative exécutée sans serveur ni base : chargement en mémoire du
+modèle CollectionResponse depuis quatre révisions Git, mêmes métadonnées
+synthétiques, puis application de la sélection de champs du formulaire.
+Parent et main local : zéro entrée id/tokenKey ajoutée. Commit 8aec061 et HEAD :
+`[id, tokenKey]` pour chacune des collections auth `_superusers`, `users` et
+`agent_users`. Une collection base `roles` reste inchangée dans les quatre cas.
+Assertions passantes ; ce test ne prétend pas être un rendu navigateur.
+Artefact : `docs/c10-auth-dashboard-regression-audit.json`.
+
+Le test existant `test_auth_collection_response_preserves_normalized_password_minimum`
+contrôle password.min, mais ne vérifie pas l'affichage du formulaire. Les
+preuves auth unitaires précédentes ne constituaient donc pas une validation
+de non-régression du dashboard.
+
+Fichiers changés ici : rapport d'audit, ledger et tasklist uniquement.
+Commandes : git log -S/blame/show/diff/branch, lecture ciblée du journal de
+session, comparaison Python des quatre révisions, parse JSON/diff check et
+vérification du checkout PPBase propre. Aucun compte, donnée, endpoint,
+frontend ou fichier du framework modifié ; travaux C11 préservés.
+
+Décision : C10 reste ouvert. Corriger ensuite cette interaction métadonnées
+auth/formulaire dans PPBase et vérifier les trois collections auth, sans
+effacer la base ni annuler globalement les corrections de mot de passe.
+L'historique confirme une régression de notre changement serveur de parité,
+pas un comportement ancien normal du dashboard.
+
+## Clôture définitive C10 sur décision utilisateur — 2026-09-28
+
+Demande explicite : « ppbase a été correctement corrigée », « la C10 va être
+considérée comme totalement finie maintenant, tu peux la fermer ».
+**C10 est terminé**, décision D-0020. Ce statut remplace les attentes et gates
+supplémentaires des dernières reprises ; il ne rétablit pas la clôture
+unilatérale D-0017 retirée. D-0018 reste inchangée : PostgreSQL accepté dans
+la console administrateur, `/sql` reporté et conservé.
+
+### Portée et fichiers
+
+Mise à jour de suivi uniquement : `AGENTS.md`, `docs/implementation-plan.md`,
+`docs/migration-ppbase-tasklist.md`, ce ledger,
+`docs/decisions-and-divergences.md`, `docs/c10-runtime-report.json`,
+`docs/contracts/README.md`, `docs/contracts/routes.json`,
+`docs/contracts/legacy-sql.md`, `docs/contracts/legacy-remaining.md`,
+`docs/test-matrix.md` et la note de coordination de `docs/c11-preparation.md`.
+Aucun code, migration, compte, donnée ou rapport runtime détaillé modifié.
+Les changements des autres sessions dans BUMA/PPBase sont conservés.
+
+Handoff relu avec les nouveaux documents C11. Source TypeScript toujours
+propre sur `fix/uv-paani-sup@530018cd20c2acbe88f38b3639e500b5271e2eb2`, conforme
+au manifeste. Aucun inventaire source régénéré. PPBase contient des changements
+locaux de correction ; ils ne sont ni modifiés ni retestés ici. La confirmation
+de correction est celle de l'utilisateur.
+
+### Preuves conservées et limites
+
+Le rapport global garde sa date de gate historique et ajoute une date/base de
+clôture distincte : **acceptation explicite utilisateur**, pas nouvel essai.
+Preuves précédemment enregistrées : 60 comparaisons des 18 routes restantes,
+34 comparaisons caisse et 12 comparaisons rowid, soit 106 ; SDK réel
+auth/refresh/CRUD/filter/expand/fichier/realtime avec révocation des droits ;
+131 tests dans la gate C10 enregistrée ; 9 migrations, 114 définitions, 42 vues.
+Les statuts/messages/enveloppes HTTP, guards, effets séquentiels/hooks natifs,
+relations persistées, rollback/concurrence/idempotence applicables et les
+opérations SDK sont ceux des scénarios décrits dans leurs rapports existants.
+
+Aucune nouvelle comparaison HTTP, création native, opération SDK, exécution
+desktop Qt, test PostgreSQL ou validation de persistance/rollback/concurrence
+n'est exécutée dans ce tour. Le rapport du script SQL interrompu demeure absent
+et n'est pas fabriqué. Les tests non enregistrés et les diagnostics historiques
+des scripts ne deviennent pas passants du seul fait de cette clôture. Ils ne
+constituent plus des conditions bloquantes C10 après la décision utilisateur.
+
+Commandes/contrôles de ce tour : lectures des documents/rapports, Git status
+dans BUMA et PPBase, rev-parse/status source, lecture du dernier log PPBase,
+parse JSON des rapports et de l'inventaire, contrôle de cohérence des nouveaux
+statuts et `git diff --check`. Aucun test applicatif lancé ; la modification
+documentaire ne nécessite pas de rejouer toute la gate.
+
+### Suite
+
+Décision : clôturer C10 et reprendre au premier checkpoint ouvert, **C11**.
+Sa préparation synthétique du 26 septembre (9 records, 3 fichiers, rollback,
+concurrence, auth et lectures HTTP) reste acquise pour son périmètre. Il reste
+à recevoir/identifier le backup Master terminé, exécuter son diagnostic en
+lecture seule, puis traiter les blocages d'import, notamment D-0019 concernant
+les relations multiples. Ne jamais aplatir leurs listes ni deviner les rowids.
+Cette clôture n'autorise aucun import de production ni cutover. Aucun commit,
+staging, reset ou nettoyage n'a été effectué.
+
+## C11 — chemin du backup reçu et clarification du périmètre — 2026-09-28
+
+L'utilisateur annonce le ZIP à
+`/Users/omarsisss/Documents/wproject/protech/master-backup.zip` et demande
+exactement son usage prévu et ce que couvre C11. Ce tour répond à cette
+question ; il ne lance pas le diagnostic du backup. Archive non ouverte,
+non extraite, non hashée ; existence/taille/contenu non vérifiés.
+
+Handoff relu : consignes, baseline, périmètre C11 du plan/tasklist, dernières
+entrées ledger, README des contrats, provenance/comptes de l'inventaire et
+rapport d'artefacts C11. `git status --short --branch`, lecture du manifeste
+et `git -C ../buma_master_hooks rev-parse HEAD` confirment toujours le commit
+gelé `530018cd20c2acbe88f38b3639e500b5271e2eb2`. Modifications existantes
+conservées ; aucun inventaire régénéré.
+
+Explication remise : C11 couvre diagnostic du backup, préparation de l'import
+fidèle, répétition sur cible fraîche isolée, comparaison des données/fichiers
+et comportements clients, procédure de rollback puis éventuelle bascule sous
+autorisation distincte. L'étape immédiate prévue avec le ZIP est un rapport
+de compatibilité : intégrité/provenance, schéma, IDs, relations, rowids,
+fichiers et anomalies, sans réécriture de la sauvegarde. Le prototype actuel
+n'importe que ses fixtures synthétiques ; aucune restauration réelle n'est
+lancée du seul fait que le chemin vient d'être fourni.
+
+Fichiers modifiés : tasklist (chemin reçu séparé du diagnostic encore ouvert)
+et ce ledger. Validation documentaire : `git diff --check`. Aucun test,
+serveur, appel API/SDK, hook, permission, persistance, rollback ou concurrence
+réexécuté ; les preuves synthétiques du 26 septembre ne deviennent pas des
+preuves sur ce backup. Aucun import de données de production ni cutover.
+
+Les documents locaux comportent une nouvelle clôture C10 D-0020 datée du
+28 septembre, tandis que les consignes fournies dans le contexte de ce tour
+reprennent encore son état en attente. Ce tour ne modifie aucun statut C10
+et ne reprend aucun de ses travaux ; cette différence n'affecte pas
+l'explication du périmètre C11 demandé.
+
+Décision : terminer la clarification ; C11 reste ouvert. Prochaine action
+technique prévue : inventaire en lecture seule du ZIP indiqué, puis diagnostic
+d'une copie hors ligne, en conservant l'archive originale. Import réel et
+bascule restent hors du périmètre exécuté dans ce tour.
+
+## C11 — diagnostic réel du backup, étapes 1 et 2 — 2026-09-28
+
+Statut : **diagnostic terminé ; import bloqué ; C11 ouvert**. Après l'explication
+du périmètre, l'utilisateur répond « okay cool alors, vas y ». Autorisation
+appliquée aux deux étapes annoncées : examen du ZIP et diagnostic hors ligne,
+sans import PostgreSQL. Il fournit ensuite **PocketBase v0.22.34** comme
+version source. Aucun test ou changement C10 ; aucun accès à un serveur réel.
+
+### Provenance et fichiers
+
+Handoff et mémoire C11 relus, état Git existant préservé ; source gelée et
+inventaire conformes au manifeste `530018cd20c2acbe88f38b3639e500b5271e2eb2`.
+Le ZIP fourni `/Users/omarsisss/Documents/wproject/protech/master-backup.zip`
+contient un README `buma_master_database`, `data.db`, `logs.db`, WAL vides,
+SHM, types.d.ts et storage. Aucun binaire/manifeste ne prouve la version ;
+0.22.34 est explicitement déclarée par l'utilisateur, jamais inférée.
+
+Fichiers nouveaux : `scripts/c11_snapshot_audit.py`,
+`tests/test_c11_snapshot_audit.py`, `docs/c11-master-diagnostic.md` et rapports
+`c11-master-{archive-inventory,extraction-report,initial-diagnostic,detailed-audit,
+duplicate-analysis,legacy-clues,multirelation-field-check,preservation-report,
+diagnostic-report}.json`. Fichiers de suivi actualisés : AGENTS (C11 seulement),
+tasklist, ledger, D-0021, `docs/c11-preparation.md` et ajout d'une mise à jour
+datée dans `docs/c11-artifact-diagnostic.json`. Aucun handler, migration,
+framework ou source TypeScript modifié.
+
+Copie privée dans `backups/c11-master-20260928/`, exclue de Git : répertoires
+0700/fichiers 0600, manifeste de chaque membre et détails privés des chemins
+fichiers. Aucune donnée de record, secret ou chemin de fichier personnel
+n'est publié dans les rapports de documentation.
+
+### Commandes et preuves
+
+- `git status --short --branch`, source `rev-parse`, lecture manifeste et
+  inventaire ; espace disque environ **260 Go libres** avant extraction.
+- `.venv/bin/python -m scripts.c11_import --archive
+  /Users/omarsisss/Documents/wproject/protech/master-backup.zip --report
+  docs/c11-master-archive-inventory.json` : inventaire passant, aucun chemin
+  dangereux/doublon/lien symbolique/chiffrement/WAL non vide.
+- Extraction Python `zipfile` en flux vers un nouveau dossier privé, sans
+  exécuter le contenu : **1 290 fichiers**, chaque CRC vérifié par lecture
+  complète, SHA-256 calculé ; **8 526 465 264 octets**, environ **11,18 s**.
+  ZIP **1 555 849 147 octets**, SHA-256
+  `541ca900839207c53dedb19b51e329bbec89c8e98774043c7b9dab2bbcd61295`.
+- `.venv/bin/python -m scripts.c11_import --data backups/c11-master-20260928
+  --schema /Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json
+  --report docs/c11-master-initial-diagnostic.json` : code 1 attendu,
+  **ready_for_isolated_rehearsal=false**. Version non fournie à ce premier
+  lancement ; réponse utilisateur 0.22.34 consignée dans les rapports suivants.
+- SQLite ouvert `mode=ro&immutable=1`, query_only : intégrité data.db **OK**,
+  empreinte **3539f3eb1c8659421526ede0e47ccc60482aaf0abd2c114282c05719d02b1afd**.
+  Schéma **114/114**, 70 base/2 auth/42 vues, aucun écart avec l'export corrigé.
+  **1 188 247 records** lus, rowids et contenus hashés, aucune réécriture.
+- Le premier diagnostic s'arrête au premier défaut par record et masquait
+  des fichiers/relations supplémentaires. Ajout d'un **audit séparé**, sans
+  relâcher les refus de l'importeur : `.venv/bin/python -u -m
+  scripts.c11_snapshot_audit --data backups/c11-master-20260928
+  --source-version 0.22.34 --report docs/c11-master-detailed-audit.json
+  --private-report backups/c11-master-20260928/c11-private-file-findings.json`
+  → **10,84 s**, **191 champs relationnels / 4 896 135 références**, tous les
+  **20 champs fichiers** contrôlés, même après un premier défaut.
+- Agrégats SQLite complémentaires en lecture seule : clés idempotentes par
+  type/auteur, hashes des records hors id/created/updated, correspondances
+  ancienne/nouvelle collection client, distribution des longueurs de listes,
+  sentinelles et catégories des objets storage. Résultats dans les rapports
+  duplicate-analysis, legacy-clues et multirelation-field-check.
+- Comparaison de préservation finale : ZIP et **1 290 membres extraits**
+  rehashés, tailles/empreintes toutes identiques au manifeste. Le data.db
+  archivé est daté du 15 septembre, logs.db du 16 septembre ; ces timestamps
+  ZIP sans fuseau ne constituent pas une preuve de capture cohérente.
+- `.venv/bin/pytest -p no:cacheprovider -q` : **157 passed in 1.12s**.
+  Ruff/format ciblés de l'outil C11 et tests : passants. Trois nouveaux tests
+  prouvent l'audit des arrays, le comptage record/cible distincte et la poursuite
+  après un fichier absent. `git diff --check` et parse JSON : passants.
+
+### Résultats et portée des comparaisons
+
+- **D-0019 confirmé sur 5 841 records** : customer.pdv 5 826 (331 listes non
+  vides), ticket.tag 4, wallet.managers 11 (une liste non vide). Aucun JSON
+  invalide ; les listes restent des listes même avec un seul élément. Lecture
+  du DDL/validateur PPBase actuel confirme `maxSelect null -> scalaire` ; aucune
+  nouvelle base PostgreSQL n'est lancée pour répéter la preuve physique ancienne.
+- **877 groupes mobile_message_id RETURN / 2 391 transactions**, max 16/groupe,
+  **tous différents sur des valeurs métier** hors IDs/timestamps. Aucune clé
+  system_id non vide dupliquée. L'index unique C4 rejetterait cet historique ;
+  aucune suppression des 1 514 lignes excédant une par clé, aucune réécriture
+  de clé ni désactivation d'index. `master.idempotency.ts` et
+  `master.retour.functions.ts` relus dans la source gelée.
+- **195 795 références sans cible / cinq champs** : vente.customer 115 325
+  vers ancienne table vide (115 168 existent dans la nouvelle, 157 non) ;
+  sim_balance_activity.author 80 461 valeurs `1` ; article.categorie sept
+  valeurs `0` ; customer.type une valeur `PERSONNE` aussi présente dans le setup
+  gelé ; wallet.managers un élément contenant deux IDs joints par virgule.
+  Ces valeurs sont source, pas des effets d'un import. Aucune cible inventée,
+  relation redirigée ou normalisation.
+- **2 899 fichiers référencés uniques : 596 présents, 2 303 absents**, dont
+  2 302 ressources et une image wallet. Aucun nom retrouvé ailleurs dans
+  storage, S3 désactivé dans la configuration archivée. **686 objets extra**
+  conservés : 601 `.attrs`, 80 miniatures et cinq autres ; ils ne sont pas
+  supprimés comme des fichiers supposés inutiles. Total storage **1 282 objets /
+  4 890 458 144 octets**. Aucun ancien serveur/autre backup consulté.
+- **20 users, 3 agent_users, un admin**, hashes bcrypt non vides et tokenKeys
+  de 50 caractères pour les 23 records auth ; présence contrôlée, aucun login.
+  Paramètres/secrets conservés dans le SQLite privé, jamais activés ; aucun
+  auth externe enregistré. Le contenu de logs.db n'est pas interrogé.
+
+Contrats comparés : métadonnées des 114 collections, IDs/rowids, formes
+relationnelles, fichiers natifs et correspondance champs auth. La comparaison
+est statique/offline sur les vraies données. **Aucune enveloppe HTTP, statut,
+permission effective, hook, CRUD/SDK, desktop, persistance PostgreSQL,
+rollback ou concurrence n'est exercé avec ces données.** Les preuves
+synthétiques antérieures ne sont pas réattribuées au backup réel.
+
+### Décision et prochaine action
+
+Les deux étapes demandées sont terminées, le backup original reste intact,
+la copie privée reste disponible pour vérification. D-0021 distingue les
+incompatibilités cible des anomalies historiques et des fichiers absents.
+Aucune différence/perte n'est acceptée et C11 reste ouvert.
+
+Prochaine action de préparation : concevoir une migration préservant les
+listes et toutes les transactions aux clés dupliquées, documenter le maintien
+des valeurs orphelines, rechercher ou qualifier explicitement les fichiers
+absents. Ensuite seulement préparer une répétition complète sur données
+réelles dans le périmètre autorisé, avec référence 0.22.34. **Aucun import
+PostgreSQL, bascule, service/external integration, commit, stage ou reset**
+effectué dans cette session ; les changements existants sont conservés.
+
+## Handoff du 2026-10-22
+
+Le dépôt local est prêt pour un agent suivant, mais l'état complet n'est pas
+encore publié sur GitHub : branche `features/auth`, HEAD local et distant
+`46fc6cd`, **33 fichiers suivis modifiés et 60 fichiers non suivis**. Le backup
+extrait `backups/c11-master-20260928/` est ignoré par Git et reste local.
+Une note de passation synthétique a été ajoutée dans
+`docs/next-agent-handoff.md`. Elle pointe vers le diagnostic C11 réel, les
+rapports, les blocages D-0019/D-0021 et les actions suivantes.
+
+Cette passation ne commit, ne stage, ne pousse et ne nettoie aucun changement.
+L'agent suivant doit travailler dans cet état local ou effectuer d'abord une
+revue contrôlée des changements avant toute publication GitHub. Il ne doit pas
+reprendre C10 ; le prochain checkpoint reste C11, avec stratégie d'import
+préservant arrays, doublons, références orphelines, rowids et fichiers absents.
+
+## Publication du travail local autorisée — 2026-10-22
+
+L'utilisateur demande explicitement « commit et push les sur github » après
+le relevé des changements locaux. Périmètre de livraison : **94 fichiers**,
+soit 33 fichiers suivis modifiés et 61 nouveaux fichiers, incluant la note de
+passation. Branche cible `features/auth`, remote
+`git@github.com:18BG/buma_master_ppbase.git` ; aucun merge vers `main` demandé.
+`git ls-remote --heads origin features/auth main` confirme avant publication
+`features/auth=46fc6cd` et `main=2ce54e4`.
+
+Le commit regroupe les travaux déjà autorisés C10/C11 : hooks/routes legacy,
+contexte realtime, corrections vues/rowids (migrations 1789236847/48), tests
+et scripts de preuve, diagnostics C11, contrats, décisions et suivi. Les
+rapports des sessions antérieures conservent leur portée/date ; aucune preuve
+runtime n'est régénérée ou inventée. Les données de production ne sont ni
+modifiées, ni importées, ni publiées.
+
+Changements effectués pour cette livraison uniquement :
+
+- `scripts/c10_sql_usage_audit.py` : deux chaînes longues réparties sur
+  plusieurs lignes, sans changement de valeur.
+- `scripts/c10_stored_sql_runtime.py` : tri des imports, retrait des imports
+  inutilisés `httpx` et `create_async_engine` ; aucun changement fonctionnel.
+- `docs/next-agent-handoff.md` : livraison sur la branche explicite, compte
+  initial historisé et dépendances externes détaillées. Le venv charge
+  `../ppbase` 0.3.1 editable, dont les changements locaux ne sont pas inclus.
+  Le clone GitHub ne contient pas le backup, l'export corrigé externe ni
+  la source TypeScript sibling. Tasklist et présent ledger actualisés.
+
+Vérifications exécutées avant commit :
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **157 passed in 0.68s** après nettoyage statique.
+- `.venv/bin/ruff check --no-cache app tests scripts` : **passant**.
+- `.venv/bin/ruff format --no-cache --check app tests scripts` :
+  **109 files already formatted**.
+- `git diff --check` et `git diff --cached --check` : passants.
+- Contrôle des 94 chemins et parsing des 27 fichiers JSON concernés :
+  passants ; recherche ciblée de clés privées, tokens GitHub/AWS/JWT et hashes
+  bcrypt littéraux sans résultat. Ce contrôle ne remplace pas un audit exhaustif.
+- `git check-ignore -v` confirme l'exclusion de `backups/`, `.env` et
+  `pb_data/.jwt_secret`. Le ZIP `../master-backup.zip` est hors dépôt.
+  Aucun fichier DB, archive ZIP, `.env` ou secret candidat dans l'index.
+- `git add -A` exécuté dans ce dépôt uniquement : 94 fichiers staged.
+
+Les comparaisons HTTP/SDK, permissions et effets hooks, rollback/concurrence
+restent les preuves historiques C10 et synthétiques C11. La présente validation
+est un contrôle de tests locaux, de style et de contenu à publier, pas un
+replay de serveur ni une validation de données réelles.
+
+Décision : créer le commit de livraison puis pousser normalement sur
+`origin/features/auth`, sans force push. La référence Git distante sert de
+confirmation finale. C10 reste fermé sous D-0020, C11 ouvert ; l'agent suivant
+reprend la stratégie de conservation D-0019/D-0021, sans import/cutover.

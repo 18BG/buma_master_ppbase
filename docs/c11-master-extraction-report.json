@@ -1,0 +1,14 @@
+{
+  "scope": "offline_backup_extraction_only",
+  "archive_sha256": "541ca900839207c53dedb19b51e329bbec89c8e98774043c7b9dab2bbcd61295",
+  "archive_unchanged": true,
+  "root": "/Users/omarsisss/Documents/wproject/protech/buma-master-ppbase/backups/c11-master-20260928",
+  "members": 1290,
+  "files": 1290,
+  "bytes": 8526465264,
+  "crc_all_files_ok": true,
+  "sha256_all_files_recorded": true,
+  "private_manifest": "/Users/omarsisss/Documents/wproject/protech/buma-master-ppbase/backups/c11-master-20260928/c11-extraction-manifest.json",
+  "elapsed_seconds": 11.18,
+  "postgresql_imported": false
+}

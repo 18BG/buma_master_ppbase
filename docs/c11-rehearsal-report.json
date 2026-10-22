@@ -1,0 +1,777 @@
+{
+  "timestamp_utc": "2026-09-26T17:18:28.543715+00:00",
+  "scope": "synthetic_import_preparation",
+  "c10_resumed": false,
+  "production_data_used": false,
+  "status": "passed",
+  "diagnostic": {
+    "mode": "offline_read_only",
+    "source_version": "0.22.27",
+    "production_authorized": false,
+    "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+    "blockers": [],
+    "collections": [
+      {
+        "name": "agent_users",
+        "id": "it0zrlwgubakjn6",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "23bda41537f11723c7a692a95679841d7a3bbf614f206a927579cf4317beff34",
+        "source_rows_sha256": "3025817cd956c844fffe7a5bb7d804ada632e36c7274160905e08b9c87c212b6"
+      },
+      {
+        "name": "users",
+        "id": "_pb_users_auth_",
+        "rows": 2,
+        "rowid_min": 41,
+        "rowid_max": 93,
+        "identity_sha256": "87758a22a668160f4bf7b10076d77ac6fb08c1d3beea5da7f7bcbfa7b12dc8f2",
+        "source_rows_sha256": "174dc01762712c9e9b9d77cbad4168d71961c87648bf0e141898ff004857ede4"
+      },
+      {
+        "name": "buma_agent",
+        "id": "3eb3aemdt1p8z2w",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_agent_doc",
+        "id": "hk3mgbyn90rkg9b",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_agent_doc_type",
+        "id": "cjlugbh0ivagt3z",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_apps_roles",
+        "id": "64a3j55w1esqqs0",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article",
+        "id": "8gwrmca55n1pw9i",
+        "rows": 1,
+        "rowid_min": 7001,
+        "rowid_max": 7001,
+        "identity_sha256": "02127677264971fbe3f240870f15e91b883cb84e2d8d718d8812ea280bfbe755",
+        "source_rows_sha256": "1750d1323a70265526551f1138a5e459b5f3feb3818f521b7defa9b5e7f2ec03"
+      },
+      {
+        "name": "buma_article_categorie",
+        "id": "iq5sw9lk8s5lcax",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_components",
+        "id": "nfsnn0i2sx0qopd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock",
+        "id": "wqnalhwf7wp4mts",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock_designation",
+        "id": "t3vebzn43oztrrh",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock_session",
+        "id": "dloqlsocb7q7cxb",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stockage",
+        "id": "34338d0ihxaxaad",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_unite",
+        "id": "o7g4jwrkzul3wv6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_buy",
+        "id": "bwqeemm6uufjkfd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_buy_item",
+        "id": "detodbw69zipc1t",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_bw",
+        "id": "g59i32ftidg0jn3",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse",
+        "id": "4hhvam1jwlv4ekk",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_access",
+        "id": "ou09dalnjnwz44k",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+        "source_rows_sha256": "98eef48d4c66340650e7971f9a8985bf8d761cab54d67f87890c1c43584bead5"
+      },
+      {
+        "name": "buma_caisse_expense_type",
+        "id": "iow8g4ooe3nvrsj",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_open_close",
+        "id": "tga1qlg616xwn5c",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_transactions",
+        "id": "6y0f0rx6t5eauo1",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_customer",
+        "id": "fnb2m2dhoemjgqd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_group",
+        "id": "5a17w0050kwn42q",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_product",
+        "id": "p1pzmk81g8e27b2",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_config",
+        "id": "zlsffpxp71r6jyh",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_conversion",
+        "id": "83pj5ryd48a9t1x",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer",
+        "id": "ynd8qrm418yp975",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_document",
+        "id": "i5s8u1sqc33dct7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_document_type",
+        "id": "8g7kofta0j25xoz",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_number",
+        "id": "hixcukd84uzbpub",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_old",
+        "id": "ef34l79pquuwbz1",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_pdv",
+        "id": "6exbgeq4b5iztd6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_solder_history",
+        "id": "31kv12xpjrw5r6k",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_type",
+        "id": "rz0tl1k4ddly3ix",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_user",
+        "id": "78g31fn92mr18j5",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee",
+        "id": "fn8o9mvij3xs3dh",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_contract",
+        "id": "zui0phvyss2g6ox",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_contract_type",
+        "id": "wtlp2yyexvsi50d",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_debt",
+        "id": "78bymqyq6uz1av7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_debt_payment",
+        "id": "h4p8tpqewogrezo",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_document",
+        "id": "kh9dq0o4pbpu88j",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_document_type",
+        "id": "o8qdc2uc8f09ryt",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_position",
+        "id": "31330khx2jrvp7t",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_invoice",
+        "id": "29lztvbdmnprpo6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_invoice_item",
+        "id": "r3o6wxamzk89olm",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_payment",
+        "id": "l1rvyoznm344mrb",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_payment_method",
+        "id": "hioc4qai5ii0oad",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pdv",
+        "id": "l0wk3fy5xnw6et7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pdv_doc",
+        "id": "slf0g0jondx5mp6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pdv_doc_type",
+        "id": "hanki3uqp2t1jqr",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_person_entity",
+        "id": "vpwlli3nohzxkft",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pilotage_ticket",
+        "id": "oxglyj8dmehpqop",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pilotage_ticket_tag",
+        "id": "6sh812zhxaxcxdz",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_ressources",
+        "id": "0a3v1ce6rutrwvr",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "67bcb4e354b45f0a5fb8d679aaf0f625a0e3dae56df1c424bce023f06b4a424c",
+        "source_rows_sha256": "f3a1df45e922a4841e43a57e34fdb9b5716f3f4f3c767efd9e5c71cb37fd2b39"
+      },
+      {
+        "name": "buma_return",
+        "id": "bmm8r0xl4j30jo3",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_return_regexp",
+        "id": "ent9ovilek8a135",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_rupture",
+        "id": "3xsk1eqcls0qz1h",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_sale",
+        "id": "zwbizbmz7d9icbf",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_sim",
+        "id": "kr6zwb9oabrvxiq",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_sim_balance_activity",
+        "id": "h30baoim3q09w14",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_stockage_user",
+        "id": "cdgjnixv24bsdqp",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_supplier",
+        "id": "ui5alk9pbys9wai",
+        "rows": 1,
+        "rowid_min": -17,
+        "rowid_max": -17,
+        "identity_sha256": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+        "source_rows_sha256": "c5bbf0292af9319d3779c28671e2934b50e38237af659d3cc7e88da782e360a7"
+      },
+      {
+        "name": "buma_supplier_article",
+        "id": "zekwpofynu077w7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_transaction",
+        "id": "wv9d4bsvf0i5kki",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "30f8ce334fdfc40c83d0a3177f9795c2e7ae671712265f9933e7854be2c40800",
+        "source_rows_sha256": "992e8deba6cf49fd27795bed5e7262e95c213a2dd405f27c131c2aae720ab456"
+      },
+      {
+        "name": "buma_transfer",
+        "id": "ajs6nlu2r3010vl",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_transfer_transaction",
+        "id": "77xlg9rdbp3h5he",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_user_bank_uv",
+        "id": "97hapfsjas2b90g",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_ussd_code",
+        "id": "d80v9iin2sqe5k6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_wallet",
+        "id": "ri4223ezesmoai3",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_wallet_transactions",
+        "id": "kvmt9dtdjszxmwq",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "roles",
+        "id": "6p629b1e32w3hh5",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69",
+        "source_rows_sha256": "6d173a02ef750553632e3a7b673556347053b700fb5fe0413e65e58603824f03"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_customer",
+        "field": "pdv"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_pilotage_ticket",
+        "field": "tag"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_wallet",
+        "field": "managers"
+      },
+      "internal_records_require_separate_review"
+    ],
+    "internal_tables_not_imported": {
+      "_migrations": 15,
+      "_admins": 0,
+      "_collections": 114,
+      "_params": 1,
+      "_externalAuths": 0
+    },
+    "data_db_sha256": "1b7f4fde222d0b251240bd24b62073d04891f9f27f0b504882d59edce202aa77",
+    "files": 3,
+    "file_bytes": 38,
+    "file_manifest_sha256": "2e24577fe3bfea51040c3734bdbac9d6dbbb695e4eecaf284970a653ab1e0e24",
+    "unreferenced_files": 0,
+    "relations_checked": 6,
+    "rows": 9,
+    "ready_for_isolated_rehearsal": true
+  },
+  "negative_cases": {
+    "dangling_relation": "blocked",
+    "duplicate_idempotency_key": "blocked",
+    "unbounded_relation_target_scalar": "blocked",
+    "schema_drift": "blocked",
+    "invalid_number": "blocked",
+    "missing_file": "blocked"
+  },
+  "migrations_applied": 9,
+  "schema_before": {
+    "definitions": 114,
+    "views": 42,
+    "ok": true
+  },
+  "unbounded_relation_target_columns": [
+    {
+      "table_name": "buma_customer",
+      "column_name": "pdv",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "buma_pilotage_ticket",
+      "column_name": "tag",
+      "data_type": "character varying"
+    },
+    {
+      "table_name": "buma_wallet",
+      "column_name": "managers",
+      "data_type": "character varying"
+    }
+  ],
+  "seed_rows_before": 24,
+  "failure_rollback": "all_72_tables_and_seed_values_restored_no_staged_files",
+  "concurrent_import": {
+    "outcomes": [
+      9,
+      "target_not_empty"
+    ],
+    "no_merge_or_duplicates": true
+  },
+  "preservation": {
+    "rows": 9,
+    "ids_relations_typed_readback": true,
+    "source_rowids_all_tables": true,
+    "native_rowids_users_article": true,
+    "negative_rowid_archived": true,
+    "legacy_auth_dates_archived": true,
+    "timestamps_status_balances": true,
+    "file_bytes": 38,
+    "file_count": 3
+  },
+  "schema_after": {
+    "definitions": 114,
+    "views": 42,
+    "ok": true
+  },
+  "http_import_checks": [
+    "native_filtered_list_envelope",
+    "expand_article_author",
+    "three_files_exact_bytes",
+    "c11admin_login_refresh_permissions",
+    "c11denied_login_refresh_permissions",
+    "public_article_200",
+    "anonymous_supplier_404",
+    "wrong_password_400",
+    "agent_users_original_password_owner_read"
+  ],
+  "source_unchanged": true,
+  "no_business_hook_replay": true,
+  "cleanup": "owned_container_and_temporary_files_removed",
+  "limits": [
+    "Synthetic records only; production backup still downloading and not opened.",
+    "No C10 console test or closure; D-0018 unchanged.",
+    "Nonempty buma_customer, buma_pilotage_ticket and buma_wallet are blocked: PB unlimited relation arrays map to target scalar columns.",
+    "Only PB 0.22.27 local storage snapshots validated; production version and artifact provenance unknown.",
+    "Internal auth/admin/config records archived in the SQLite copy but not activated; existing session token continuity unverified.",
+    "No SIGKILL or full-disk recovery proof; no production apply CLI; isolated target is disposable.",
+    "HTTP after import validated; no new paired PB/PPBase HTTP or real desktop/SDK E2E run.",
+    "Large-volume throughput and a full populated backup rehearsal remain open."
+  ]
+}

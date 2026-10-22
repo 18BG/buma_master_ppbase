@@ -51,7 +51,7 @@ def merge_live_auth_context(
     """Build flat ``@request.auth.*`` values from current DB state."""
     result = dict(auth or {})
     for key, value in (record or {}).items():
-        if key not in {"password_hash", "token_key"}:
+        if key not in {"password_hash", "token_key", "rowid"}:
             result.setdefault(key, value)
     permission: dict[str, Any] = {}
     if role is not None:
@@ -117,6 +117,11 @@ def install_rule_context_patch() -> None:
 async def load_live_auth_context(event: RouteRequestEvent) -> dict[str, Any]:
     """Resolve the current auth record and role for one HTTP request."""
     auth = await event.load_auth()
+    return await load_auth_record_context(get_engine(), auth)
+
+
+async def load_auth_record_context(engine, auth):
+    """Resolve the identity's own live role for HTTP or realtime evaluation."""
     if not is_record_auth(auth):
         # Keep boolean permission macros type-safe for anonymous requests.
         # PocketBase evaluates missing auth permissions as false; returning an
@@ -124,13 +129,12 @@ async def load_live_auth_context(event: RouteRequestEvent) -> dict[str, Any]:
         return merge_live_auth_context(None, None, None, [])
 
     collection = await resolve_collection(
-        get_engine(),
+        engine,
         str(auth.get("collectionName") or auth.get("collectionId") or ""),
     )
     if collection is None:
         return {}
 
-    engine = get_engine()
     async with engine.connect() as conn:
         result = await conn.execute(
             text(f'SELECT * FROM "{collection.name}" WHERE "id" = :id LIMIT 1'),

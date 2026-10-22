@@ -285,7 +285,9 @@ async def transaction_stats(engine: Any, data: dict[str, Any], kind: str):
     if data.get("network"):
         conditions.append("v.network=:network")
         params["network"] = data["network"]
-    where = "(v.number ILIKE :phone OR v.authorname ILIKE :author OR v.complete_name ILIKE :phone)"
+    where = (
+        '(v.number ILIKE :phone OR v."authorName" ILIKE :author OR v.complete_name ILIKE :phone)'
+    )
     # Preserve source's lack of type/status constraint if no date/network is supplied.
     if conditions:
         where = "v.type=:type AND v.status=TRUE AND " + " AND ".join(conditions) + " AND " + where

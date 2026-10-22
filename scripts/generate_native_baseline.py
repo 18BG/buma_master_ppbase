@@ -79,22 +79,26 @@ def translate_view_query(collection_name: str, query: str) -> tuple[str, list[st
     if camel_case_qualified != translated:
         translated = camel_case_qualified
         warnings.append("camel-case-identifiers-quoted")
+    quoted_aliases = re.sub(
+        r"\bAS\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+        lambda match: (
+            'AS "' + match[1] + '"'
+            if match[1] != match[1].lower() and match[1] != match[1].upper()
+            else match[0]
+        ),
+        translated,
+        flags=re.IGNORECASE,
+    )
+    if quoted_aliases != translated:
+        translated = quoted_aliases
+        warnings.append("view-alias-case-preserved")
     if "==" in translated:
         translated = translated.replace("==", "=")
         warnings.append("double-equals-to-equals")
     if re_search(r"\browid\b", translated):
-        translated = re_sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\.rowid\b", r"\1.id", translated)
-        warnings.append("rowid-mapped-to-id")
-    if collection_name in {"buma_article_with_no_stock_list_view", "buma_stockage_no_manager"}:
-        without_duplicate = re.sub(
-            r"SELECT\s+a\.id,\s*a\.id,",
-            "SELECT a.id,",
-            translated,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if without_duplicate != translated:
-            translated = without_duplicate
-            warnings.append("duplicate-rowid-column-removed")
+        # PocketBase declares this unknown expression as JSON in its schema,
+        # while the SQL value remains an integer, not a JSONB expression.
+        warnings.append("sqlite-rowid-preserved-as-integer")
     if "GROUP_CONCAT" in translated.upper():
         translated = _translate_group_concat(translated)
         warnings.append("group-concat-to-string-agg")
@@ -173,6 +177,10 @@ def translate_view_query(collection_name: str, query: str) -> tuple[str, list[st
             "GROUP BY s.customer, a.id, a.designation, c.firstname, c.lastname",
         )
         warnings.append("group-by-customer-name-added")
+        translated = translated.replace(
+            "ORDER BY customerName ASC, totalRevenue DESC",
+            'ORDER BY "customerName" ASC, "totalRevenue" DESC',
+        )
     if (
         collection_name == "buma_customer_mobile_list_view"
         and "MAX(\n        COALESCE" in translated

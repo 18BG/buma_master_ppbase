@@ -1,0 +1,184 @@
+{
+  "timestamp_utc": "2026-09-24T21:02:06.728113+00:00",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "pocketbase_version": "0.22.27",
+  "sqlite_version": "3.46.0",
+  "status": "passed",
+  "comparisons": 12,
+  "reference": {
+    "allocation": [
+      1,
+      2,
+      2,
+      3,
+      3,
+      4
+    ],
+    "rolled_back_rowid": 4,
+    "article_view": {
+      "status": 200,
+      "body": {
+        "collectionId": "<record-id>",
+        "collectionName": "buma_article_with_no_stock_list_view",
+        "designation": "C10ROW8598c2updated",
+        "id": "<record-id>",
+        "rowid": 2,
+        "stockages": "",
+        "trackStock": false
+      },
+      "content_type": "application/json"
+    },
+    "article_view_filter": {
+      "items": [
+        {
+          "id": "<record-id>",
+          "rowid": 2
+        }
+      ],
+      "page": 1,
+      "perPage": 30,
+      "totalItems": 1,
+      "totalPages": 1
+    },
+    "user_view": {
+      "status": 200,
+      "body": {
+        "collectionId": "<record-id>",
+        "collectionName": "buma_stockage_no_manager",
+        "id": "<record-id>",
+        "name": "",
+        "rowid": 1,
+        "stockage": "",
+        "username": "C10ROW8598c2"
+      },
+      "content_type": "application/json"
+    },
+    "user_view_filter": {
+      "items": [
+        {
+          "id": "<record-id>",
+          "rowid": 1
+        }
+      ],
+      "page": 1,
+      "perPage": 30,
+      "totalItems": 1,
+      "totalPages": 1
+    },
+    "transaction_view": {
+      "status": 200,
+      "body": {
+        "article": "<record-id>",
+        "article_id": 2,
+        "article_stock": "",
+        "author": "",
+        "buy": "",
+        "collectionId": "<record-id>",
+        "collectionName": "buma_stock_transaction_list_view",
+        "created": "<clock>",
+        "credited_amount": 0,
+        "customer_name": "",
+        "designation": "C10ROW8598c2updated",
+        "id": "<record-id>",
+        "manual": false,
+        "mobile_transaction_date": "",
+        "network": "",
+        "notes": "",
+        "number": "",
+        "old_quantity": 0,
+        "operator_bonus_amount": 0,
+        "operator_bonus_rate": 0,
+        "price": 0,
+        "quantity": 2,
+        "sale": "",
+        "sim": "",
+        "status": true,
+        "stock_debit_amount": 0,
+        "stockage": "<record-id>",
+        "stockage_name": "C10ROW8598c2",
+        "transfer": "",
+        "type": "SALE"
+      },
+      "content_type": "application/json"
+    },
+    "transaction_view_filter": {
+      "items": [
+        {
+          "article_id": 2,
+          "id": "<record-id>"
+        }
+      ],
+      "page": 1,
+      "perPage": 30,
+      "totalItems": 1,
+      "totalPages": 1
+    },
+    "base_record": {
+      "status": 200,
+      "body": {
+        "barcode": "",
+        "buy_price": 0,
+        "categorie": "",
+        "code": "",
+        "collectionId": "<record-id>",
+        "collectionName": "buma_article",
+        "created": "<clock>",
+        "description": "",
+        "designation": "C10ROW8598c2updated",
+        "details": null,
+        "id": "<record-id>",
+        "image_url": "",
+        "is_sellable": false,
+        "kind": "AUTRE",
+        "medias": "",
+        "sell_price": 0,
+        "specification": null,
+        "status": true,
+        "stock_type": "",
+        "tax_percent": 0,
+        "trackStock": false,
+        "unite": "",
+        "updated": "<clock>"
+      },
+      "content_type": "application/json"
+    },
+    "native_create_ignores_rowid": {
+      "status": 200,
+      "body": {
+        "barcode": "",
+        "buy_price": 0,
+        "categorie": "",
+        "code": "",
+        "collectionId": "<record-id>",
+        "collectionName": "buma_article",
+        "created": "<clock>",
+        "description": "",
+        "designation": "C10ROW8598c2native",
+        "details": null,
+        "id": "<record-id>",
+        "image_url": "",
+        "is_sellable": false,
+        "kind": "AUTRE",
+        "medias": "",
+        "sell_price": 0,
+        "specification": null,
+        "status": true,
+        "stock_type": "",
+        "tax_percent": 0,
+        "trackStock": false,
+        "unite": "",
+        "updated": "<clock>"
+      },
+      "content_type": "application/json"
+    },
+    "user_rowid": 1,
+    "overflow_generated_positive_unused": true
+  },
+  "differences": {},
+  "concurrency": {
+    "concurrent_inserts": 20,
+    "unique_rowids": 20,
+    "contiguous_after_commit": true
+  },
+  "cleanup": true
+}

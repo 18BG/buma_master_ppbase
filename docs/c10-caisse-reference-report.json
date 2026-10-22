@@ -1,0 +1,441 @@
+{
+  "timestamp_utc": "2026-09-24T21:06:22.486617+00:00",
+  "status": "passed",
+  "reference_version": "0.22.27",
+  "routes": 10,
+  "comparisons": 34,
+  "mismatches": {},
+  "responses_and_effects": {
+    "anonymous_open": {
+      "status": 401,
+      "body": {
+        "code": 401,
+        "message": "The request requires admin or record authorization token to be set.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "denied_open": {
+      "status": 400,
+      "body": {
+        "message": "You are not allowed"
+      },
+      "content_type": "application/json"
+    },
+    "open": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "repeat_open": {
+      "status": 400,
+      "body": {
+        "message": "Caisse is not in opening"
+      },
+      "content_type": "application/json"
+    },
+    "reject_closing": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "reject_closing_missing": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "withdrawal_missing": {
+      "status": 200,
+      "body": null,
+      "content_type": ""
+    },
+    "withdrawal": {
+      "status": 200,
+      "body": {
+        "caisse_transaction": "<record-id>",
+        "message": "Transaction reussis",
+        "success": true,
+        "wallet_transaction": "<record-id>"
+      },
+      "content_type": "application/json"
+    },
+    "withdrawal_wallet_fields": {
+      "amount": 7.9,
+      "status": true,
+      "state": "",
+      "caisseSession": "",
+      "transaction_no": 1,
+      "wallet_solde_before": 50
+    },
+    "cancel_withdrawal": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "cancel_repeat": {
+      "status": 400,
+      "body": {
+        "message": "Transaction is already cancelled"
+      },
+      "content_type": "application/json"
+    },
+    "wallet_after_cancel": {
+      "balance": 50
+    },
+    "wallet_transaction_still_active": {
+      "status": true,
+      "state": ""
+    },
+    "public_report": {
+      "status": 200,
+      "body": {
+        "caisse": {
+          "author": "<record-id>",
+          "balance": 100,
+          "collectionId": "<record-id>",
+          "collectionName": "buma_caisse",
+          "created": "<clock>",
+          "currentCashier": "<record-id>",
+          "currentSession": "<record-id>",
+          "id": "<record-id>",
+          "name": "C10CP1c501b0f",
+          "state": "OPEN",
+          "status": true,
+          "type": "",
+          "unknow_balance_session": "",
+          "unknown_balance": 0,
+          "updated": "<clock>"
+        },
+        "cashier": {
+          "article_stock": "",
+          "avatar": "",
+          "canAuthOnMobile": false,
+          "collectionId": "_pb_users_auth_",
+          "collectionName": "users",
+          "created": "<clock>",
+          "emailVisibility": false,
+          "employee": "",
+          "id": "<record-id>",
+          "more": null,
+          "name": "C10CP1c501b0f",
+          "return_regexp": "",
+          "role": "<record-id>",
+          "set": false,
+          "takePercentOnRecharge": false,
+          "updated": "<clock>",
+          "username": "C10CP1c501b0f",
+          "ussd_code": "",
+          "ussd_code_solde": "",
+          "verified": false
+        },
+        "report": {
+          "author": "<record-id>",
+          "caisse": "<record-id>",
+          "close_time": "",
+          "collectionId": "<record-id>",
+          "collectionName": "buma_caisse_open_close",
+          "created": "<clock>",
+          "end_amount": 0,
+          "id": "<record-id>",
+          "initial_amount": 0,
+          "open_time": "<clock>",
+          "reopen": false,
+          "state": "OPEN",
+          "status": true,
+          "updated": "<clock>",
+          "validator": ""
+        },
+        "transactions": [
+          {
+            "after_caisse_balance": 0,
+            "after_customer_solde": 0,
+            "amount": 4,
+            "author": "<record-id>",
+            "before_customer_solde": 0,
+            "cacellationId": "",
+            "caisse": "<record-id>",
+            "cancel_author": "",
+            "cancel_date": "",
+            "cancelled": false,
+            "collectionId": "<record-id>",
+            "collectionName": "buma_caisse_transactions",
+            "correctionId": "",
+            "created": "<clock>",
+            "customer": "",
+            "document": "",
+            "document_path": "",
+            "employee": "",
+            "expand": {
+              "author": {
+                "article_stock": "",
+                "avatar": "",
+                "canAuthOnMobile": false,
+                "collectionId": "_pb_users_auth_",
+                "collectionName": "users",
+                "created": "<clock>",
+                "emailVisibility": false,
+                "employee": "",
+                "id": "<record-id>",
+                "more": null,
+                "name": "C10CP1c501b0f",
+                "return_regexp": "",
+                "role": "<record-id>",
+                "set": false,
+                "takePercentOnRecharge": false,
+                "updated": "<clock>",
+                "username": "C10CP1c501b0f",
+                "ussd_code": "",
+                "ussd_code_solde": "",
+                "verified": false
+              },
+              "expenseType": {
+                "amount": 0,
+                "collectionId": "<record-id>",
+                "collectionName": "buma_caisse_expense_type",
+                "created": "<clock>",
+                "description": "",
+                "id": "<record-id>",
+                "name": "C10CP1c501b0f",
+                "status": true,
+                "updated": "<clock>"
+              }
+            },
+            "expenseType": "<record-id>",
+            "fixId": "",
+            "id": "<record-id>",
+            "note": "",
+            "previous_caisse_balance": 0,
+            "reference": "",
+            "retour": "",
+            "sale": "",
+            "session": "<record-id>",
+            "status": true,
+            "supplier": "",
+            "transaction_no": 0,
+            "transfer_caisse": "",
+            "type": "EXPENSE",
+            "updated": "<clock>",
+            "wallet": "",
+            "walletTransaction": ""
+          }
+        ]
+      },
+      "content_type": "application/json"
+    },
+    "public_range": {
+      "status": 200,
+      "body": {
+        "caisse": {
+          "author": "<record-id>",
+          "balance": 100,
+          "collectionId": "<record-id>",
+          "collectionName": "buma_caisse",
+          "created": "<clock>",
+          "currentCashier": "<record-id>",
+          "currentSession": "<record-id>",
+          "id": "<record-id>",
+          "name": "C10CP1c501b0f",
+          "state": "OPEN",
+          "status": true,
+          "type": "",
+          "unknow_balance_session": "",
+          "unknown_balance": 0,
+          "updated": "<clock>"
+        },
+        "transactions": [
+          {
+            "after_caisse_balance": 0,
+            "after_customer_solde": 0,
+            "amount": 4,
+            "author": "<record-id>",
+            "before_customer_solde": 0,
+            "cacellationId": "",
+            "caisse": "<record-id>",
+            "cancel_author": "",
+            "cancel_date": "",
+            "cancelled": false,
+            "collectionId": "<record-id>",
+            "collectionName": "buma_caisse_transactions",
+            "correctionId": "",
+            "created": "<clock>",
+            "customer": "",
+            "document": "",
+            "document_path": "",
+            "employee": "",
+            "expand": {
+              "author": {
+                "article_stock": "",
+                "avatar": "",
+                "canAuthOnMobile": false,
+                "collectionId": "_pb_users_auth_",
+                "collectionName": "users",
+                "created": "<clock>",
+                "emailVisibility": false,
+                "employee": "",
+                "id": "<record-id>",
+                "more": null,
+                "name": "C10CP1c501b0f",
+                "return_regexp": "",
+                "role": "<record-id>",
+                "set": false,
+                "takePercentOnRecharge": false,
+                "updated": "<clock>",
+                "username": "C10CP1c501b0f",
+                "ussd_code": "",
+                "ussd_code_solde": "",
+                "verified": false
+              },
+              "expenseType": {
+                "amount": 0,
+                "collectionId": "<record-id>",
+                "collectionName": "buma_caisse_expense_type",
+                "created": "<clock>",
+                "description": "",
+                "id": "<record-id>",
+                "name": "C10CP1c501b0f",
+                "status": true,
+                "updated": "<clock>"
+              }
+            },
+            "expenseType": "<record-id>",
+            "fixId": "",
+            "id": "<record-id>",
+            "note": "",
+            "previous_caisse_balance": 0,
+            "reference": "",
+            "retour": "",
+            "sale": "",
+            "session": "<record-id>",
+            "status": true,
+            "supplier": "",
+            "transaction_no": 0,
+            "transfer_caisse": "",
+            "type": "EXPENSE",
+            "updated": "<clock>",
+            "wallet": "",
+            "walletTransaction": ""
+          }
+        ]
+      },
+      "content_type": "application/json"
+    },
+    "grouped_expense": {
+      "status": 200,
+      "body": {
+        "datas": [
+          {
+            "amount": 4,
+            "label": "C10CP1c501b0f",
+            "count": 1
+          }
+        ]
+      },
+      "content_type": "application/json"
+    },
+    "fractional_expense": {
+      "status": 400,
+      "body": {
+        "error": {
+          "value": {}
+        },
+        "message": "Error"
+      },
+      "content_type": "application/json"
+    },
+    "missing_report": {
+      "status": 404,
+      "body": {
+        "code": 404,
+        "message": "The requested resource wasn't found.",
+        "data": {}
+      },
+      "content_type": "application/json"
+    },
+    "cancel_expense": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "caisse_expense_compensated": {
+      "balance": 104
+    },
+    "cancel_versement": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "customer_versement_compensated": {
+      "solde": 16.1
+    },
+    "cancel_deposit": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "deposit_wallet_cancelled": {
+      "status": false,
+      "state": "CANCELLED"
+    },
+    "deposit_balances": {
+      "balance": 96
+    },
+    "deposit_wallet_balance": {
+      "balance": 55
+    },
+    "non_admin_reversal": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "repeat_reversal": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "reversal_original_still_active": {
+      "status": true
+    },
+    "repeat_reversal_balance": {
+      "balance": 100
+    },
+    "reopen": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "reopened_session": {
+      "state": "OPEN",
+      "reopen": true
+    },
+    "reject_inactive_transaction": {
+      "status": 200,
+      "body": {
+        "message": "ok"
+      },
+      "content_type": "application/json"
+    },
+    "rejected_caisse": {
+      "balance": 97,
+      "state": "CLOSE",
+      "currentSession": "",
+      "currentCashier": ""
+    }
+  },
+  "cleanup": true
+}

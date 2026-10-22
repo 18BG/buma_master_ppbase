@@ -1,0 +1,24 @@
+{
+  "query": "SELECT strftime('%Y-%m-%d', '2026-09-24') AS day",
+  "comparison": {
+    "pocketbase": {
+      "status": 200,
+      "body": [
+        {
+          "day": "2026-09-24"
+        }
+      ]
+    },
+    "ppbase": {
+      "status": 500,
+      "body": {
+        "error": "Erreur lors de l'exécution de la requête SQL.",
+        "details": "(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: function strftime(unknown, unknown) does not exist\nHINT:  No function matches the given name and argument types. You might need to add explicit type casts.\n[SQL: SELECT strftime('%Y-%m-%d', '2026-09-24') AS day]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+      }
+    }
+  },
+  "probe_origin": "synthetic query written by the agent, not extracted from a Master business handler",
+  "static_source_usage": "none found in frozen Master src/, migrationsDir/ or corrected 114-definition export",
+  "postgresql_equivalent": "SELECT to_char(DATE '2026-09-24', 'YYYY-MM-DD') AS day",
+  "client_usage": "not established"
+}

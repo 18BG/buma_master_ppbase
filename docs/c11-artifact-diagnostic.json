@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-26",
+  "scope": "C11 preparation only",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "source_branch": "fix/uv-paani-sup",
+  "schema": {
+    "path": "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json",
+    "sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+    "definitions": 114,
+    "base_auth": 72,
+    "views": 42,
+    "file_fields": 20
+  },
+  "backup": {
+    "state": "downloading_by_user",
+    "path": null,
+    "contents_opened": false,
+    "production_data_imported": false
+  },
+  "other_backup_candidates": {
+    "location": "/Users/omarsisss/Downloads",
+    "labels": [
+      "BUMO",
+      "ACME",
+      "PPBase"
+    ],
+    "identity": "not confirmed as BUMA Master",
+    "contents_opened": false,
+    "used": false
+  },
+  "isolated_reference": {
+    "pocketbase": "0.22.27",
+    "binary_sha256": "8e1bfd181b1221cb34f78e5e3e5b4b8d1ccd69e7e4b369459d944e1057e75e2c",
+    "production_version_inferred": false
+  },
+  "c10": "on hold for original session; not resumed",
+  "next_action": "Inspect completed backup archive read-only, identify version and free space, then diagnose an offline copy. No production import or cutover.",
+  "update_2026_09_28": {
+    "backup_path": "/Users/omarsisss/Documents/wproject/protech/master-backup.zip",
+    "source_version_user_supplied": "0.22.34",
+    "state": "read_only_diagnosis_complete_import_blocked",
+    "report": "docs/c11-master-diagnostic-report.json",
+    "production_imported": false
+  }
+}

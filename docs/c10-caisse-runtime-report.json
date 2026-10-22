@@ -1,0 +1,17 @@
+{
+  "timestamp_utc": "2026-09-24T21:06:27.796840+00:00",
+  "status": "passed",
+  "routes": 10,
+  "proofs": [
+    "permissions",
+    "public_reports_with_expands",
+    "open_reject_reopen",
+    "withdrawal_fraction_and_counter",
+    "cancel_wallet_stays_active",
+    "repeat_non_admin_reversal",
+    "inactive_reject_transaction",
+    "partial_open_failure",
+    "partial_withdrawal_failure"
+  ],
+  "cleanup": true
+}

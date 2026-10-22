@@ -1,0 +1,45 @@
+{
+  "scope": "aggregate_read_only",
+  "duplicate_mobile_keys_by_type": [
+    {
+      "type": "RETURN",
+      "groups": 877,
+      "affected_rows": 2391,
+      "max_group": 16
+    }
+  ],
+  "duplicate_record_comparison": {
+    "groups_with_different_business_values": 877
+  },
+  "date_ranges": [
+    {
+      "collection": "buma_transaction",
+      "records": 336240,
+      "oldest_created": "2024-11-16 10:08:52.183Z",
+      "latest_created": "2026-09-15 18:55:54.218Z",
+      "latest_updated": "2026-09-15 18:55:54.218Z"
+    },
+    {
+      "collection": "buma_sale",
+      "records": 115326,
+      "oldest_created": "2024-11-13 18:37:00.603Z",
+      "latest_created": "2026-09-15 18:55:54.217Z",
+      "latest_updated": "2026-09-15 18:55:54.217Z"
+    },
+    {
+      "collection": "buma_caisse_transactions",
+      "records": 317066,
+      "oldest_created": "2024-04-17 16:46:02.823Z",
+      "latest_created": "2026-09-15 18:43:03.159Z",
+      "latest_updated": "2026-09-15 18:43:03.159Z"
+    },
+    {
+      "collection": "buma_ressources",
+      "records": 2809,
+      "oldest_created": "2026-01-01 03:17:23.945Z",
+      "latest_created": "2026-09-15 23:15:11.605Z",
+      "latest_updated": "2026-09-15 23:15:11.605Z"
+    }
+  ],
+  "no_values_rewritten": true
+}

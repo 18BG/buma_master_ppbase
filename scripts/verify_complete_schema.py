@@ -52,7 +52,19 @@ async def read_collections(database_url: str) -> list[dict[str, Any]]:
                     """
                 )
             )
-            return [dict(row) for row in result.mappings().all()]
+            definitions = [dict(row) for row in result.mappings().all()]
+            for definition in definitions:
+                if definition["type"] != "view":
+                    continue
+                columns = await connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='public' AND table_name=:name"
+                    ),
+                    {"name": definition["name"]},
+                )
+                definition["physical_columns"] = list(columns.scalars())
+            return definitions
     finally:
         await engine.dispose()
 
@@ -87,6 +99,16 @@ def verify(
         for field in sorted(fields - actual_names):
             missing_compat_fields.append(f"{name}.{field}")
 
+    projection_errors = []
+    for name, item in actual.items():
+        if item.get("type") != "view" or "physical_columns" not in item:
+            continue
+        for field in item.get("schema") or []:
+            if field["name"] in item["physical_columns"]:
+                continue
+            path = name + "." + field["name"]
+            projection_errors.append(path)
+
     known_ids = {str(item["id"]) for item in actual_all.values()}
     relation_errors: list[str] = []
     for name, definition in expected.items():
@@ -111,7 +133,15 @@ def verify(
         "missing_compat_fields": missing_compat_fields,
         "metadata_mismatches": mismatches,
         "relation_errors": relation_errors,
-        "ok": not (missing or unexpected or mismatches or missing_compat_fields or relation_errors),
+        "view_projection_errors": projection_errors,
+        "ok": not (
+            missing
+            or unexpected
+            or mismatches
+            or missing_compat_fields
+            or relation_errors
+            or projection_errors
+        ),
     }
 
 

@@ -1,0 +1,98 @@
+{
+  "timestamp_utc": "2026-09-24T21:27:48.310623+00:00",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "status": "closed",
+  "missing_active_routes": [],
+  "dormant_source": "return.ts registrations are not reached by either bootstrap",
+  "paired_comparisons": 106,
+  "unit_tests_passed": 131,
+  "lint": "passed",
+  "format_files": 101,
+  "runtime_artifacts": {
+    "c10-remaining-runtime-report.json": "passed",
+    "c10-caisse-reference-report.json": "passed",
+    "c10-sdk-runtime-report.json": "passed",
+    "c10-caisse-runtime-report.json": "passed",
+    "c10-sql-runtime-report.json": "passed",
+    "c10-stockage-runtime-report.json": "passed",
+    "c10-native-hooks-runtime-report.json": "passed",
+    "c9-runtime-report.json": "passed",
+    "c10-rowid-runtime-report.json": "passed"
+  },
+  "c8_runtime": "passed",
+  "schema_definitions": 114,
+  "views": 42,
+  "migrations": {
+    "applied": 9,
+    "pending": 0,
+    "orphaned": 0
+  },
+  "migration_1789236847_rollback_replay": "passed",
+  "blockers": [],
+  "limits": [
+    "paired fixtures are synthetic, not production",
+    "SDK proof covers a PNG and update events with live permission revocation, not all file/SSE options",
+    "arbitrary payload/error/concurrency combinations are not exhaustive",
+    "historical SQLite rowids must be imported explicitly in C11; migration refuses to guess existing values",
+    "SQLite maintenance internals such as VACUUM are not emulated"
+  ],
+  "production_import": false,
+  "scope": "C10 completed by explicit user decision after confirmation of PPBase correction; PostgreSQL console accepted under D-0018; /sql compatibility remains deferred",
+  "migration_1789236848_rollback_replay": "passed",
+  "universal_sqlite_compatibility": false,
+  "known_differences": [
+    {
+      "contract": "Administrator enters PostgreSQL SQL in desktop executeSql console",
+      "decision": "D-0018",
+      "user_accepted": true,
+      "proof": "docs/c10-desktop-sql-usage-audit.json",
+      "impact": "SQL must be valid PostgreSQL view SQL with id; unchanged query transport and native result-list flow"
+    },
+    {
+      "contract": "SQLite-specific SQL in POST /sql remains unverified/deferred",
+      "decision": "D-0018",
+      "proof": "docs/c10-sql-dialect-gap.json",
+      "impact": "Synthetic strftime mismatch retained as historical evidence; additional compatibility work deferred without deleting the route"
+    }
+  ],
+  "closure_withdrawn": false,
+  "decision_updated_at_utc": "2026-09-28T11:08:35.888140+00:00",
+  "decision": "D-0020",
+  "deferred_work": [
+    {
+      "contract": "POST /sql caller audit and SQLite dialect compatibility",
+      "decision": "Explicit user deferral on 2026-09-26 under D-0018",
+      "route_retained": true,
+      "blocks_current_c10_scope": false,
+      "evidence": "docs/c10-desktop-sql-usage-audit.json",
+      "limits": "No caller identified in provided desktop snapshot; not proof of universal non-use"
+    }
+  ],
+  "recorded_results_note": "Test/lint/schema/SDK counts refer to the historical gate timestamp_utc, not to closed_at_utc. C10 closure is explicit user acceptance (D-0020), not a new runtime result. Old script diagnostics and incomplete stored-SQL evidence are retained in the ledger without being marked passed.",
+  "closed_at_utc": "2026-09-28T11:08:35.888140+00:00",
+  "closure_basis": "explicit_user_acceptance_on_2026-09-28",
+  "prior_D0017_closure_remains_withdrawn": true,
+  "prior_blockers_at_user_closure": [
+    {
+      "contract": "Desktop POST /master/article/executeSql -> native GET buma_sql_table",
+      "reason": "Newly discovered console flow has not completed its targeted runtime validation; stored-query harness previously failed during PocketBase restoration",
+      "decision": "D-0018 accepts PostgreSQL SQL; validate default SELECT * FROM users, a PostgreSQL-specific query, response fields/types, failure effects and restoration before closure"
+    }
+  ],
+  "closure_evidence": {
+    "user_confirmation": "PPBase corrected; user explicitly requests C10 to be considered fully completed and closed",
+    "new_application_tests_executed_in_closure_turn": false,
+    "ppbase_correction_independently_retested_in_closure_turn": false,
+    "desktop_runtime_proof_added": false,
+    "stored_sql_comparison_report_present": false,
+    "historical_results_retained": true,
+    "documentation_checks": [
+      "JSON parse and consistency",
+      "git diff --check",
+      "frozen source HEAD unchanged"
+    ]
+  },
+  "next_checkpoint": "C11",
+  "next_checkpoint_status": "open",
+  "production_cutover_authorized": false
+}

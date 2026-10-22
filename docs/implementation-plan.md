@@ -93,13 +93,35 @@ constitue pas une autorisation de cutover.
 
 ### C10 — Compatibilité legacy
 
-État au 2026-09-23 : les sous-lots SQL, `/api2/stockage` et hooks CRUD natifs sont portés et validés ; les autres routes `/api2/*`, master legacy et hooks restants restent ouverts.
+État au 2026-09-28 : **C10 terminé**, sur décision explicite de l'utilisateur
+après confirmation de la correction PPBase (D-0020). Toutes les routes actives
+inventoriées sont portées. Les
+18 dernières et les dix routes caisse ont 94 comparaisons PocketBase/PPBase
+passantes ; le SDK réel passe login/refresh/CRUD/filters/expand/fichier/realtime
+update avec révocation des permissions. Les suites C10, C8 et C9 sont rejouées.
+La clôture unilatérale précédente D-0017 reste retirée ; D-0020 enregistre
+l'acceptation actuelle de l'utilisateur. Rowid
+reste corrigé et vérifié (12 comparaisons de plus, 20 insertions concurrentes).
+Les 131 tests, 9 migrations, 114 définitions et 42 vues restent des preuves
+acquises. Après découverte de la console desktop, l'utilisateur accepte
+explicitement que l'administrateur y saisisse du SQL PostgreSQL (D-0018) et
+reporte l'étude de `/sql`, sans supprimer cette route. La parité générale des
+dialectes n'est donc pas réintroduite comme blocage. Aucun nouvel essai du
+parcours executeSql → lecture native `buma_sql_table` n'est déclaré exécuté
+dans cette clôture documentaire ; les limites de preuve sont conservées dans
+le rapport C10. Le test strftime reste synthétique. La suite est C11.
 
 Porter séparément les routes `/api2/*`, `/isConnected`, les hooks de
 `index.pb.ts` et les routes `/master/*`. Les routes SQL doivent faire l'objet
 d'une décision de compatibilité et de protection dédiée.
 
 ### C11 — Données et cutover
+
+La préparation C11, autorisée le 2026-09-26, est déjà engagée avec diagnostic
+ZIP/SQLite et répétition d'import synthétique. C10 est maintenant clôturé
+(2026-09-28, D-0020). C11 reste ouvert : diagnostic du backup Master et blocage
+des relations multiples D-0019 restent à traiter. L'import de production et
+la bascule ne sont pas autorisés par la clôture C10.
 
 Après validation du schéma et de l'API : diagnostic d'import, import sur cible
 fraîche, conservation des IDs/relations/fichiers, checksums, staging, rollback

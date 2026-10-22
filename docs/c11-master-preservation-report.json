@@ -1,0 +1,26 @@
+{
+  "checked_original_members": 1290,
+  "all_sizes_and_sha256_unchanged": true,
+  "archive_sha256_unchanged": true,
+  "zip_member_timestamps_no_timezone_not_proof_of_capture": {
+    "data.db": [
+      2026,
+      9,
+      15,
+      23,
+      18,
+      12
+    ],
+    "logs.db": [
+      2026,
+      9,
+      16,
+      0,
+      0,
+      0
+    ]
+  },
+  "sqlite_open_mode": "ro&immutable=1",
+  "database_written": false,
+  "postgresql_imported": false
+}

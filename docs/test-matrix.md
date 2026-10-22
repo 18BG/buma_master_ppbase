@@ -1,5 +1,10 @@
 # Matrice de tests
 
+Statut courant au 2026-09-28 : **C10 terminé sur décision explicite de
+l'utilisateur (D-0020)** après confirmation de la correction PPBase.
+Les sections datées ci-dessous conservent les preuves et limites historiques.
+Aucun nouveau test applicatif/desktop n'est déclaré par cette clôture.
+
 | Niveau | Foundation | Métier | Gate |
 |---|---|---|---|
 | Structure | registre, routes, manifest | route→handler | obligatoire |
@@ -77,3 +82,70 @@ associés. Suite locale finale : 104 tests ; C10 global reste ouvert.
 D-0009 est corrigé : le script C9 exige maintenant les sauvegardes partielles
 exactement là où la source ne possède pas de transaction englobante. Une
 réussite du rollback ajouté ne compte plus comme preuve de parité legacy.
+
+## Preuve C10 caisse locale — 2026-09-24
+
+`tests/test_legacy_caisse_contract.py` vérifie les permissions absentes/false,
+rapports publics, ordre des écritures, corps vide, répétition de reversal et
+sérialisation publique. `scripts/c10_caisse_runtime.py` exerce les dix routes
+HTTP avec PostgreSQL, données non vides, expand, solde fractionnaire, compteur
+wallet défectueux, annulation, répétition et fautes tardives isolées. Rapport :
+`docs/c10-caisse-runtime-report.json`, nettoyage vérifié. Suite : 115 tests.
+Pas de replay de ces dix handlers sur PocketBase pendant cette session ; les
+branches non exercées restent ouvertes dans le contrat caisse. C10 non clôturé.
+
+## C10 — comparaison des serveurs et SDK — 2026-09-24
+
+- `c10_remaining_runtime.py` : **18 routes, 60 comparaisons** de réponses et
+  effets sur le TypeScript gelé exécuté par PocketBase 0.22.27 puis PPBase.
+- `c10_caisse_reference_runtime.py` : **10 routes, 34 comparaisons** ; complète
+  les fautes PostgreSQL injectées par `c10_caisse_runtime.py`.
+- `c10_sdk_runtime.py` / `c10_sdk_probe.mjs` : SDK JS réel, login/refresh,
+  création/liste filtrée/expand/update/delete, upload/download PNG et realtime
+  update. Un utilisateur abonné distinct perd puis retrouve son droit de lecture.
+- `test_realtime_role_context.py` : deux abonnés concurrents, contextes séparés
+  de l'émetteur. `test_legacy_remaining_contract.py` couvre les enveloppes
+  GoError/Error et l'absence de toute route active inventoriée manquante.
+- C10 SQL/stockage/natif/caisse et C8/C9 rejoués ; 126 tests unitaires passants,
+  Ruff/format passants. Migration alias : rollback/replay ; 114 définitions,
+  42 vues, 8 migrations appliquées.
+
+Le rapport `docs/c10-runtime-report.json` reste **incomplete** : comparaison
+SQL `strftime` en échec et deux projections rowid signalées explicitement.
+Les cases de portage passantes ne remplacent pas cette gate globale.
+
+## C10 — rowid sourcé, corrigé et gate locale clôturée — 2026-09-24
+
+`docs/contracts/rowid.md` relie documentation SQLite, code PocketBase 0.22.27,
+DDL effectif et usages BUMA exacts. `c10_rowid_runtime.py` ajoute 12 comparaisons
+des trois vues sur PocketBase/SQLite 3.46.0 et PPBase, dont réponses complètes,
+types JSON, filters/fields, update, suppression, réutilisation après rollback,
+limite du bigint et non-exposition du champ sur le CRUD de base. Le scénario
+PostgreSQL vérifie 20 insertions concurrentes puis le nettoyage.
+
+Migration 1789236848 appliquée, rollback/replay sur tables vides vérifiés ;
+les tests rejettent toute tentative de deviner des rowid sur données existantes.
+Le vérificateur ne possède plus d'exception pour les projections absentes.
+Résultat final : 131 tests, 106 comparaisons ciblées au total, SDK passant,
+régressions C8/C9 et toutes les gates C10 rejouées, 9 migrations, 114 définitions,
+42 vues. La clôture source/locale est bornée par D-0017 (SQL natif PostgreSQL,
+pas d'émulation universelle SQLite) et ne valide ni import ni cutover.
+
+Rectification ultérieure : la clôture conditionnelle sous D-0017 est retirée.
+Les résultats ci-dessus restent acquis ; C10 reste ouvert pour la compatibilité
+des requêtes entrantes de /sql et executeSql. Une différence documentée n'est
+pas automatiquement autorisée ni résolue.
+
+## C10 — périmètre SQL décidé par l'utilisateur — 2026-09-26
+
+D-0018 accepte les requêtes PostgreSQL saisies dans la console desktop et
+reporte les recherches/parités supplémentaires de `/sql`. La route est
+conservée ; les anciennes preuves ne sont ni effacées ni étendues.
+
+Gate encore ouverte : POST executeSql avec la requête desktop initiale
+`SELECT * FROM users`, puis GET natif `buma_sql_table` page 1/perPage 1000 ;
+vérifier les champs/types et l'enveloppe `items` utilisés par le tableau,
+un cas PostgreSQL spécifique, les erreurs sans modification résiduelle de la
+vue, puis la restauration/nettoyage. Aucun résultat nouveau n'est déclaré
+par la décision documentaire. La parité générale SQLite et les essais `/sql`
+du script interrompu sont reportés, pas marqués passants.

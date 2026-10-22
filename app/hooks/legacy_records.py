@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.auth.context import AUTH_RULE_CONTEXT, is_record_auth
 from app.commerce.sequential import read, save
+from app.legacy.http import UNAUTHORIZED
 from app.legacy.stockage import parse_int
 
 AUTHOR_COLLECTIONS = (
@@ -146,6 +147,10 @@ async def deletion_error(engine, collection, record):
 
 
 def register(pb: Any):
+    from app.legacy.views import install_view_serialization
+
+    install_view_serialization()
+
     @pb.on_record_create_request(id="legacy_request_id_length", priority=-200)
     async def request_id_length(event):
         # PocketBase 0.22 rejects a supplied ID before invoking request hooks.
@@ -233,9 +238,7 @@ def register(pb: Any):
     @pb.post("/master/employee/payDebt")
     async def pay_debt(request: Request, auth: dict[str, Any] | None = AUTH):
         if not auth:
-            return JSONResponse(
-                status_code=401, content={"message": "The request requires authentication."}
-            )
+            return JSONResponse(status_code=401, content=UNAUTHORIZED)
         permissions = AUTH_RULE_CONTEXT.get() or {}
         if not (
             permissions.get("role.permission.isAdmin")

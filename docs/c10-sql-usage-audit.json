@@ -1,0 +1,176 @@
+{
+  "timestamp_utc": "2026-09-25T11:13:27.437855+00:00",
+  "source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "user_provided_context": "The Master frontend source is not currently available; access can be requested.",
+  "frozen_backend": {
+    "root": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks",
+    "exists": true,
+    "files_examined": 416,
+    "file_manifest_sha256": "ae51c25f018ebeff1e81912715e2a94b38769b757dd9beae6657cfc0e687328e",
+    "matches": [
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/migrationsDir/1736833029_created_buma_sql_table.js",
+        "line": 7,
+        "patterns": [
+          "sql_view"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/index.pb.ts",
+        "line": 37,
+        "patterns": [
+          "route_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/index.pb.ts",
+        "line": 62,
+        "patterns": [
+          "route_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/index.pb.ts",
+        "line": 66,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/index.pb.ts",
+        "line": 68,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/index.pb.ts",
+        "line": 73,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 30,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 34,
+        "patterns": [
+          "sql_view"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 40,
+        "patterns": [
+          "sql_view"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 50,
+        "patterns": [
+          "sql_view"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 87,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 88,
+        "patterns": [
+          "execute_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.article.ts",
+        "line": 91,
+        "patterns": [
+          "delete_sql"
+        ]
+      },
+      {
+        "path": "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/src/entries/master.tables.types.ts",
+        "line": 1398,
+        "patterns": [
+          "sql_view"
+        ]
+      }
+    ]
+  },
+  "candidate_clients": [
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_pro_mobile/src",
+      "exists": true,
+      "files_examined": 61,
+      "file_manifest_sha256": "cb5d53691d2947bddf4e664151376074468080a40d5e15f4e444cb9c52849c35",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_boutique/lib",
+      "exists": true,
+      "files_examined": 180,
+      "file_manifest_sha256": "6ebf888e4d74d28b5bfda05eaa3a674e3df70d33ee16a2b1ff2f151aed91eb9a",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_boutique/tools",
+      "exists": true,
+      "files_examined": 2,
+      "file_manifest_sha256": "d1388235cc7a00b083b8751e1ccf067fecc40e8c93ae3e29edb2a73a48c7ab1b",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_boutique_web/src",
+      "exists": true,
+      "files_examined": 972,
+      "file_manifest_sha256": "cd4068ddf9a192c75f6d573aedcf5d7010dabee7817ffa2ed7f4c6fa8c2877d8",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_boutique_web/mobile",
+      "exists": true,
+      "files_examined": 115,
+      "file_manifest_sha256": "fb85a5c13c0678ed3ab54495bfd58edab94268e4a7f824413a9ef408694d4ede",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/buma_boutique_web/relais-client",
+      "exists": true,
+      "files_examined": 0,
+      "file_manifest_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/business-mobile/lib",
+      "exists": true,
+      "files_examined": 786,
+      "file_manifest_sha256": "b7d5fa09b8a111331ba9fa9beaa44cb8d5ce4a85df7144dde9318d3d5fffb583",
+      "matches": []
+    },
+    {
+      "root": "/Users/omarsisss/Documents/wproject/protech/bumo_backoffice/src",
+      "exists": true,
+      "files_examined": 89,
+      "file_manifest_sha256": "fa00070f39e058c90c488accea9cdd0e61658aac5c033afe41b2e82fa6e45974",
+      "matches": []
+    }
+  ],
+  "conclusion": "No actual Master frontend caller identified in the examined candidate source directories.",
+  "limits": [
+    "Does not establish that the routes are unused",
+    "The actual Master frontend was not provided",
+    "Dynamic/obfuscated route construction and runtime traffic are not covered",
+    "Source queries stored in schema/migrations are not evidence of a frontend call"
+  ]
+}

@@ -1,0 +1,190 @@
+{
+  "timestamp_utc": "2026-09-26T17:35:23.537448+00:00",
+  "scope": "In-memory serialization from git revisions using synthetic collection metadata; static application of record-editor selection, no browser/HTTP/DB writes",
+  "repository": "/Users/omarsisss/Documents/wproject/protech/ppbase",
+  "introducing_commit": "8aec0617e0af5a55b1f0374e60e01eca6a9ed72f",
+  "commit_date": "2026-09-21T14:35:03Z",
+  "subject": "fix(auth): align password field resolution with PocketBase",
+  "api_site": "ppbase/models/collection.py:210-220",
+  "ui_site": "admin-ui/src/components/record-editor.tsx:39-51,88",
+  "ui_unchanged_from_parent_to_current": true,
+  "revisions": {
+    "before": "54a3b99aecc90605f61e57307775d8046468843c",
+    "introduced": "8aec0617e0af5a55b1f0374e60e01eca6a9ed72f",
+    "current": "5cc3dc0c7a0b282c53a9f839f7970b25acdfe6ee",
+    "local_main": "aaa7c5a09dad4edc691e1d4429eab399e005dbe2"
+  },
+  "results": {
+    "before": {
+      "_superusers": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "users": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "agent_users": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "roles": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      }
+    },
+    "introduced": {
+      "_superusers": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "users": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "agent_users": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "roles": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      }
+    },
+    "current": {
+      "_superusers": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "users": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "agent_users": {
+        "api_fields": [
+          "id",
+          "password",
+          "tokenKey",
+          "email",
+          "emailVisibility",
+          "verified",
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": [
+          "id",
+          "tokenKey"
+        ]
+      },
+      "roles": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      }
+    },
+    "local_main": {
+      "_superusers": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "users": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "agent_users": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      },
+      "roles": {
+        "api_fields": [
+          "label"
+        ],
+        "id_tokenKey_generic_inputs": []
+      }
+    }
+  },
+  "status": "regression_reproduced_at_serialization_and_ui_selection_level",
+  "limitations": [
+    "No browser render, application startup, user creation or frontend patch performed",
+    "local_main and origin refs are local snapshots; no remote fetch performed"
+  ],
+  "original_agent_change": {
+    "thread_id": "01a0ba03-d5cd-7b61-8245-43cfcc3b7330",
+    "session_log": "/Users/omarsisss/.codex/sessions/2026/09/19/rollout-2026-09-19T14-13-28-01a0ba03-d5cd-7b61-8245-43cfcc3b7330.jsonl",
+    "successful_patch_call_utc": "2026-09-19T15:27:13.270Z",
+    "successful_patch_result_utc": "2026-09-19T15:27:13.415Z",
+    "earlier_failed_patch_utc": "2026-09-19T15:26:44.338Z",
+    "purpose": "PPBase auth parity work used by the BUMA C3 handoff; adding system auth metadata to collection responses"
+  }
+}

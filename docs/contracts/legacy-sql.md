@@ -20,6 +20,20 @@ modifie la vue seulement après snapshot de ses options/champs, la restaure en
 `finally` et ne supprime qu'une collection aléatoire créée par le test.
 Preuve : `docs/c10-sql-runtime-report.json`.
 
-Limites ouvertes : le SQL arbitraire SQLite n'est pas intégralement traduisible
-en PostgreSQL ; textes d'erreur moteur, toutes les inférences de type de colonne
-et toutes les formes de `fields` restent à comparer. C10 global reste ouvert.
+Décision utilisateur du 2026-09-26 (D-0018) : la console administrateur envoie
+du SQL PostgreSQL à `executeSql`, sans traduction générale SQLite attendue.
+Le chemin, `{query}`, la modification de la vue et la lecture native suivante
+restent à préserver. La sélection doit être utilisable comme vue avec `id` ;
+la route ne devient pas un exécuteur de toutes les commandes PostgreSQL.
+
+La compatibilité SQLite de `/sql` et la recherche de ses autres consommateurs
+sont reportées. La route reste présente ; ses limites de dialecte, d'erreurs
+et de `fields` ne sont pas déclarées résolues. Elles ne bloquent plus le
+périmètre C10 retenu par l'utilisateur.
+
+C10 est clôturé le 2026-09-28 sur décision explicite de l'utilisateur (D-0020),
+après sa confirmation de la correction PPBase. Aucun nouveau test du parcours
+desktop (`SELECT * FROM users`, POST executeSql puis GET natif page 1/perPage
+1000) n'est ajouté aux preuves par cette décision. L'audit statique des appels
+reste dans `docs/c10-desktop-sql-usage-audit.json` ; les limites et le report
+de `/sql` sont conservés sans bloquer la clôture acceptée.

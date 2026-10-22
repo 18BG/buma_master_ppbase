@@ -1,6 +1,6 @@
 {
   "source": "buma_master_hooks@530018c",
-  "status": "c10-sql-stockage-native-hooks-validated-remaining-open",
+  "status": "c10-closed-by-explicit-user-acceptance-2026-09-28",
   "routes": [
     {
       "method": "GET",
@@ -754,6 +754,287 @@
         401,
         403
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/openCaisse",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 769,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/reject",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 774,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/reject_closing",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 775,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/openAgain/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 777,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/report/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 779,
+      "auth": "addGlobalObject only; anonymous allowed",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/reportByExpenseType/:id/:start/:end",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 780,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/rangeReport/:id/:start/:end",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 781,
+      "auth": "addGlobalObject only; anonymous allowed",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/transaction/cancel/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 782,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/caisse/transaction/cancel2/:id",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 783,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/caisse/withdrawal",
+      "source_file": "src/entries/caisse.ts",
+      "source_line": 786,
+      "auth": "requireAdminOrRecordAuth then addGlobalObject; caisse.ts derived role",
+      "request": "Exact source fields and path parameters documented in legacy-caisse.md",
+      "response": "Source envelopes and empty responses preserved; see legacy-caisse.md",
+      "proof": "docs/c10-caisse-runtime-report.json",
+      "parity_status": "local-runtime-passed; exhaustive-reference-comparison-open"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/pvd/import",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 274,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/pvd/importSim",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 275,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/customer/create",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 276,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "GET",
+      "path": "/api2/customer/importPDVFromAgent/:agentID/:customerID",
+      "source_file": "src/entries/customer.ts",
+      "source_line": 277,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/newSim",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 169,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/turnovers",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 176,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/assign",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 183,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/master/pdv/unassign",
+      "source_file": "src/entries/master.pdv.ts",
+      "source_line": 185,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "GET",
+      "path": "/master/pilotage/date-report/:startDate",
+      "source_file": "src/entries/master.pilotage.ts",
+      "source_line": 201,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/save-rupture",
+      "source_file": "src/entries/master.rupture.ts",
+      "source_line": 215,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/add",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 640,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/cancel",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 641,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/infos",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 642,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/purchase/payment/add",
+      "source_file": "src/entries/purchase.ts",
+      "source_line": 643,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 821,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/return/confirm",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 822,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/cancel",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 824,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/infos",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 825,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
+    },
+    {
+      "method": "POST",
+      "path": "/api2/sale/payment/add",
+      "source_file": "src/entries/sale.ts",
+      "source_line": 826,
+      "contract": "docs/contracts/legacy-remaining.md",
+      "proof": "docs/c10-remaining-runtime-report.json",
+      "parity_status": "paired-runtime-passed-for-documented-scenarios"
     }
   ],
   "route_status_values": [
@@ -773,5 +1054,5 @@
     "errors",
     "status"
   ],
-  "note": "D-0009 corrected. C10 SQL, /api2/stockage and native CRUD hooks/payDebt pass scoped gates. Remaining legacy routes and arbitrary SQL dialect coverage stay open."
+  "note": "C10 closed under D-0020 after user confirmation of PPBase correction. All inventoried active routes are implemented; historical scoped proofs retained. PostgreSQL console accepted and /sql compatibility deferred under D-0018. No new runtime test implied by closure; C11 remains open."
 }

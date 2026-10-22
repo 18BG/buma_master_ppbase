@@ -1,0 +1,128 @@
+{
+  "timestamp_utc": "2026-09-26T15:43:26.476672+00:00",
+  "scope": "Read-only static inspection of supplied desktop snapshot; no application or backend execution",
+  "frontend_root": "/Users/omarsisss/Documents/wproject/protech/buma-master-desktop-2.3.1",
+  "frontend_git_metadata_present": false,
+  "backend_source_commit": "530018cd20c2acbe88f38b3639e500b5271e2eb2",
+  "scan": {
+    "files": 26659,
+    "bytes": 193435093,
+    "binary_files_nul_heuristic": 638,
+    "manifest_sha256": "3c14acd3082f0585ed84a6ba8fc7e6ca43db6d40da51b77e95062c4593c2661b",
+    "method": "case-insensitive byte regex over every regular non-symlink file; supplemental QML/C++ identifier searches and manual call-chain review",
+    "patterns": {
+      "sql_route": "/sql\\b",
+      "sql2_route": "/api/sql2\\b",
+      "execute_route": "/master/article/executeSql",
+      "delete_route": "/master/article/deleteSql",
+      "sql_view": "buma_sql_table",
+      "sql_segment": "[\"'](?:sql|executeSql|deleteSql)[\"']",
+      "sqlite_strftime": "strftime"
+    },
+    "matches": [
+      {
+        "pattern": "sql_route",
+        "path": "3rd/Qaterial/Baterial.qrc",
+        "sha256": "118eafc019440cf590f2b9e956c652c8e39668328361fae7b64671842e8c3522",
+        "byte_offset": 190182,
+        "line": 3630,
+        "classification": "icon_asset_false_positive"
+      },
+      {
+        "pattern": "sql_route",
+        "path": "3rd/Qaterial/generated-icons/GeneratedIcons.qrc",
+        "sha256": "7e5cacb6e5d7140f3f5a6528a0672e9e11a1a8482ed7ad6862938fdac5d6ab4c",
+        "byte_offset": 179223,
+        "line": 3629,
+        "classification": "icon_asset_false_positive"
+      },
+      {
+        "pattern": "sql_route",
+        "path": "3rd/Qaterial/generated-icons/HugeIconsQml.qml",
+        "sha256": "387a3ba879c6bab080c8b254c7bd5e99f64883080057265468e66467c7ee3cfe",
+        "byte_offset": 339425,
+        "line": 3633,
+        "classification": "icon_asset_false_positive"
+      },
+      {
+        "pattern": "sql_route",
+        "path": "3rd/Qaterial/generated-icons/huge-icons/sql.qml",
+        "sha256": "300e9a71633ebd83df41a56efe182480fc749b515201f2931a63196cf31c5e1b",
+        "byte_offset": 126,
+        "line": 2,
+        "classification": "icon_asset_false_positive"
+      },
+      {
+        "pattern": "sql_route",
+        "path": "3rd/Qaterial/qml/HugeIcons.qml",
+        "sha256": "4366979190bdd0fef7590d5467bb3523868878f659d6067bd6e008f09de5606d",
+        "byte_offset": 299490,
+        "line": 3636,
+        "classification": "icon_asset_false_positive"
+      },
+      {
+        "pattern": "execute_route",
+        "path": "qml/BuMa/Apps/UserSetting/Component_SQL.qml",
+        "sha256": "85351581b0703f5bdf7cbf6401bfe838c6dc2243b02b3d155060ac3a9b39b691",
+        "byte_offset": 18845,
+        "line": 424,
+        "classification": "frontend_code"
+      },
+      {
+        "pattern": "sql_view",
+        "path": "qml/BuMa/Apps/UserSetting/Component_SQL.qml",
+        "sha256": "85351581b0703f5bdf7cbf6401bfe838c6dc2243b02b3d155060ac3a9b39b691",
+        "byte_offset": 19151,
+        "line": 427,
+        "classification": "frontend_code"
+      }
+    ]
+  },
+  "findings": {
+    "POST /master/article/executeSql": {
+      "verdict": "explicit_call_in_reachable_source_ui",
+      "callsite": "qml/BuMa/Apps/UserSetting/Component_SQL.qml:424",
+      "ui": "Administration > Console administrateur",
+      "body_expression": {
+        "query": "editor.text"
+      },
+      "default_editor_text": "SELECT * FROM users",
+      "body_fields": [
+        "query"
+      ],
+      "sql_translation_in_client": false,
+      "auth": "SDK attaches configured Authorization token; admin UI has role gating and a local password dialog",
+      "next_call": {
+        "method": "GET",
+        "path": "/api/collections/buma_sql_table/records",
+        "page": 1,
+        "perPage": 1000
+      },
+      "response_use": "POST success triggers native GET; GET items supply dynamic table columns/rows after collectionId and collectionName removal",
+      "configured_query_catalog_found": false,
+      "saved_queries": "QtCore.Settings sqlQuery alias in parent List.qml; runtime settings and successful save/load not verified"
+    },
+    "POST /sql": {
+      "verdict": "no_call_identified_in_supplied_snapshot",
+      "literal_matches": "5 icon paths only"
+    },
+    "POST /api/sql2": {
+      "verdict": "no_literal_or_call_identified_in_supplied_snapshot"
+    },
+    "POST /master/article/deleteSql": {
+      "verdict": "no_literal_or_call_identified_in_supplied_snapshot"
+    },
+    "strftime": {
+      "verdict": "no_literal_occurrence_in_raw_files"
+    },
+    "other_executeSql": "Model/StorageModel.qml and Providers/StorageModel.qml use local database drivers, not these HTTP routes"
+  },
+  "limits": [
+    "Source wiring is verified, not a click in a running Qt application or production traffic",
+    "Negative searches do not prove absence in other versions or encoded/dynamically assembled paths",
+    "Binary files scanned as raw bytes only; compressed archive contents and executable behavior not decoded",
+    "Actual administrator-entered SQL and local saved query values not included in this snapshot",
+    "No HTTP parity, permissions runtime, persistence, rollback or concurrency test performed",
+    "Existing C10 SQL restoration failure remains unresolved; C10 remains open"
+  ]
+}

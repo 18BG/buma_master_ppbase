@@ -1,0 +1,16 @@
+{
+  "mode": "archive_read_only_inventory",
+  "production_authorized": false,
+  "archive_sha256": "541ca900839207c53dedb19b51e329bbec89c8e98774043c7b9dab2bbcd61295",
+  "archive_bytes": 1555849147,
+  "members": 1290,
+  "declared_uncompressed_bytes": 8526465264,
+  "data_db_members": [
+    "data.db"
+  ],
+  "blockers": [],
+  "ready_for_offline_extraction_review": true,
+  "ready_for_isolated_rehearsal": false,
+  "content_crc_verified": false,
+  "database_schema_and_records_checked": false
+}
