@@ -117,19 +117,25 @@ def test_view_rows_default_multiple_relations_to_empty_lists():
 
 class SeedApp:
     def __init__(self):
-        self.inserts: dict[str, dict] = {}
+        self.inserts: dict[str, tuple[str, dict]] = {}
 
     async def execute_sql(self, sql, params=None):
         table = sql.split('"')[1]
         if table == "buma_customer":
-            self.inserts[params["p_id"]] = params
+            self.inserts[params["p_id"]] = (sql, params)
 
 
-def test_c5_seed_customer_divers_has_an_empty_pdv_list():
+def test_c5_seed_leaves_customer_divers_pdv_to_the_column_default():
     app = SeedApp()
     asyncio.run(load(C5, "c5_seed").up(app))
-    # master.setup.ts l.54-59 omits pdv; PocketBase stores '[]' (see below).
-    assert app.inserts["CUSTOMER_DIVERS"]["p_pdv"] == []
+    sql, params = app.inserts["CUSTOMER_DIVERS"]
+    # master.setup.ts l.52-60 omits pdv; PocketBase stores '[]' (see below). The
+    # column default is '{}' (TEXT[]) or, before 1789236850, '' (VARCHAR(15)):
+    # binding either '' or a list would break one of the two shapes.
+    assert '"pdv"' not in sql.split("VALUES")[0] and "p_pdv" not in params
+    columns = sql.split("(", 1)[1].split(")", 1)[0]
+    assert '"customer_no"' in columns and '"firstname"' in columns
+    assert {key for key, value in params.items() if isinstance(value, list)} == set()
 
 
 class Result:
