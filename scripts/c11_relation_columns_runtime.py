@@ -1,34 +1,56 @@
 """D-0019 runtime proof of migration 1789236850 on an owned, disposable PostgreSQL.
 
 No --db argument exists: this cannot target an existing database. One Docker
-postgres:16-alpine container (labelled, random loopback port) holds two
-databases and is removed at the end, even after a failure:
+postgres:16-alpine container (labelled, random loopback port) holds four
+databases and is removed at the end, even after a failure. A child process
+loads a PPBase that predates the D-0019 rule (``--legacy-ppbase``, checked)
+and prepares three of them; this process loads the corrected PPBase selected
+by PYTHONPATH and checks:
 
-* ``before_fix``: a child process loads the PPBase given by ``--legacy-ppbase``
-  (checked to predate the D-0019 rule) and applies the ten migrations of
-  ``--legacy-ref``, the BUMA commit before this change, then writes one value
-  through that PPBase's record service; synthetic edge values follow in SQL.
-  This process (corrected PPBase, selected by PYTHONPATH) then proves the
-  refusals, the lock against concurrent writers, the rollback after DDL, the
-  conversion, the PPBase model checks, the refused and accepted down, and the
-  replay.
+* ``before_fix``: the ten migrations of ``--legacy-ref`` (the BUMA commit
+  before this change) and one value written by the old record service, then
+  synthetic edge values in SQL. Proves the refusals, the lock against
+  concurrent writers, the rollback after DDL, the conversion, the failure of
+  the cached statements of an engine left running, the verifier functions and
+  scripts in both modes, the PPBase model checks, the VARCHAR(15) limit kept by
+  the single relations of a migrated database, the refused and accepted down,
+  the replay and a down/up of the last five migrations (C5 seed included).
+* ``partial``: only the first six migrations (up to 1789236845) by the old
+  PPBase, then this branch's five remaining ones by the corrected PPBase.
+* ``legacy_head``: this branch's migrations by the old PPBase, which applies
+  them up to 1789236849 and stops atomically at 1789236850; the corrected
+  PPBase then finishes. The child also records that BUMA's hook modules no
+  longer import with the old PPBase.
 * ``fresh``: migrated by the corrected PPBase, first without 1789236850 and
-  then with it, which must change nothing; verifiers and the 42 views run on it.
+  then with it, which must change nothing; verifiers and the 42 views run on
+  it, then the single relation writes, the down/up of the last five
+  migrations and the verifier scripts with their default (fresh) mode.
 
-All values are synthetic. Run as
-python -m scripts.c11_relation_columns_runtime --legacy-ppbase DIR --report NEW.json
+A pre-correction PPBase is one without ``ppbase.models.field_multiplicity``
+(for instance PPBase commit c6821aa). ``--legacy-ppbase DIR`` loads the
+``ppbase`` package of DIR as is. With ``--legacy-ppbase-commit REV``, DIR is a
+PPBase Git repository and REV is exported read-only (``git archive``) into the
+temporary directory, whatever branch DIR has checked out:
+
+    python -m scripts.c11_relation_columns_runtime --legacy-ppbase ../ppbase \
+        --legacy-ppbase-commit c6821aa --report NEW.json
+
+All values are synthetic.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import importlib.util
+import io
 import json
 import os
 import secrets
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
@@ -36,6 +58,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -58,6 +81,10 @@ LEGACY_MIGRATIONS = (
     "1789236848_c10_sqlite_rowid.py",
     "1789236849_c11_source_transaction_idempotency.py",
 )
+HEAD_MIGRATIONS = (*LEGACY_MIGRATIONS, D0019)
+PARTIAL_MIGRATIONS = LEGACY_MIGRATIONS[:6]  # up to 1789236845, before the C5 seed
+LAST_FIVE = HEAD_MIGRATIONS[6:]  # 1789236846 (C5 seed) .. 1789236850
+C5 = LEGACY_MIGRATIONS[6]
 COLUMNS = (
     ("buma_customer", "pdv"),
     ("buma_pilotage_ticket", "tag"),
@@ -66,11 +93,12 @@ COLUMNS = (
 TABLES = tuple(table for table, _ in COLUMNS)
 LEGACY_ENV = "BUMA_C11_WSE_LEGACY_DB"
 RESULT_PREFIX = "C11_RELATION_COLUMNS_LEGACY "
+LEGACY_DATABASES = ("before_fix", "partial", "legacy_head")
 # Written by the legacy PPBase record service (old rule: scalar relation).
 LEGACY_WRITE = ("buma_customer", "wsecust00000002", "wsepdv000000001")
 # table, id, scalar stored before the fix, array after up, scalar after down.
 ROWS = (
-    ("buma_customer", "CUSTOMER_DIVERS", "", [], ""),  # 1789236846 seed
+    ("buma_customer", "CUSTOMER_DIVERS", "", [], ""),  # 1789236846 seed (column default)
     ("buma_customer", "wsecust00000001", "", [], ""),
     ("buma_customer", "wsecust00000002", "wsepdv000000001", ["wsepdv000000001"], None),
     ("buma_customer", "wsecust00000003", "[]", [], ""),
@@ -97,6 +125,19 @@ REFUSED_DOWN = (
     ("element_with_bracket", ["[x]"]),
 )
 REFUSED_ID = "wserefused00001"
+# Single relation (maxSelect 1) written by BUMA without the API target check:
+# /api2/return -> app.legacy.commerce.make_return -> app.legacy.records.create,
+# like the frozen sale.ts l.725-736 (new Record + Dao.SaveRecord).
+SINGLE_RELATION = ("buma_return", "pdv")
+LONG_SINGLE_VALUES = (
+    ("sixteen_characters", "wseorphan0000016"),
+    ("fifteen_characters_and_a_space", "wseorphan000015 "),
+)
+SINGLE_WRITES_MIGRATED = {
+    "sixteen_characters": "refused (SQLSTATE 22001)",
+    "fifteen_characters_and_a_space": "stored truncated to 15 characters",
+}
+SINGLE_WRITES_FRESH = {label: "stored as is" for label, _ in LONG_SINGLE_VALUES}
 
 
 def command(*args, **kwargs):
@@ -118,55 +159,97 @@ def identity(module) -> dict:
 
 
 def engine_for(url: str):
-    # Column types change under pooled connections here: asyncpg's prepared
-    # statement cache would raise InvalidCachedStatementError once per stale
-    # statement, as in any server left running during a DDL migration.
+    # Column types change under pooled connections here: with asyncpg's prepared
+    # statement cache on, a statement prepared before the change fails with
+    # InvalidCachedStatementError until SQLAlchemy clears its caches, as in a
+    # server left running during the migration (proven in exercise_migrated
+    # with an engine configured like ppbase.db.engine.init_engine).
     return create_async_engine(
         url + "?prepared_statement_cache_size=0", connect_args={"ssl": "disable"}
     )
 
 
-async def legacy_phase(url: str, migrations: Path) -> dict:
+def server_like_engine(url: str):
+    """Same options as ppbase.db.engine.init_engine: asyncpg statement cache on."""
+    return create_async_engine(url, pool_pre_ping=True, connect_args={"ssl": "disable"})
+
+
+async def applied_files(engine) -> list[str]:
+    async with engine.connect() as conn:
+        rows = await conn.execute(text("SELECT file FROM _migrations ORDER BY file"))
+        return [row[0] for row in rows.all()]
+
+
+async def column_type(engine, table: str, column: str) -> str | None:
+    async with engine.connect() as conn:
+        return (
+            await conn.execute(
+                text(
+                    "SELECT pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) "
+                    "FROM pg_catalog.pg_attribute AS attribute "
+                    "JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid "
+                    "JOIN pg_catalog.pg_namespace AS namespace "
+                    "ON namespace.oid = relation.relnamespace "
+                    "WHERE namespace.nspname = 'public' AND relation.relname = :table "
+                    "AND attribute.attname = :column AND NOT attribute.attisdropped"
+                ),
+                {"table": table, "column": column},
+            )
+        ).scalar_one_or_none()
+
+
+async def customer_divers_pdv(engine):
+    async with engine.connect() as conn:
+        return (
+            await conn.execute(text("SELECT pdv FROM buma_customer WHERE id = 'CUSTOMER_DIVERS'"))
+        ).scalar_one_or_none()
+
+
+def hook_import_failure() -> dict:
+    """The first BUMA hook module (registration order) whose import fails.
+
+    Registration can fail even earlier: some modules import lazily in register().
+    """
+    from app.hooks.register import HOOK_MODULES
+
+    for module_name in HOOK_MODULES:
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            return {"module": module_name, "error": type(exc).__name__, "missing": exc.name}
+    return {"module": None, "error": None, "missing": None}
+
+
+async def legacy_phase(settings: dict) -> dict:
     """Runs in the child process, with the PPBase before the D-0019 rule."""
     import ppbase
     from ppbase.services.database_preparation import prepare_database
-    from ppbase.services.migration_runner import MigrationApp
     from ppbase.services.record_service import create_record, resolve_collection
 
     loaded = identity(ppbase)
     if loaded["relation_multiplicity_rule"]:
         raise RuntimeError("--legacy-ppbase already contains the D-0019 multiplicity rule")
-    engine = engine_for(url)
-    try:
-        applied = await prepare_database(engine, migrations)
-        table, record_id, value = LEGACY_WRITE
-        collection = await resolve_collection(engine, table)
-        written = await create_record(engine, collection, {"id": record_id, "pdv": value})
-        # This branch's 1789236846 and 1789236850 must not run on this PPBase:
-        # each is executed in a transaction that is rolled back.
-        current = {}
-        for name in ("1789236846_c5_reference_defaults.py", D0019):
-            module = load_migration(name)
-            async with AsyncSession(engine, expire_on_commit=False) as session:
-                await session.begin()
-                try:
-                    await module.up(MigrationApp(session, engine))
-                except Exception as exc:
-                    current[name] = type(exc).__name__
-                    if "expected str, got list" in str(exc):  # asyncpg: [] for VARCHAR
-                        current[name] += " (list bound to a varchar column)"
-                else:
-                    current[name] = "applied"
-                finally:
-                    await session.rollback()
-        return {
-            **loaded,
-            "migrations": applied,
-            "record_service_pdv_is_scalar": written["pdv"] == value,
-            "current_migrations_on_this_ppbase": current,
-        }
-    finally:
-        await engine.dispose()
+    result = {**loaded, "hook_modules": hook_import_failure(), "databases": {}}
+    for name, task in settings.items():
+        engine = engine_for(task["url"])
+        try:
+            outcome: dict = {"error": None}
+            try:
+                await prepare_database(engine, Path(task["migrations"]))
+            except Exception as exc:  # recorded by name; the parent asserts it
+                outcome["error"] = type(exc).__name__
+            outcome["applied"] = await applied_files(engine)
+            if task.get("legacy_write"):
+                table, record_id, value = LEGACY_WRITE
+                collection = await resolve_collection(engine, table)
+                written = await create_record(engine, collection, {"id": record_id, "pdv": value})
+                outcome["record_service_pdv_is_scalar"] = written["pdv"] == value
+            outcome["pdv_column"] = await column_type(engine, "buma_customer", "pdv")
+            outcome["customer_divers_pdv"] = await customer_divers_pdv(engine)
+            result["databases"][name] = outcome
+        finally:
+            await engine.dispose()
+    return result
 
 
 async def catalog(engine, tables=TABLES) -> dict:
@@ -203,6 +286,42 @@ async def catalog(engine, tables=TABLES) -> dict:
         }
 
 
+async def schema_shape(engine) -> dict:
+    """Every public column (type, NOT NULL, default; not its position), index and view."""
+    async with engine.connect() as conn:
+        columns = await conn.execute(
+            text(
+                "SELECT relation.relname, relation.relkind::text, attribute.attname, "
+                "pg_catalog.format_type(attribute.atttypid, attribute.atttypmod), "
+                "attribute.attnotnull, "
+                "pg_catalog.pg_get_expr(definition.adbin, definition.adrelid) "
+                "FROM pg_catalog.pg_attribute AS attribute "
+                "JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid "
+                "JOIN pg_catalog.pg_namespace AS namespace "
+                "ON namespace.oid = relation.relnamespace "
+                "LEFT JOIN pg_catalog.pg_attrdef AS definition "
+                "ON definition.adrelid = attribute.attrelid "
+                "AND definition.adnum = attribute.attnum "
+                "WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'v') "
+                "AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY 1, 3"
+            )
+        )
+        indexes = await conn.execute(
+            text(
+                "SELECT tablename, indexname, indexdef FROM pg_indexes "
+                "WHERE schemaname = 'public' ORDER BY 1, 2"
+            )
+        )
+        views = await conn.execute(
+            text("SELECT viewname, definition FROM pg_views WHERE schemaname = 'public' ORDER BY 1")
+        )
+        return {
+            "columns": [list(row) for row in columns.all()],
+            "indexes": [list(row) for row in indexes.all()],
+            "views": [list(row) for row in views.all()],
+        }
+
+
 def three_columns(state: dict) -> dict:
     """The converted columns and their managed index only."""
     wanted = {(table, column) for table, column in COLUMNS}
@@ -222,19 +341,47 @@ async def values(engine) -> dict:
     return result
 
 
-async def collection_rows(engine) -> dict:
+async def collection_rows(engine, *, timestamps: bool = True) -> dict:
     async with engine.connect() as conn:
         rows = (await conn.execute(text("SELECT * FROM _collections ORDER BY id"))).mappings().all()
+    skipped = set() if timestamps else {"created", "updated"}
     return {
-        row["name"]: json.dumps(dict(row), default=str, sort_keys=True, ensure_ascii=False)
+        row["name"]: json.dumps(
+            {key: value for key, value in row.items() if key not in skipped},
+            default=str,
+            sort_keys=True,
+            ensure_ascii=False,
+        )
         for row in rows
     }
 
 
-async def applied_files(engine) -> list[str]:
+async def seed_rows(engine) -> dict:
+    """Rows of the C5 seed (1789236846), without their created/updated timestamps."""
+    c5 = load_migration(C5)
+    tables = {
+        "buma_article_stockage": ["STOCK_PRINCIPAL"],
+        "buma_payment_method": ["PAYMENT_CASH_12", "PAYMENT_MOBILE_", "PAYMENT_CARTE_1"],
+        "buma_customer": ["CUSTOMER_DIVERS"],
+        "buma_supplier": ["SUPPLIER_DIVERS"],
+        "buma_apps_roles": [role["id"] for role in c5.APP_ROLES],
+    }
+    rows = {}
     async with engine.connect() as conn:
-        rows = await conn.execute(text("SELECT file FROM _migrations ORDER BY file"))
-        return [row[0] for row in rows.all()]
+        for table, ids in tables.items():
+            result = await conn.execute(
+                text(f'SELECT * FROM "{table}" WHERE id = ANY(:ids) ORDER BY id'), {"ids": ids}
+            )
+            rows[table] = [
+                json.dumps(
+                    {k: v for k, v in row.items() if k not in ("created", "updated")},
+                    default=str,
+                    sort_keys=True,
+                )
+                for row in result.mappings()
+            ]
+            assert len(rows[table]) == len(ids), (table, len(rows[table]))
+    return rows
 
 
 async def sql(engine, statement: str, params: dict | None = None) -> None:
@@ -349,7 +496,132 @@ async def with_blocker(engine, statement: str, params: dict, operation):
         return task
 
 
-async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report: dict) -> dict:
+async def single_relation_writes(engine) -> dict:
+    """Over-long ids written by BUMA's internal writer into a single relation."""
+    from app.legacy.records import create
+
+    table, column = SINGLE_RELATION
+    outcome = {}
+    for label, value in LONG_SINGLE_VALUES:
+        try:
+            row = await create(engine, table, {column: value, "note": "wse single relation"})
+        except DBAPIError as exc:
+            outcome[label] = f"refused (SQLSTATE {getattr(exc.orig, 'sqlstate', None)})"
+            continue
+        await sql(engine, f'DELETE FROM "{table}" WHERE id = :id', {"id": row["id"]})
+        stored = row[column]
+        if stored == value:
+            outcome[label] = "stored as is"
+        else:
+            assert stored == value.rstrip(" ")[:15], len(stored)
+            outcome[label] = f"stored truncated to {len(stored)} characters"
+    async with engine.connect() as conn:
+        left = f"SELECT count(*) FROM \"{table}\" WHERE note = 'wse single relation'"
+        assert (await conn.execute(text(left))).scalar_one() == 0
+    return outcome
+
+
+async def down_up_last_five(engine, url: str, mode: str) -> dict:
+    """Revert 1789236846..1789236850 and apply them again: same schema, rows and seed."""
+    from ppbase.services.database_preparation import (
+        prepare_database,
+        prepare_database_and_revert,
+    )
+
+    from scripts.generate_native_baseline import load_schema
+    from scripts.verify_schema_baseline import read_collections, verify
+    from scripts.verify_view_queries import verify as verify_views
+
+    async def snapshot() -> list:
+        return [
+            await schema_shape(engine),
+            await values(engine),
+            await seed_rows(engine),
+            await collection_rows(engine, timestamps=False),
+            await applied_files(engine),
+        ]
+
+    before = await snapshot()
+    reverted = await prepare_database_and_revert(engine, MIGRATIONS, count=5)
+    assert reverted == list(reversed(LAST_FIVE)), reverted
+    # 1789236850 down restored VARCHAR(15); 1789236846 down removed the seed.
+    assert await column_type(engine, "buma_customer", "pdv") == "character varying(15)"
+    assert await customer_divers_pdv(engine) is None
+    assert await prepare_database(engine, MIGRATIONS) == list(LAST_FIVE)
+    after = await snapshot()
+    labels = ("schema", "values", "seed_rows", "collections", "migrations")
+    differing = [label for label, a, b in zip(labels, after, before, strict=True) if a != b]
+    assert not differing, differing
+    assert after[1]["buma_customer.pdv"]["CUSTOMER_DIVERS"] == []
+    check = verify(
+        load_schema(SCHEMA, include_views=False)[0],
+        await read_collections(url),
+        relation_columns=mode,
+    )
+    assert check["ok"], check
+    views = await verify_views(url, load_schema(SCHEMA, include_views=True)[0])
+    assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
+    return {
+        "reverted": reverted,
+        "between": "buma_customer.pdv character varying(15), C5 seed removed",
+        "replayed": list(LAST_FIVE),
+        "equal_after_replay": list(labels),
+        "customer_divers_pdv": "empty array",
+        "verifier_mode": mode,
+        "views_ok": len(views),
+    }
+
+
+def only_varchar_single_errors(errors: list[str]) -> bool:
+    suffix = ": single relation stored as character varying(15)"
+    return all(error.endswith(suffix) for error in errors)
+
+
+def verifier_cli(script: str, url: str, *options: str) -> tuple[int, dict]:
+    """Run a verifier script like the Makefile targets (database from PPBASE_DATABASE_URL)."""
+    completed = subprocess.run(
+        [sys.executable, str(PROJECT / "scripts" / script), *options],
+        cwd=PROJECT,
+        env={**os.environ, "PPBASE_DATABASE_URL": url, "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode not in (0, 1):
+        raise RuntimeError(f"{script} failed:\n" + completed.stderr[-2000:])
+    return completed.returncode, json.loads(completed.stdout)
+
+
+VERIFIER_SCRIPTS = ("verify_schema_baseline.py", "verify_complete_schema.py")
+
+
+def verifier_clis_on_migrated_database(url: str) -> dict:
+    """Default (fresh) refuses the 188 VARCHAR(15) single relations; migrated accepts."""
+    result = {}
+    for script in VERIFIER_SCRIPTS:
+        code, output = verifier_cli(script, url)
+        columns = output["relation_columns"]
+        assert code == 1 and columns["mode"] == "fresh", (script, code, columns["mode"])
+        assert len(columns["errors"]) == 188 and only_varchar_single_errors(columns["errors"])
+        assert columns["hint"] and "--relation-columns migrated" in columns["hint"]
+        code_migrated, migrated = verifier_cli(script, url, "--relation-columns", "migrated")
+        assert code_migrated == 0 and migrated["ok"], (script, migrated["relation_columns"])
+        result[script] = {
+            "default": "exit 1: fresh mode, 188 varchar(15) single relations, hint",
+            "--relation-columns migrated": "exit 0",
+        }
+    return result
+
+
+def verifier_clis_on_fresh_database(url: str) -> dict:
+    result = {}
+    for script in VERIFIER_SCRIPTS:
+        code, output = verifier_cli(script, url)
+        assert code == 0 and output["ok"] and output["relation_columns"]["mode"] == "fresh"
+        result[script] = {"default": "exit 0 (fresh mode)"}
+    return result
+
+
+async def exercise_migrated(url: str, report: dict) -> dict:
     from ppbase.services.database_preparation import (
         prepare_database,
         prepare_database_and_revert,
@@ -367,47 +639,6 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
     from scripts.verify_complete_schema import verify as verify_complete
     from scripts.verify_schema_baseline import read_collections, verify
     from scripts.verify_view_queries import verify as verify_views
-
-    names = command("git", "-C", str(PROJECT), "ls-tree", "--name-only", ref, "pb_migrations/")
-    files = sorted(Path(name).name for name in names.splitlines() if name.endswith(".py"))
-    assert files == list(LEGACY_MIGRATIONS), files
-    folder = root / "legacy_migrations"
-    folder.mkdir()
-    for name in LEGACY_MIGRATIONS:
-        content = subprocess.check_output(
-            ["git", "-C", str(PROJECT), "show", f"{ref}:pb_migrations/{name}"]
-        )
-        (folder / name).write_bytes(content)
-    child = subprocess.run(
-        [sys.executable, "-m", "scripts.c11_relation_columns_runtime", "--legacy-phase"],
-        cwd=PROJECT,
-        env={
-            **os.environ,
-            "PYTHONPATH": str(legacy),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            LEGACY_ENV: json.dumps({"url": url, "migrations": str(folder)}),
-        },
-        capture_output=True,
-        text=True,
-    )
-    if child.returncode:
-        raise RuntimeError("legacy phase failed:\n" + child.stderr[-4000:])
-    line = next(row for row in child.stdout.splitlines() if row.startswith(RESULT_PREFIX))
-    legacy_result = json.loads(line[len(RESULT_PREFIX) :])
-    assert legacy_result["migrations"] == list(LEGACY_MIGRATIONS), legacy_result
-    assert legacy_result["record_service_pdv_is_scalar"] is True
-    current = legacy_result["current_migrations_on_this_ppbase"]
-    assert current[D0019] == "RelationColumnError", current
-    assert current[LEGACY_MIGRATIONS[6]].endswith("(list bound to a varchar column)"), current
-    report["legacy_ppbase"] = {
-        key: legacy_result[key]
-        for key in ("package_dir", "git_commit", "relation_multiplicity_rule")
-    }
-    report["this_branch_with_legacy_ppbase"] = {
-        "1789236846_c5_reference_defaults.py": "refused: " + current[LEGACY_MIGRATIONS[6]],
-        D0019: "refused: " + current[D0019],
-    }
-    report["legacy_migrations"] = {"ref": ref, "files": len(LEGACY_MIGRATIONS)}
 
     engine = engine_for(url)
     definitions = load_schema(SCHEMA, include_views=False)[0]
@@ -458,11 +689,10 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
             await unchanged(label)
             refusals[label] = "refused_atomically"
         # A refused value committed while up waits for its lock is still seen.
-        table, value = "buma_wallet", "['wseuser01']"
         task = await with_blocker(
             engine,
             'INSERT INTO "buma_wallet" (id, managers) VALUES (:id, :value)',
-            {"id": REFUSED_ID, "value": value},
+            {"id": REFUSED_ID, "value": "['wseuser01']"},
             prepare_database(engine, MIGRATIONS),
         )
         message = await migration_error(task)
@@ -492,15 +722,43 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
         await unchanged("rollback")
         report["rollback_after_ddl"] = "converted_inside_the_transaction_then_fully_restored"
 
-        # up waits for a concurrent writer and converts its committed value.
-        table, record_id, value = CONCURRENT_ROW
-        task = await with_blocker(
-            engine,
-            'INSERT INTO "buma_wallet" (id, managers) VALUES (:id, :value)',
-            {"id": record_id, "value": value},
-            prepare_database(engine, MIGRATIONS),
-        )
-        assert await task == [D0019]
+        # An engine left running (statement cache on, like a PPBase server) has
+        # prepared a read of pdv before up; it fails once after the type change.
+        running = server_like_engine(url)
+        stale_read = text("SELECT pdv FROM buma_customer WHERE id = :id")
+        stale_failures: list[str] = []
+        try:
+            async with running.connect() as conn:
+                seen = (await conn.execute(stale_read, {"id": LEGACY_WRITE[1]})).scalar_one()
+                assert seen == LEGACY_WRITE[2]
+            # up waits for a concurrent writer and converts its committed value.
+            table, record_id, value = CONCURRENT_ROW
+            task = await with_blocker(
+                engine,
+                'INSERT INTO "buma_wallet" (id, managers) VALUES (:id, :value)',
+                {"id": record_id, "value": value},
+                prepare_database(engine, MIGRATIONS),
+            )
+            assert await task == [D0019]
+            for _ in range(2):
+                try:
+                    async with running.connect() as conn:
+                        result = await conn.execute(stale_read, {"id": LEGACY_WRITE[1]})
+                        seen = result.scalar_one()
+                    break
+                except DBAPIError as exc:
+                    stale_failures.append(type(exc.orig).__name__)
+        finally:
+            await running.dispose()
+        assert stale_failures == ["InvalidCachedStatementError"], stale_failures
+        assert seen == [LEGACY_WRITE[2]], seen
+        report["engine_left_running_during_up"] = {
+            "engine": "options of ppbase.db.engine.init_engine (asyncpg statement cache on)",
+            "first_read_of_pdv_after_up": stale_failures[0],
+            "next_read": "one-element list",
+            "operational_rule": "stop PPBase servers before 1789236850, start them after",
+        }
+
         assert await values(engine) == expected_values("array")
         converted_catalog = await catalog(engine)
         converted_three = three_columns(converted_catalog)
@@ -538,9 +796,10 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
         after = verify(definitions, await read_collections(url), relation_columns="migrated")
         assert after["ok"], after
         strict = verify(definitions, await read_collections(url), relation_columns="fresh")
-        assert (
-            not strict["metadata_mismatches"] and len(strict["relation_columns"]["errors"]) == 188
-        )
+        assert not strict["metadata_mismatches"]
+        assert len(strict["relation_columns"]["errors"]) == 188
+        assert only_varchar_single_errors(strict["relation_columns"]["errors"])
+        assert strict["relation_columns"]["hint"], strict["relation_columns"]
         complete = verify_complete(
             view_definitions, await read_complete(url), relation_columns="migrated"
         )
@@ -554,9 +813,11 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
                 key: after["relation_columns"][key] for key in ("multiple", "single", "ok")
             },
             "fresh_mode_errors": len(strict["relation_columns"]["errors"]),
+            "fresh_mode_errors_are_varchar_single_relations": True,
             "complete_schema_ok_migrated_mode": complete["ok"],
             "views_ok": len(views),
             "second_run_pending": [],
+            "clis": verifier_clis_on_migrated_database(url),
         }
 
         model = await model_check(engine)
@@ -590,6 +851,15 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
             "read_shapes": "lists",
             "filter_on_converted_column": "ok",
             "string_write_stored_as_one_element_list": True,
+        }
+
+        # The 188 single relations keep VARCHAR(15) here (TEXT on a new database).
+        writes = await single_relation_writes(engine)
+        assert writes == SINGLE_WRITES_MIGRATED, writes
+        report["single_relation_internal_writes"] = {
+            "path": "app.legacy.records.create (/api2/return), buma_return.pdv maxSelect 1",
+            "column": await column_type(engine, *SINGLE_RELATION),
+            "outcomes": writes,
         }
 
         converted_values = await values(engine)
@@ -631,10 +901,95 @@ async def exercise_migrated(root: Path, url: str, legacy: Path, ref: str, report
         assert await catalog(engine) == converted_catalog
         assert await values(engine) == converted_values
         report["replay"] = "up_down_up_gives_the_same_catalog_and_arrays"
+
+        report["down_up_last_five"] = await down_up_last_five(engine, url, "migrated")
+        assert await catalog(engine) == converted_catalog
         return {
             "three": three_columns(converted_catalog),
             "values": converted_values,
             "reads": await record_reads(engine, converted_values),
+        }
+    finally:
+        await engine.dispose()
+
+
+async def exercise_partial(url: str, converted: dict, report: dict) -> None:
+    """Old PPBase up to 1789236845, then this branch with the corrected PPBase."""
+    from ppbase.services.database_preparation import prepare_database
+    from ppbase.services.record_service import get_record, resolve_collection
+
+    from scripts.generate_native_baseline import load_schema
+    from scripts.verify_complete_schema import read_collections as read_complete
+    from scripts.verify_complete_schema import verify as verify_complete
+    from scripts.verify_schema_baseline import read_collections, verify
+    from scripts.verify_view_queries import verify as verify_views
+
+    engine = engine_for(url)
+    try:
+        assert await applied_files(engine) == list(PARTIAL_MIGRATIONS)
+        assert await column_type(engine, "buma_customer", "pdv") == "character varying(15)"
+        assert await prepare_database(engine, MIGRATIONS) == list(LAST_FIVE)
+        assert three_columns(await catalog(engine)) == converted["three"]
+        assert await values(engine) == {
+            "buma_customer.pdv": {"CUSTOMER_DIVERS": []},
+            "buma_pilotage_ticket.tag": {},
+            "buma_wallet.managers": {},
+        }
+        definitions = load_schema(SCHEMA, include_views=False)[0]
+        view_definitions = load_schema(SCHEMA, include_views=True)[0]
+        rows = await read_collections(url)
+        migrated = verify(definitions, rows, relation_columns="migrated")
+        assert migrated["ok"], migrated
+        strict = verify(definitions, rows, relation_columns="fresh")
+        assert len(strict["relation_columns"]["errors"]) == 188
+        assert only_varchar_single_errors(strict["relation_columns"]["errors"])
+        complete = verify_complete(
+            view_definitions, await read_complete(url), relation_columns="migrated"
+        )
+        assert complete["ok"], complete
+        views = await verify_views(url, view_definitions)
+        assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
+        customers = await resolve_collection(engine, "buma_customer")
+        assert (await get_record(engine, customers, "CUSTOMER_DIVERS"))["pdv"] == []
+        report["partial_legacy_then_head"] = {
+            "legacy_ppbase_applied": len(PARTIAL_MIGRATIONS),
+            "corrected_ppbase_applied": list(LAST_FIVE),
+            "customer_divers_pdv": "column default '' then empty array",
+            "three_columns_equal_converted_database": True,
+            "verifier_migrated_mode": {
+                key: migrated["relation_columns"][key] for key in ("multiple", "single", "ok")
+            },
+            "complete_schema_ok_migrated_mode": complete["ok"],
+            "views_ok": len(views),
+        }
+    finally:
+        await engine.dispose()
+
+
+async def exercise_legacy_head(url: str, converted: dict, report: dict) -> None:
+    """This branch stopped at 1789236850 by the old PPBase, finished by the corrected one."""
+    from ppbase.services.database_preparation import prepare_database
+
+    from scripts.generate_native_baseline import load_schema
+    from scripts.verify_schema_baseline import read_collections, verify
+
+    engine = engine_for(url)
+    try:
+        assert await applied_files(engine) == list(LEGACY_MIGRATIONS)
+        assert await prepare_database(engine, MIGRATIONS) == [D0019]
+        assert three_columns(await catalog(engine)) == converted["three"]
+        assert (await values(engine))["buma_customer.pdv"] == {"CUSTOMER_DIVERS": []}
+        check = verify(
+            load_schema(SCHEMA, include_views=False)[0],
+            await read_collections(url),
+            relation_columns="migrated",
+        )
+        assert check["ok"], check
+        report["legacy_head_then_corrected_ppbase"] = {
+            "corrected_ppbase_applied": [D0019],
+            "customer_divers_pdv": "column default '' then empty array",
+            "three_columns_equal_converted_database": True,
+            "verifier_migrated_mode_ok": True,
         }
     finally:
         await engine.dispose()
@@ -698,6 +1053,11 @@ async def exercise_fresh(root: Path, url: str, converted: dict, report: dict) ->
         assert prepared == converted["values"], prepared
         assert await record_reads(engine, prepared) == converted["reads"]
 
+        writes = await single_relation_writes(engine)
+        assert writes == SINGLE_WRITES_FRESH, writes
+        single_column = await column_type(engine, *SINGLE_RELATION)
+        assert single_column == "text", single_column
+
         assert await prepare_database_and_revert(engine, MIGRATIONS, count=1) == [D0019]
         assert [row[1:] for row in three_columns(await catalog(engine))["columns"]] == [
             ["character varying(15)", True, "''::character varying"]
@@ -705,44 +1065,158 @@ async def exercise_fresh(root: Path, url: str, converted: dict, report: dict) ->
         assert await prepare_database(engine, MIGRATIONS) == [D0019]
         assert three_columns(await catalog(engine)) == converted["three"]
         assert await values(engine) == prepared
+
+        down_up = await down_up_last_five(engine, url, "fresh")
+        assert three_columns(await catalog(engine)) == converted["three"]
+        assert await values(engine) == prepared
+        clis = verifier_clis_on_fresh_database(url)
         report["fresh"] = {
             "1789236850_effect": "none (catalog, values and _collections identical)",
-            "customer_divers_pdv": "empty array",
+            "customer_divers_pdv": "empty array (column default)",
             "three_columns_equal_converted_database": True,
             "verifiers_fresh_mode": {
                 key: baseline["relation_columns"][key] for key in ("multiple", "single", "ok")
             },
             "complete_schema_ok": complete["ok"],
+            "verifier_clis": clis,
             "views_ok": len(views),
             "ppbase_model": "same as the converted database",
             "prepare_value_of_legacy_scalars_equals_conversion": True,
             "record_service_reads_equal_converted_database": True,
+            "single_relation_internal_writes": {"column": single_column, "outcomes": writes},
             "down_up_replay": "scalar varchar(15) then text[] again",
+            "down_up_last_five": down_up,
         }
     finally:
         await engine.dispose()
 
 
-async def exercise(root: Path, before_url: str, fresh_url: str, args, report: dict) -> None:
+def legacy_ppbase_dir(args, root: Path) -> tuple[Path, dict]:
+    """The directory to put on the child's PYTHONPATH, and how it was obtained."""
+    source = args.legacy_ppbase.resolve()
+    if args.legacy_ppbase_commit is None:
+        return source, {"source": "directory"}
+    commit = command(
+        "git", "-C", str(source), "rev-parse", "--verify", f"{args.legacy_ppbase_commit}^{{commit}}"
+    )
+    target = root / "legacy_ppbase"
+    target.mkdir()
+    archive = subprocess.run(
+        ["git", "-C", str(source), "archive", "--format=tar", commit, "ppbase"],
+        check=True,
+        capture_output=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+        tar.extractall(target, filter="data")
+    return target, {"source": "git archive (read-only)", "archived_commit": commit}
+
+
+def run_legacy_phase(root: Path, urls: dict, legacy: Path, ref: str) -> dict:
+    names = command("git", "-C", str(PROJECT), "ls-tree", "--name-only", ref, "pb_migrations/")
+    files = sorted(Path(name).name for name in names.splitlines() if name.endswith(".py"))
+    assert files == list(LEGACY_MIGRATIONS), files
+    folders = {"before_fix": root / "legacy_migrations", "partial": root / "partial_migrations"}
+    for key, selected in (("before_fix", LEGACY_MIGRATIONS), ("partial", PARTIAL_MIGRATIONS)):
+        folders[key].mkdir()
+        for name in selected:
+            content = subprocess.check_output(
+                ["git", "-C", str(PROJECT), "show", f"{ref}:pb_migrations/{name}"]
+            )
+            (folders[key] / name).write_bytes(content)
+    # The six files of the partial database are unchanged by this branch.
+    for name in PARTIAL_MIGRATIONS:
+        assert (folders["partial"] / name).read_bytes() == (MIGRATIONS / name).read_bytes(), name
+    settings = {
+        "before_fix": {
+            "url": urls["before_fix"],
+            "migrations": str(folders["before_fix"]),
+            "legacy_write": True,
+        },
+        "partial": {"url": urls["partial"], "migrations": str(folders["partial"])},
+        "legacy_head": {"url": urls["legacy_head"], "migrations": str(MIGRATIONS)},
+    }
+    child = subprocess.run(
+        [sys.executable, "-m", "scripts.c11_relation_columns_runtime", "--legacy-phase"],
+        cwd=PROJECT,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(legacy),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            LEGACY_ENV: json.dumps(settings),
+        },
+        capture_output=True,
+        text=True,
+    )
+    if child.returncode:
+        raise RuntimeError("legacy phase failed:\n" + child.stderr[-4000:])
+    line = next(row for row in child.stdout.splitlines() if row.startswith(RESULT_PREFIX))
+    return json.loads(line[len(RESULT_PREFIX) :])
+
+
+async def exercise(root: Path, urls: dict, args, report: dict) -> None:
     import ppbase
 
     report["corrected_ppbase"] = identity(ppbase)
     if not report["corrected_ppbase"]["relation_multiplicity_rule"]:
         raise RuntimeError("Run with the corrected PPBase on PYTHONPATH")
-    converted = await exercise_migrated(
-        root, before_url, args.legacy_ppbase.resolve(), args.legacy_ref, report
-    )
-    await exercise_fresh(root, fresh_url, converted, report)
+    files = sorted(path.name for path in MIGRATIONS.glob("*.py"))
+    assert files == list(HEAD_MIGRATIONS), files
+
+    legacy_dir, origin = legacy_ppbase_dir(args, root)
+    legacy = run_legacy_phase(root, urls, legacy_dir, args.legacy_ref)
+    databases = legacy["databases"]
+    before_fix, partial, head = (databases[name] for name in LEGACY_DATABASES)
+    assert before_fix["error"] is None and before_fix["applied"] == list(LEGACY_MIGRATIONS)
+    assert before_fix["record_service_pdv_is_scalar"] is True
+    assert before_fix["pdv_column"] == "character varying(15)"
+    assert before_fix["customer_divers_pdv"] == ""
+    assert partial["error"] is None and partial["applied"] == list(PARTIAL_MIGRATIONS)
+    assert partial["customer_divers_pdv"] is None
+    # This branch on the old PPBase: the C5 seed works (column default ''), and
+    # 1789236850 refuses before any change; the nine files before it stay applied.
+    assert head["error"] == "RelationColumnError", head
+    assert head["applied"] == list(LEGACY_MIGRATIONS), head
+    assert head["pdv_column"] == "character varying(15)" and head["customer_divers_pdv"] == ""
+    hooks = legacy["hook_modules"]
+    assert hooks["error"] == "ModuleNotFoundError", hooks
+    assert hooks["missing"] == "ppbase.models.field_multiplicity", hooks
+    report["legacy_ppbase"] = {
+        **origin,
+        **{key: legacy[key] for key in ("package_dir", "git_commit", "relation_multiplicity_rule")},
+    }
+    report["this_branch_with_legacy_ppbase"] = {
+        "migrations_applied": len(head["applied"]),
+        C5: "applied: CUSTOMER_DIVERS pdv '' (VARCHAR(15) column default)",
+        D0019: "refused atomically: RelationColumnError",
+        "hook_modules": f"{hooks['module']}: ModuleNotFoundError {hooks['missing']}",
+    }
+    report["legacy_migrations"] = {"ref": args.legacy_ref, "files": len(LEGACY_MIGRATIONS)}
+
+    converted = await exercise_migrated(urls["before_fix"], report)
+    await exercise_partial(urls["partial"], converted, report)
+    await exercise_legacy_head(urls["legacy_head"], converted, report)
+    await exercise_fresh(root, urls["fresh"], converted, report)
 
 
 def main():
     if os.environ.get(LEGACY_ENV) and sys.argv[1:] == ["--legacy-phase"]:
-        settings = json.loads(os.environ[LEGACY_ENV])
-        result = asyncio.run(legacy_phase(settings["url"], Path(settings["migrations"])))
+        result = asyncio.run(legacy_phase(json.loads(os.environ[LEGACY_ENV])))
         print(RESULT_PREFIX + json.dumps(result))
         return
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--legacy-ppbase", type=Path, required=True)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--legacy-ppbase",
+        type=Path,
+        required=True,
+        help="directory holding a pre-correction ppbase package, or a PPBase Git "
+        "repository with --legacy-ppbase-commit",
+    )
+    parser.add_argument(
+        "--legacy-ppbase-commit",
+        help="export this pre-correction PPBase commit read-only (git archive), e.g. c6821aa",
+    )
     parser.add_argument("--legacy-ref", default="6c979b6")
     parser.add_argument("--container-prefix", default="buma-c11-ws-e")
     parser.add_argument("--report", type=Path, required=True, help="New JSON report path")
@@ -790,22 +1264,13 @@ def main():
                     break
                 except subprocess.CalledProcessError:
                     time.sleep(0.2)
-            command(
-                "docker",
-                "exec",
-                name,
-                "psql",
-                "-U",
-                "wse",
-                "-d",
-                "before_fix",
-                "-h",
-                "127.0.0.1",
-                "-c",
-                "CREATE DATABASE fresh",
-            )
+            others = ("partial", "legacy_head", "fresh")
+            psql = ["docker", "exec", name, "psql", "-U", "wse", "-d", "before_fix"]
+            for database in others:  # CREATE DATABASE cannot share a transaction
+                command(*psql, "-h", "127.0.0.1", "-c", f"CREATE DATABASE {database}")
             base = f"postgresql+asyncpg://wse:{password}@127.0.0.1:{port}"
-            asyncio.run(exercise(Path(folder), f"{base}/before_fix", f"{base}/fresh", args, report))
+            urls = {db: f"{base}/{db}" for db in ("before_fix", *others)}
+            asyncio.run(exercise(Path(folder), urls, args, report))
             report["status"] = "passed"
     except BaseException as exc:
         # Never leak credentials or bind parameters into the report.

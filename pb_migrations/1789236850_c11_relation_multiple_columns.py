@@ -32,8 +32,28 @@ A refusal raises before any change and the runner rolls the migration back.
 A column that already has the corrected shape (database created after the
 PPBase correction) is left untouched, so ``up`` has no effect there. The
 ``_collections`` metadata is never written: ``maxSelect`` stays ``null``.
+
 The 188 single relation columns are not touched: they stay ``VARCHAR(15)`` on a
-migrated database and are ``TEXT`` on a new one (no client-visible difference).
+database created before the correction and are ``TEXT`` on a new one, like
+PocketBase (``TEXT DEFAULT '' NOT NULL``, ``schema_field.go`` l.163). Values of
+at most 15 characters behave the same, among them every valid id (a new
+PocketBase id has exactly 15 characters, ``forms/record_upsert.go`` l.479 and
+``models/base.go`` l.11) and every API write (the target must exist,
+``forms/validators/record_data.go`` l.361-398). A longer value written without
+that check (hooks and internal writes, e.g. ``buma_return.pdv`` by
+``/api2/return`` through ``app.legacy.records.create``, like the frozen
+``sale.ts`` l.725-736 ``new Record`` + ``Dao.SaveRecord``) is refused by
+PostgreSQL (SQLSTATE 22001) on a migrated database, or silently truncated to 15
+characters when the excess is only spaces (``varchar(n)`` assignment), while
+PocketBase and a new database store it as is. The cutover database is created
+new, so it has ``TEXT`` columns; only databases migrated before the correction
+keep the limit.
+
+Apply this migration with no PPBase server serving the database: stop the
+servers, run ``ppbase migrate up``, then start them. A server left running
+keeps asyncpg prepared statements of the old column type; a request that runs
+one fails with ``InvalidCachedStatementError`` until SQLAlchemy clears its
+caches in response (SQLAlchemy asyncpg dialect, "Prepared Statement Cache").
 
 ``down`` restores the pre-correction scalar column and its partial btree index
 only when every array has at most one element and that element is not empty,

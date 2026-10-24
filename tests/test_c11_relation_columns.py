@@ -2,9 +2,11 @@
 
 Unit tests cover the shared multiplicity rule in the legacy helpers, the C5
 seed, the decisions of migration 1789236850 (with a fake migration app) and
-the physical relation check of the verifiers. The PostgreSQL behaviour of the
-migration (conversion, refusals, lock, rollback, down, replay, fresh database)
-is proven by ``scripts/c11_relation_columns_runtime.py``.
+the physical relation check of the verifiers (strict "fresh" default). The
+PostgreSQL behaviour (conversion, refusals, lock, rollback, down, replay,
+fresh and partially migrated databases, down/up of the last five migrations,
+single relation limit, stale prepared statements) is proven by
+``scripts/c11_relation_columns_runtime.py``.
 
 The last test runs the official PocketBase binaries, when available:
 
@@ -439,8 +441,13 @@ migrate((db) => {
     insert("wse_down", id, value);
   }
   dao.importCollections(switching(null, 1), false);
+  // sale.ts l.725-736 (/api2/return): new Record + saveRecord, no target check,
+  // on the single relation buma_return.pdv (maxSelect 1, TEXT column).
+  for (const [id, value] of __WSE_SINGLE__) save("buma_return", {id: id, pdv: value});
 }, (db) => {});
 """
+# Over-long ids in a single relation: kept as is by PocketBase (TEXT column).
+SINGLE = (("wsereturn000001", "wseorphan0000016"), ("wsereturn000002", "wseorphan000015 "))
 
 
 @pytest.fixture(params=sorted(BINARIES))
@@ -458,8 +465,10 @@ def test_pocketbase_reference_for_maxselect_null_relation_values(pocketbase, tmp
     migrations = tmp_path / "migrations"
     migrations.mkdir()
     shapes = json.dumps([list(shape) for shape in SHAPES])
-    probe = PROBE.replace("__WSE_SHAPES__", shapes).replace(
-        "__WSE_COLLECTIONS__", json.dumps(export())
+    probe = (
+        PROBE.replace("__WSE_SHAPES__", shapes)
+        .replace("__WSE_SINGLE__", json.dumps([list(item) for item in SINGLE]))
+        .replace("__WSE_COLLECTIONS__", json.dumps(export()))
     )
     (migrations / "1700000000_wse_probe.js").write_text(probe)
     data = tmp_path / "pb_data"
@@ -479,6 +488,7 @@ def test_pocketbase_reference_for_maxselect_null_relation_values(pocketbase, tmp
         pdv = dict(db.execute("SELECT id, pdv FROM buma_customer"))
         switched_up = dict(db.execute("SELECT id, rel FROM wse_up"))
         switched_down = dict(db.execute("SELECT id, rel FROM wse_down"))
+        returns = dict(db.execute("SELECT id, pdv FROM buma_return"))
     # getString of a multiple relation is "", so the source always rewrites pdv.
     assert observed == {"before": "", "after": "", "list": ["wsepdv000000001"]}
     assert pdv["wsecust00000001"] == '["wsepdv000000001"]'
@@ -507,3 +517,6 @@ def test_pocketbase_reference_for_maxselect_null_relation_values(pocketbase, tmp
     }
     # Multiple -> single keeps the last element; 1789236850 down refuses instead.
     assert switched_down == {"d1": "", "d2": "x1", "d3": "x2"}
+    # A new PPBase database (TEXT) keeps them as is too; a migrated one keeps
+    # VARCHAR(15) single relations (scripts/c11_relation_columns_runtime.py).
+    assert returns == dict(SINGLE)
