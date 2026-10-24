@@ -1159,3 +1159,37 @@ def test_a_signal_during_manifest_publication_leaves_a_consistent_state(
     else:
         assert not summary["manifest_written"]
         assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip"]  # no temporary file
+
+
+@pytest.mark.parametrize(
+    "failure,code,details",
+    [
+        ("link", "manifest_directory_without_hard_links", {"reason": "os_error_eperm"}),
+        ("create", "os_error_erofs", {"exception": "OSError"}),
+    ],
+)
+def test_unusable_manifest_directory_is_refused_before_reading_the_archive(
+    tmp_path, monkeypatch, failure, code, details
+):
+    archive = backup(tmp_path)
+    real_open = os.open
+
+    def no_hard_links(*_args, **_kwargs):
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    def read_only_directory(path, *args, **kwargs):
+        if Path(path).name.startswith(".c11-extract-"):
+            raise OSError(errno.EROFS, "Read-only file system")
+        return real_open(path, *args, **kwargs)
+
+    # The platform check looks os.link and os.open up by identity: skip it here.
+    monkeypatch.setattr(c11_extract, "_check_platform", lambda: None)
+    if failure == "link":
+        monkeypatch.setattr(c11_extract.os, "link", no_hard_links)
+    else:
+        monkeypatch.setattr(c11_extract.os, "open", read_only_directory)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    found, found_details, summary = refused(tmp_path, archive)
+    assert (found, found_details) == (code, details) and summary["phase"] == "preflight"
+    assert "archive_sha256" not in summary and not summary["destination_created"]
+    assert_nothing_created(tmp_path, before)  # the probe leaves nothing behind

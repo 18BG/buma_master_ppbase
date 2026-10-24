@@ -19,7 +19,9 @@ deepest member's component count + 16, checked before extracting.
 The manifest has the private format ``{archive_sha256, files: [{path, bytes,
 sha256, crc32}]}`` (paths sorted, lowercase hex, two-space JSON). It is written
 only after all members were verified, to a temporary file that is then
-hard-linked to --manifest-out: that name appears complete or not at all. With
+hard-linked to --manifest-out: that name appears complete or not at all (the
+manifest directory must accept a new file and a hard link, probed before
+extracting). With
 ``--expect-manifest`` (a regular file of at most 64 MiB) it must match exactly.
 Any failure removes only the destination created by this invocation. Standard
 output carries one aggregated JSON summary, never member names. No PostgreSQL,
@@ -370,6 +372,35 @@ def _publish_new_private(path: Path, data: bytes, published) -> None:
                 os.close(fd)
 
 
+def _check_manifest_directory(directory: Path) -> None:
+    """Refuse before extracting if the manifest directory cannot take a hard link.
+
+    Publication needs a new file and a hard link to it at the very end; probing them
+    first turns a late failure into a refusal. The probe leaves nothing behind.
+    """
+    probe = directory / f".c11-extract-{os.getpid()}-{secrets.token_hex(8)}.probe"
+    linked = probe.with_name(probe.name + "-link")
+    fd = own = None
+    try:
+        with _deferred_signals():
+            fd = os.open(probe, NEW_FILE_FLAGS, FILE_MODE)
+            own = os.fstat(fd)
+        try:
+            os.link(probe, linked, follow_symlinks=False)
+        except OSError as exc:
+            raise ExtractionFailed(
+                "manifest_directory_without_hard_links", reason=_failure_code(exc)
+            ) from exc
+    finally:
+        try:
+            if own is not None:
+                for name in (linked, probe):
+                    _unlink_own(name, own)
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+
 def _open_directories(root_fd: int, parts: tuple[str, ...], created: set) -> int:
     """Open (creating 0700 when absent) a directory below root without following links."""
     fd = os.dup(root_fd)
@@ -612,6 +643,7 @@ def extract(
     try:
         _check_platform()
         _check_new_paths(destination, manifest_out)
+        _check_manifest_directory(manifest_out.parent)
         expected = expected_raw = None
         if expect_manifest is not None:
             expected, expected_raw = load_manifest(expect_manifest)
