@@ -4,9 +4,11 @@ Offline primitives for the isolated rehearsal only; there is no production
 command. They read the closed, staged snapshot through
 ``scripts.c11_import.snapshot`` and write on the caller's SQLAlchemy connection,
 in the same transaction as ``load_isolated``: any failure rolls records,
-accounts and settings back together. No password is regenerated, no token is
-minted, and no secret is logged or reported (reports say present, imported and
-length only). The caller's engine must hide bound parameters
+accounts and settings back together. ``scripts.c11_import.import_snapshot`` is
+the entry point that does so (``check_ready`` first, read-only, then
+``load_isolated`` and ``import_auth`` in one transaction). No password is
+regenerated, no token is minted, and no secret is logged or reported (reports
+say present, imported and length only). The caller's engine must hide bound parameters
 (``create_async_engine(..., hide_parameters=True)``) and database errors are
 re-raised as a value-free ``ImportBlocked("auth_import_database_error")``.
 
@@ -151,6 +153,12 @@ RECORD_IDENTITIES = (
     "SELECT collection_id, COUNT(*) AS row_count, encode(sha256(convert_to(string_agg("
     "source_rowid::text || ':' || record_id || E'\\n', '' ORDER BY source_rowid), 'UTF8')), "
     "'hex') AS identity FROM \"_buma_c11_rowids\" GROUP BY collection_id"
+)
+# Target reads shared by import_auth (under its locks) and check_ready (none).
+SUPERUSERS_COUNT = 'SELECT COUNT(*) FROM "_superusers"'
+SETTINGS_COUNT = 'SELECT COUNT(*) FROM "_params" WHERE "key" = \'settings\''
+AUTH_COLLECTIONS = (
+    'SELECT "id", "name", "options" FROM "_collections" WHERE "type" = \'auth\' ORDER BY "name"'
 )
 
 
@@ -619,13 +627,79 @@ async def import_auth(
     try:
         return await _import_on_connection(connection, data, definitions, diagnostic, fail_after)
     except SQLAlchemyError as exc:
-        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
-        failure = ImportBlocked(DATABASE_ERROR)
-        valid = isinstance(sqlstate, str) and SQLSTATE.match(sqlstate)
-        failure.sqlstate = sqlstate if valid else None
+        failure = _database_failure(exc)
     # Raised outside the handler: no __context__ keeps the driver error, its SQL
     # text, a PostgreSQL DETAIL ("Failing row contains ...") or bound values.
     raise failure
+
+
+def _database_failure(exc) -> ImportBlocked:
+    """Value-free ImportBlocked(DATABASE_ERROR) whose only attribute is the SQLSTATE."""
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    failure = ImportBlocked(DATABASE_ERROR)
+    valid = isinstance(sqlstate, str) and SQLSTATE.match(sqlstate)
+    failure.sqlstate = sqlstate if valid else None
+    return failure
+
+
+async def check_ready(connection, data: Path, definitions: list[dict]) -> None:
+    """Read-only refusals of import_auth, for scripts.c11_import.import_snapshot.
+
+    Run before the snapshot is staged and the records are loaded, so that an
+    account or settings refusal never comes after the whole load: an engine
+    that hides bound values, the rehearsal database, accounts and settings of
+    the closed snapshot ``data`` without blocker (``build_plan``), an empty
+    ``_superusers``, no ``settings`` parameter, no auth archive, and the auth
+    collections of the plan with their source IDs. Same codes as import_auth.
+    Nothing is locked or written: the caller runs it on its own connection,
+    and import_auth repeats every check under its locks. Database errors
+    become the same value-free ``auth_import_database_error``.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    if not hides_parameters(connection):
+        raise ImportBlocked("engine_hide_parameters_required")
+    try:
+        await _check_ready(connection, data, definitions)
+        return
+    except SQLAlchemyError as exc:
+        failure = _database_failure(exc)
+    raise failure
+
+
+async def _check_ready(connection, data, definitions) -> None:
+    from sqlalchemy import text
+
+    current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
+    if current_db != REHEARSAL_DATABASE:
+        raise ImportBlocked("isolated_rehearsal_database_required")
+    with snapshot(data) as db:
+        source = read_source(db)
+    plan = build_plan(source, definitions)
+    await _check_empty_auth_target(connection)
+    rows = (await connection.execute(text(AUTH_COLLECTIONS))).mappings().all()
+    _check_auth_collections({row["name"]: dict(row) for row in rows}, plan)
+
+
+async def _check_empty_auth_target(connection) -> None:
+    from sqlalchemy import text
+
+    if (await connection.execute(text(SUPERUSERS_COUNT))).scalar_one():
+        raise ImportBlocked("superusers_target_not_empty")
+    if (await connection.execute(text(SETTINGS_COUNT))).scalar_one():
+        raise ImportBlocked("settings_target_not_empty")
+    archive = await connection.execute(text("SELECT to_regclass(:name)"), {"name": ARCHIVE_TABLE})
+    if archive.scalar_one() is not None:
+        raise ImportBlocked("auth_archive_exists")
+
+
+def _check_auth_collections(targets: dict, plan: dict) -> None:
+    if set(targets) != set(plan["tokens"]):
+        raise ImportBlocked("target_auth_collections_mismatch")
+    for name, collection_id in plan["collection_ids"].items():
+        # Record tokens carry collectionId: PPBase must keep the source IDs.
+        if targets[name]["id"] != collection_id:
+            raise ImportBlocked("target_auth_collection_id_mismatch")
 
 
 def expected_identities(diagnostic: dict) -> dict:
@@ -649,14 +723,7 @@ async def _import_on_connection(connection, data, definitions, diagnostic, fail_
 
     # Lock before the emptiness checks so a concurrent import cannot pass them too.
     await connection.execute(text('LOCK TABLE "_superusers", "_params" IN ACCESS EXCLUSIVE MODE'))
-    if (await connection.execute(text('SELECT COUNT(*) FROM "_superusers"'))).scalar_one():
-        raise ImportBlocked("superusers_target_not_empty")
-    settings_rows = text('SELECT COUNT(*) FROM "_params" WHERE "key" = \'settings\'')
-    if (await connection.execute(settings_rows)).scalar_one():
-        raise ImportBlocked("settings_target_not_empty")
-    archive = await connection.execute(text("SELECT to_regclass(:name)"), {"name": ARCHIVE_TABLE})
-    if archive.scalar_one() is not None:
-        raise ImportBlocked("auth_archive_exists")
+    await _check_empty_auth_target(connection)
     # Accounts without their records would be a partial import: load_isolated
     # must have run in this transaction (or committed before it).
     records = await connection.execute(text("SELECT to_regclass('_buma_c11_rowids')"))
@@ -671,25 +738,9 @@ async def _import_on_connection(connection, data, definitions, diagnostic, fail_
     }
     if loaded != identities:
         raise ImportBlocked("records_snapshot_mismatch")
-    rows = (
-        (
-            await connection.execute(
-                text(
-                    'SELECT "id", "name", "options" FROM "_collections" '
-                    'WHERE "type" = \'auth\' ORDER BY "name" FOR UPDATE'
-                )
-            )
-        )
-        .mappings()
-        .all()
-    )
+    rows = (await connection.execute(text(AUTH_COLLECTIONS + " FOR UPDATE"))).mappings().all()
     targets = {row["name"]: dict(row) for row in rows}
-    if set(targets) != set(plan["tokens"]):
-        raise ImportBlocked("target_auth_collections_mismatch")
-    for name, collection_id in plan["collection_ids"].items():
-        # Record tokens carry collectionId: PPBase must keep the source IDs.
-        if targets[name]["id"] != collection_id:
-            raise ImportBlocked("target_auth_collection_id_mismatch")
+    _check_auth_collections(targets, plan)
 
     await connection.execute(
         text(

@@ -416,7 +416,10 @@ async def run_child(role: str, arguments: list[str]) -> dict:
     batch_size = int(arguments[6])
     diagnostic = json.loads(diagnostic_path.read_text())
     definitions = importer.load_schema(schema)
-    engine = create_async_engine(os.environ["C11_BENCHMARK_URL"], connect_args={"ssl": "disable"})
+    # import_snapshot requires it: no bound value in SQLAlchemy error messages.
+    engine = create_async_engine(
+        os.environ["C11_BENCHMARK_URL"], connect_args={"ssl": "disable"}, hide_parameters=True
+    )
     load: dict = {}
     started = time.monotonic()
     try:
@@ -907,7 +910,7 @@ async def negative_phase(
     generated = require_generated(
         diagnostic["preserved_source_anomalies"], expected, "negative bundle diagnosis"
     )
-    engine = create_async_engine(url, connect_args={"ssl": "disable"})
+    engine = create_async_engine(url, connect_args={"ssl": "disable"}, hide_parameters=True)
     results = []
     try:
         async with engine.connect() as conn:
@@ -1020,7 +1023,7 @@ async def clean_retry(
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    engine = create_async_engine(url, connect_args={"ssl": "disable"})
+    engine = create_async_engine(url, connect_args={"ssl": "disable"}, hide_parameters=True)
     evidence: dict = {}
     staging = staged_root / "negative-clean-retry"
     try:

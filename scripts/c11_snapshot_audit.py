@@ -36,13 +36,20 @@ from scripts.c11_import import (
 def source_multiple(field):
     """JSON list storage, read independently of the importer.
 
-    PocketBase 0.22.34 IsMultiple: maxSelect > 1 for select/file, nil or > 1
-    for a relation (models/schema/schema_field.go:626-627, 667-668, 715-716).
-    A relation maxSelect 0 (refused by PB validation, :709; none in the
-    export) is audited as a list, like the importer's deliberate grouping.
+    PocketBase 0.22.34 IsMultiple: maxSelect > 1 for select/file (a plain int,
+    null decoding to 0), nil or > 1 for a relation (models/schema/
+    schema_field.go:626-627, 667-668, 693, 715-716). For every definition
+    PocketBase 0.22 writes this is also the PPBase rule that the importer
+    calls (ppbase.models.field_multiplicity, D-0019): a relation maxSelect 0
+    or less (refused by PB validation, :709; none in the export; refused by
+    the importer) is stored, hence audited, single. A relation without the
+    key, a nil pointer for 0.22.34, is audited as the list it stores (and
+    refused by the importer).
     """
     maximum = (field.get("options") or {}).get("maxSelect")
-    return (maximum or 0) != 1 if field["type"] == "relation" else (maximum or 1) > 1
+    if field["type"] == "relation":
+        return maximum is None or maximum > 1
+    return (maximum or 1) > 1
 
 
 def relation_audit(db, collection, field, target):
@@ -262,9 +269,8 @@ def audit(
         report["backup_s3_enabled_in_snapshot"] = bool(
             settings.get("backups", {}).get("s3", {}).get("enabled")
         )
-        report["admin_accounts_not_imported"] = db.execute(
-            "SELECT COUNT(*) FROM _admins"
-        ).fetchone()[0]
+        # Imported to _superusers by import_snapshot (scripts.c11_auth_import).
+        report["admin_accounts"] = db.execute("SELECT COUNT(*) FROM _admins").fetchone()[0]
         # These are only consistency clues, never a relation repair proposal.
         report["legacy_relation_clues"] = {
             "sale_customer_references_found_in_current_customer": db.execute(
