@@ -2,8 +2,11 @@
 
 No --db argument exists: this cannot target an existing database. It applies
 the official migrations, compares source/C4 index behaviour, reverts and
-replays 1789236849, checks lock+lookup concurrency without the C4 mobile index,
-then replays C4, C7 and C9 against an isolated PPBase server. The container and
+replays 1789236849 (after 1789236850, the latest migration), checks lock+lookup
+concurrency without the C4 mobile index, then replays C4, C7 and C9 against an
+isolated PPBase server. The server gets the caller's PYTHONPATH after this
+project, so PYTHONPATH selects the PPBase under test; the report records the
+PPBase it loads, which must be the one this process uses. The container and
 temporary files are removed at the end.
 Run as python -m scripts.c11_idempotency_runtime --report /new/path.json
 """
@@ -27,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import ppbase
 from ppbase.services.database_preparation import prepare_database
 from ppbase.services.migration_runner import run_migrations_down, run_migrations_up
 from ppbase.services.record_storage_coordinator import run_record_storage_transaction
@@ -48,6 +52,12 @@ from scripts.verify_schema_baseline import SOURCE_INDEX_DELTAS
 PROJECT = Path(__file__).resolve().parents[1]
 MIGRATIONS = PROJECT / "pb_migrations"
 D0022 = "1789236849_c11_source_transaction_idempotency.py"
+D0019 = "1789236850_c11_relation_multiple_columns.py"
+RELATION_COLUMNS = (
+    ("buma_customer", "pdv"),
+    ("buma_pilotage_ticket", "tag"),
+    ("buma_wallet", "managers"),
+)
 SOURCE_INDEX = SOURCE_INDEX_DELTAS["buma_transaction"][0]
 SOURCE_NAME = "idx_transaction_idempotency"
 C4_SYSTEM = "idx_buma_transaction_idempotency_system"
@@ -95,8 +105,8 @@ CASES = (
 )
 
 
-def command(*args):
-    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).strip()
+def command(*args, **kwargs):
+    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT, **kwargs).strip()
 
 
 def baseline_indexes() -> list[str]:
@@ -205,18 +215,67 @@ async def mobile_only_concurrency(engine, attempts: int = 8) -> dict:
     return {"attempts": attempts, "inserted": 1, "persisted_rows": persisted}
 
 
-async def isolated_server(root: Path, url: str):
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    # A temporary cwd keeps the repository .env (local database) out of reach.
-    env = {
+async def relation_column_types(engine) -> dict[str, str]:
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT table_name || '.' || column_name, data_type || ':' || udt_name "
+                "FROM information_schema.columns WHERE table_schema='public' AND ("
+                + " OR ".join(
+                    f"(table_name='{table}' AND column_name='{column}')"
+                    for table, column in RELATION_COLUMNS
+                )
+                + ")"
+            )
+        )
+        return dict(rows.all())
+
+
+def server_environment() -> dict[str, str]:
+    # This project first (its app/ and scripts/), then the caller's PYTHONPATH,
+    # which selects the PPBase under test (e.g. a PPBase worktree).
+    paths = [str(PROJECT), *filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep))]
+    return {
         **os.environ,
-        "PYTHONPATH": str(PROJECT),
+        "PYTHONPATH": os.pathsep.join(dict.fromkeys(paths)),
         "BUMA_MASTER_ENABLE_INTERNAL_JOBS": "false",
         "PPBASE_AUTO_MIGRATE": "false",
         "PPBASE_STORAGE_BACKEND": "local",
     }
+
+
+def server_ppbase(root: Path, env: dict[str, str]) -> dict:
+    """Resolve ppbase/app exactly as the server command does (same python, env, cwd)."""
+    probe = (
+        "import importlib.util, json, app, ppbase; print(json.dumps({"
+        "'ppbase': ppbase.__file__, 'app': app.__file__, 'multiplicity_rule': "
+        "importlib.util.find_spec('ppbase.models.field_multiplicity') is not None}))"
+    )
+    loaded = json.loads(command(sys.executable, "-c", probe, cwd=root, env=env))
+    package = Path(loaded["ppbase"]).resolve().parent
+    assert package == Path(ppbase.__file__).resolve().parent, (package, ppbase.__file__)
+    assert Path(loaded["app"]).resolve().parent.parent == PROJECT, loaded["app"]
+    assert loaded["multiplicity_rule"], "server PPBase lacks the D-0019 multiplicity rule"
+    try:
+        commit = command("git", "-C", str(package), "rev-parse", "HEAD")
+    except (OSError, subprocess.CalledProcessError):
+        commit = None
+    return {
+        "package_dir": str(package),
+        "git_commit": commit,
+        "same_as_bench_process": True,
+        "relation_multiplicity_rule": True,
+        "app_from_this_project": True,
+    }
+
+
+async def isolated_server(root: Path, url: str, report: dict):
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    # A temporary cwd keeps the repository .env (local database) out of reach.
+    env = server_environment()
+    report["server_ppbase"] = server_ppbase(root, env)
     log = (root / "http.log").open("w")
     server = subprocess.Popen(
         [
@@ -264,28 +323,39 @@ async def exercise(root: Path, url: str, report: dict) -> None:
             tables = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
             assert (await conn.execute(text(tables))).scalar_one() == 0
         applied = await prepare_database(engine, MIGRATIONS)
-        assert applied[-1] == D0022 and len(applied) == 10, applied
+        assert applied[-2:] == [D0022, D0019] and len(applied) == 11, applied
         report["migrations_applied"] = applied
+        arrays = {f"{t}.{c}": "ARRAY:_text" for t, c in RELATION_COLUMNS}
+        scalars = {f"{t}.{c}": "character varying:varchar" for t, c in RELATION_COLUMNS}
+        assert await relation_column_types(engine) == arrays
+        report["relation_columns_fresh"] = "text_arrays_1789236850_no_op"
         assert_source_state(await index_state(engine), baseline)
         report["source_index_matrix"] = await matrix(engine, 0)
 
-        assert await run_migrations_down(engine, MIGRATIONS, count=1) == [D0022]
+        # 1789236850 is applied after D-0022: revert it first, then D-0022.
+        assert await run_migrations_down(engine, MIGRATIONS, count=2) == [D0019, D0022]
+        assert await relation_column_types(engine) == scalars
         assert_c4_state(await index_state(engine), baseline)
         report["c4_index_matrix_after_rollback"] = await matrix(engine, 1)
-        assert await run_migrations_up(engine, MIGRATIONS) == [D0022]
+        assert await run_migrations_up(engine, MIGRATIONS) == [D0022, D0019]
         assert_source_state(await index_state(engine), baseline)
+        assert await relation_column_types(engine) == arrays
         report["rollback_replay"] = "down_restores_c4_metadata_and_indexes_up_restores_source"
 
         # Historical-style duplicates: the stricter rollback must fail atomically.
         for index in (1, 2):
             await insert(engine, f"d0022h{index:02d}", mobile="d0022-history")
         try:
-            await run_migrations_down(engine, MIGRATIONS, count=1)
+            await run_migrations_down(engine, MIGRATIONS, count=2)
         except IntegrityError as exc:
             assert C4_MOBILE in str(exc.orig), exc
         else:
             raise AssertionError("C4 rollback accepted duplicate mobile history")
         assert_source_state(await index_state(engine), baseline)
+        assert await relation_column_types(engine) == scalars
+        # Only 1789236850's own transaction was reverted; replay it.
+        assert await run_migrations_up(engine, MIGRATIONS) == [D0019]
+        assert await relation_column_types(engine) == arrays
         async with engine.connect() as conn:
             kept = "SELECT COUNT(*) FROM buma_transaction WHERE mobile_message_id='d0022-history'"
             assert (await conn.execute(text(kept))).scalar_one() == 2
@@ -297,7 +367,7 @@ async def exercise(root: Path, url: str, report: dict) -> None:
         await c4.main()
         report["c4_runtime"] = "rollback_concurrency_lookup_cleanup_ok"
 
-        server, log, base = await isolated_server(root, url)
+        server, log, base = await isolated_server(root, url, report)
         try:
             c7.BASE_URL, c7.DATABASE_URL = base, url
             await c7.main()

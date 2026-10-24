@@ -137,7 +137,11 @@ async def up(app):
         "status": True, "author": "", "photo": "", "type": "PERSONNE",
         "parent": "", "kind": "CUSTOMER_SIMPLE", "agent": "", "firstname": "CLIENT DIVERS",
         "lastname": "", "address": "", "contact": "", "email": "", "name": "",
-        "pdv": "", "customer_no": 0,
+        # master.setup.ts l.54-59 omits pdv: PocketBase 0.22.34 stores the empty
+        # list of this maxSelect-null relation (PrepareValue, schema_field.go
+        # l.375-386), i.e. TEXT[] '{}' since the D-0019 correction (D-XXXX).
+        # Databases that recorded this file keep '' until 1789236850 converts it.
+        "pdv": [], "customer_no": 0,
     })
     await _insert(app, "buma_supplier", {
         "id": "SUPPLIER_DIVERS", "solde": 0, "author": "", "status": True,
