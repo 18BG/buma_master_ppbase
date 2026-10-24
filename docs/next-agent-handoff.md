@@ -14,6 +14,8 @@ Date de passation : 2026-10-22, mise à jour le 2026-10-24 pour la session serve
   chemin du Mac d'origine).
 - Décisions récentes : D-0022 (index d'idempotence de la source) et D-0023
   (ordre du lookup sur l'historique dupliqué, écart accepté).
+- Données réelles sur le serveur : un paquet base de données de 63 Mo
+  (`data.db` et manifestes privés), pas le ZIP de 1,5 Go ; voir le plan.
 
 ## Livraison Git autorisée le 22 octobre 2026
 

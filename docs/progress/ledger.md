@@ -2647,3 +2647,18 @@ Ce travail est commité et poussé sur `origin/features/auth` dans le commit qui
 contient cette entrée. Prochaine action : session serveur selon
 `docs/server-session-plan.md`, en commençant par sa phase 0. C11 reste ouvert ;
 aucune donnée réelle importée, aucune action sur la production.
+
+Complément du même jour : l'utilisateur a cloné les trois dépôts et copié
+l'export JSON sur le serveur. Il n'a pas assez de data pour envoyer le ZIP de
+1,55 Go et envisageait un tunnel ; un tunnel enverrait le même volume depuis le
+Mac et exposerait des données de production. À la place, un paquet privé de
+62,7 Mo est préparé sur le Mac, dans `backups/` (ignoré par Git, 0600) :
+`c11-master-20260928-db-bundle.tar.xz`, SHA-256 `6dae14cd…eef0e`, avec `data.db`
+(empreinte `3539f3eb…` vérifiée dans le paquet), le manifeste privé, le relevé
+privé des fichiers et le README ; ni `storage/` (4,6 Go) ni `logs.db` (3,3 Go,
+jamais importé). Mesures en lecture seule : `data.db` compressé fait 62,6 Mo
+avec xz, 72,1 Mo avec zstd et 101,8 Mo avec gzip. Le plan est ajusté : la
+phase 0 crée l'environnement Python s'il manque, l'absence du paquet ne bloque
+pas la session, WS-B ajoute un mode sans octets de fichiers fondé sur le
+manifeste, les performances se mesurent sur un jeu synthétique en attendant
+et WS-G attend le paquet. Documentation et paquet local seulement ; poussé.
