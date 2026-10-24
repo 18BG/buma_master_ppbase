@@ -65,11 +65,12 @@
       "source_line": null,
       "auth": "valid record JWT required",
       "request": "Authorization header with record token",
-      "response": "200 refreshed {token, record}; 401 without/invalid token",
-      "errors": "401 The request requires valid auth token to be set",
+      "response": "200 refreshed {token, record}; 401 without, invalid, expired or admin token; 403 record token of another auth collection",
+      "errors": "401 The request requires valid record authorization token to be set.; 403 The request requires auth record from <collection of the token> collection. (PocketBase v0.22.34 apis/middlewares.go:94-109, measured on both servers by docs/c11-auth-runtime-report.json)",
       "status": [
         200,
-        401
+        401,
+        403
       ]
     },
     {
