@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-10-24T02:34:03.351698+00:00",
+  "timestamp_utc": "2026-10-24T03:50:43.462536+00:00",
   "scope": "c11_ws_c_auth_settings_session_continuity_synthetic",
   "production_data_used": false,
   "pocketbase": {
@@ -19,7 +19,14 @@
           "totalItems",
           "totalPages"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "admin_refresh": {
         "status": 200,
@@ -28,7 +35,14 @@
           "token"
         ],
         "new_token_type": "admin",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "admin_reads_protected_supplier": {
         "status": 200,
@@ -50,7 +64,41 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
+      },
+      "admin_ref_token_after_reset_refresh": {
+        "status": 200,
+        "keys": [
+          "admin",
+          "token"
+        ],
+        "new_token_type": "admin",
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "users_refresh": {
         "status": 200,
@@ -59,7 +107,30 @@
           "token"
         ],
         "new_token_type": "authRecord",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "article_stock",
+          "avatar",
+          "canAuthOnMobile",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "employee",
+          "id",
+          "more",
+          "name",
+          "return_regexp",
+          "role",
+          "set",
+          "takePercentOnRecharge",
+          "updated",
+          "username",
+          "ussd_code",
+          "ussd_code_solde",
+          "verified"
+        ]
       },
       "users_reads_admin_role_caisse_access": {
         "status": 200,
@@ -72,7 +143,16 @@
           "updated",
           "user"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "caisse",
+          "collectionId",
+          "collectionName",
+          "created",
+          "id",
+          "updated",
+          "user"
+        ]
       },
       "users_reads_protected_supplier": {
         "status": 200,
@@ -94,7 +174,57 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
+      },
+      "users_ref_token_after_changes_refresh": {
+        "status": 200,
+        "keys": [
+          "record",
+          "token"
+        ],
+        "new_token_type": "authRecord",
+        "expected_id_returned": true,
+        "entity_keys": [
+          "article_stock",
+          "avatar",
+          "canAuthOnMobile",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "employee",
+          "id",
+          "more",
+          "name",
+          "return_regexp",
+          "role",
+          "set",
+          "takePercentOnRecharge",
+          "updated",
+          "username",
+          "ussd_code",
+          "ussd_code_solde",
+          "verified"
+        ]
       },
       "agent_refresh": {
         "status": 200,
@@ -103,7 +233,19 @@
           "token"
         ],
         "new_token_type": "authRecord",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "agent",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "id",
+          "updated",
+          "username",
+          "verified"
+        ]
       },
       "agent_reads_own_record": {
         "status": 200,
@@ -119,7 +261,19 @@
           "username",
           "verified"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "agent",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "id",
+          "updated",
+          "username",
+          "verified"
+        ]
       },
       "agent_reads_protected_supplier": {
         "status": 200,
@@ -141,7 +295,25 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
       },
       "anonymous_protected_supplier": {
         "status": 404,
@@ -295,6 +467,51 @@
           "message"
         ],
         "message": "The request requires valid record authorization token to be set."
+      },
+      "users_ref_token_before_password_reset_refresh": {
+        "status": 401,
+        "keys": [
+          "code",
+          "data",
+          "message"
+        ],
+        "message": "The request requires valid record authorization token to be set."
+      },
+      "users_ref_token_before_password_reset_protected_supplier": {
+        "status": 404,
+        "keys": [
+          "code",
+          "data",
+          "message"
+        ],
+        "message": "The requested resource wasn't found."
+      },
+      "users_ref_token_before_email_change_refresh": {
+        "status": 401,
+        "keys": [
+          "code",
+          "data",
+          "message"
+        ],
+        "message": "The request requires valid record authorization token to be set."
+      },
+      "admin_ref_token_before_reset_lists_admins": {
+        "status": 401,
+        "keys": [
+          "code",
+          "data",
+          "message"
+        ],
+        "message": "The request requires valid admin authorization token to be set."
+      },
+      "admin_ref_token_before_reset_refresh": {
+        "status": 401,
+        "keys": [
+          "code",
+          "data",
+          "message"
+        ],
+        "message": "The request requires valid admin authorization token to be set."
       }
     },
     "logins": {
@@ -480,6 +697,27 @@
       "password_reset": 204,
       "email_change": 204,
       "admin_password_reset": 204
+    },
+    "realtime": {
+      "subscribe_with_legacy_users_token": 204,
+      "anonymous_subscribe": 204,
+      "protected_update_status": 200,
+      "event_delivered_to_legacy_token_subscriber": true,
+      "event_delivered_to_anonymous_subscriber": false,
+      "legacy_users_token_refresh_status": 200,
+      "refreshed_token_type": "authRecord",
+      "resubscribe_same_client_after_refresh": 204,
+      "unsubscribe_same_client_after_refresh": 204,
+      "native_token_type": "authRecord",
+      "native_subscribe": 204,
+      "native_resubscribe_same_client_after_refresh": 204,
+      "guest_subscribe": 204,
+      "guest_then_legacy_token_same_client": 204,
+      "legacy_token_then_guest_same_client": 403,
+      "admin_subscribe_with_legacy_token": 204,
+      "admin_refresh_status": 200,
+      "admin_refreshed_token_type": "admin",
+      "admin_resubscribe_same_client_after_refresh": 204
     }
   },
   "tokens_issued_by_pocketbase": {
@@ -587,14 +825,20 @@
     "admin_reset_tokenKey_plus_adminPasswordResetToken": true,
     "admin_file_tokenKey_plus_adminFileToken": true,
     "users_file_tokenKey_plus_recordFileToken": true,
+    "ref_after_changes_current_tokenKey_plus_recordAuthToken": true,
+    "admin_ref_after_reset_current_tokenKey_plus_adminAuthToken": true,
     "users_auth_with_admin_secret_rejected": true,
-    "admin_auth_with_record_secret_rejected": true
+    "admin_auth_with_record_secret_rejected": true,
+    "ref_before_reset_not_signed_with_current_tokenKey": true,
+    "ref_before_email_change_not_signed_with_current_tokenKey": true,
+    "admin_ref_before_reset_not_signed_with_current_tokenKey": true
   },
   "version_gate": {
     "source_version": "0.22.34",
     "waived_blockers": [
       "source_pocketbase_version_unvalidated"
     ],
+    "waiver_applied": true,
     "other_blockers": 0,
     "rows": 7
   },
@@ -610,6 +854,60 @@
     "settings": "records_accounts_options_settings_and_archives_rolled_back"
   },
   "auth_without_records": "records_import_required",
+  "refusals_in_load_isolated_transaction": {
+    "settings_row_already_present": {
+      "refused_with": "settings_target_not_empty",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 1.1
+    },
+    "archive_table_already_present": {
+      "refused_with": "auth_archive_exists",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.82
+    },
+    "records_from_another_snapshot": {
+      "refused_with": "records_snapshot_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.98
+    },
+    "auth_collection_set_changed": {
+      "refused_with": "target_auth_collections_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 1.05
+    },
+    "auth_collection_id_changed": {
+      "refused_with": "target_auth_collection_id_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.92
+    },
+    "superusers_readback_altered": {
+      "refused_with": "superusers_readback_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.71
+    },
+    "options_readback_altered": {
+      "refused_with": "auth_options_readback_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.73
+    },
+    "settings_readback_altered": {
+      "refused_with": "settings_readback_mismatch",
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 0.51
+    },
+    "database_error_during_admin_insert": {
+      "refused_with": "auth_import_database_error",
+      "sqlstate": "P0001",
+      "context_chained": false,
+      "values_in_message_or_traceback": false,
+      "state_after_rollback_equals_baseline": true,
+      "seconds": 1.13
+    },
+    "engine_without_hide_parameters": {
+      "refused_with": "engine_hide_parameters_required",
+      "state_after_rollback_equals_baseline": true
+    }
+  },
   "import": {
     "records_loaded": 7,
     "auth": {
@@ -862,9 +1160,9 @@
           },
           "smtp.password": {
             "target": "smtp.password",
-            "present": false,
-            "imported": false,
-            "length": 0
+            "present": true,
+            "imported": true,
+            "length": 27
           },
           "smtp.authMethod": {
             "target": "smtp.authMethod",
@@ -1007,7 +1305,12 @@
         "imported_rows": 0
       },
       "logs_db": "never_imported",
-      "warnings": []
+      "warnings": [],
+      "records_snapshot": {
+        "identity_verified": true,
+        "collections": 5,
+        "rows": 7
+      }
     }
   },
   "readback": {
@@ -1021,7 +1324,8 @@
     "superusers_verification_and_email_change_kept_ppbase_secrets": true,
     "settings_meta_logs_smtp_mapped": true,
     "settings_s3_and_backups_left_at_ppbase_defaults": true,
-    "users_tokenKey_and_hash_identical": true
+    "users_tokenKey_and_hash_identical": true,
+    "agent_users_tokenKey_and_hash_identical": true
   },
   "logs_db": {
     "present_in_source": true,
@@ -1049,7 +1353,14 @@
           "totalItems",
           "totalPages"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "admin_refresh": {
         "status": 200,
@@ -1058,7 +1369,14 @@
           "token"
         ],
         "new_token_type": "admin",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "admin_reads_protected_supplier": {
         "status": 200,
@@ -1080,7 +1398,41 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
+      },
+      "admin_ref_token_after_reset_refresh": {
+        "status": 200,
+        "keys": [
+          "admin",
+          "token"
+        ],
+        "new_token_type": "admin",
+        "expected_id_returned": true,
+        "entity_keys": [
+          "avatar",
+          "created",
+          "email",
+          "id",
+          "updated"
+        ]
       },
       "users_refresh": {
         "status": 200,
@@ -1089,7 +1441,30 @@
           "token"
         ],
         "new_token_type": "auth",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "article_stock",
+          "avatar",
+          "canAuthOnMobile",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "employee",
+          "id",
+          "more",
+          "name",
+          "return_regexp",
+          "role",
+          "set",
+          "takePercentOnRecharge",
+          "updated",
+          "username",
+          "ussd_code",
+          "ussd_code_solde",
+          "verified"
+        ]
       },
       "users_reads_admin_role_caisse_access": {
         "status": 200,
@@ -1102,7 +1477,16 @@
           "updated",
           "user"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "caisse",
+          "collectionId",
+          "collectionName",
+          "created",
+          "id",
+          "updated",
+          "user"
+        ]
       },
       "users_reads_protected_supplier": {
         "status": 200,
@@ -1124,7 +1508,57 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
+      },
+      "users_ref_token_after_changes_refresh": {
+        "status": 200,
+        "keys": [
+          "record",
+          "token"
+        ],
+        "new_token_type": "auth",
+        "expected_id_returned": true,
+        "entity_keys": [
+          "article_stock",
+          "avatar",
+          "canAuthOnMobile",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "employee",
+          "id",
+          "more",
+          "name",
+          "return_regexp",
+          "role",
+          "set",
+          "takePercentOnRecharge",
+          "updated",
+          "username",
+          "ussd_code",
+          "ussd_code_solde",
+          "verified"
+        ]
       },
       "agent_refresh": {
         "status": 200,
@@ -1133,7 +1567,19 @@
           "token"
         ],
         "new_token_type": "auth",
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "agent",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "id",
+          "updated",
+          "username",
+          "verified"
+        ]
       },
       "agent_reads_own_record": {
         "status": 200,
@@ -1149,7 +1595,19 @@
           "username",
           "verified"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "agent",
+          "collectionId",
+          "collectionName",
+          "created",
+          "email",
+          "emailVisibility",
+          "id",
+          "updated",
+          "username",
+          "verified"
+        ]
       },
       "agent_reads_protected_supplier": {
         "status": 200,
@@ -1171,7 +1629,25 @@
           "status",
           "updated"
         ],
-        "expected_id_returned": true
+        "expected_id_returned": true,
+        "entity_keys": [
+          "addresse",
+          "author",
+          "collectionId",
+          "collectionName",
+          "contact",
+          "created",
+          "email",
+          "firstname",
+          "id",
+          "isSociety",
+          "lastname",
+          "name",
+          "person_entity",
+          "solde",
+          "status",
+          "updated"
+        ]
       },
       "anonymous_protected_supplier": {
         "status": 404,
@@ -1313,6 +1789,51 @@
       },
       "forged_base_collection_users_refresh": {
         "status": 500
+      },
+      "users_ref_token_before_password_reset_refresh": {
+        "status": 401,
+        "keys": [
+          "data",
+          "message",
+          "status"
+        ],
+        "message": "The request requires valid auth token to be set."
+      },
+      "users_ref_token_before_password_reset_protected_supplier": {
+        "status": 404,
+        "keys": [
+          "data",
+          "message",
+          "status"
+        ],
+        "message": "The requested resource wasn't found."
+      },
+      "users_ref_token_before_email_change_refresh": {
+        "status": 401,
+        "keys": [
+          "data",
+          "message",
+          "status"
+        ],
+        "message": "The request requires valid auth token to be set."
+      },
+      "admin_ref_token_before_reset_lists_admins": {
+        "status": 401,
+        "keys": [
+          "data",
+          "message",
+          "status"
+        ],
+        "message": "The request requires admin authorization token to be set."
+      },
+      "admin_ref_token_before_reset_refresh": {
+        "status": 401,
+        "keys": [
+          "data",
+          "message",
+          "status"
+        ],
+        "message": "The request requires admin authorization token to be set."
       }
     },
     "legacy_probes": {
@@ -1553,9 +2074,112 @@
         "new_token_type": "auth",
         "new_token_follow_up_status": 200
       }
+    },
+    "realtime": {
+      "subscribe_with_legacy_users_token": 204,
+      "anonymous_subscribe": 204,
+      "protected_update_status": 200,
+      "event_delivered_to_legacy_token_subscriber": true,
+      "event_delivered_to_anonymous_subscriber": false,
+      "legacy_users_token_refresh_status": 200,
+      "refreshed_token_type": "auth",
+      "resubscribe_same_client_after_refresh": 403,
+      "unsubscribe_same_client_after_refresh": 403,
+      "native_token_type": "auth",
+      "native_subscribe": 204,
+      "native_resubscribe_same_client_after_refresh": 204,
+      "guest_subscribe": 204,
+      "guest_then_legacy_token_same_client": 403,
+      "legacy_token_then_guest_same_client": 403,
+      "admin_subscribe_with_legacy_token": 204,
+      "admin_refresh_status": 200,
+      "admin_refreshed_token_type": "admin",
+      "admin_resubscribe_same_client_after_refresh": 204
+    },
+    "secret_exposure": {
+      "settings": {
+        "status": 200,
+        "serves_imported_secret": true,
+        "token_configs_in_settings": 0,
+        "token_configs_masked": 0,
+        "smtp_password_masked": false
+      },
+      "collections_list": {
+        "status": 200,
+        "serves_imported_secret": true
+      },
+      "users_collection": {
+        "status": 200,
+        "serves_imported_secret": true
+      },
+      "agent_users_collection": {
+        "status": 200,
+        "serves_imported_secret": true
+      },
+      "superusers_collection": {
+        "status": 200,
+        "serves_imported_secret": true
+      }
     }
   },
   "purpose_tokens_left_records_unchanged": true,
+  "pocketbase_restarted_on_source": {
+    "probes": {
+      "pre_import_users_token_refresh": {
+        "status": 200,
+        "token_type": "authRecord"
+      },
+      "pre_import_admin_token_lists_admins": {
+        "status": 200,
+        "token_type": "admin"
+      },
+      "ppbase_users_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_users_token_protected_supplier": {
+        "status": 404,
+        "token_type": "auth"
+      },
+      "ppbase_agent_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_refreshed_legacy_users_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_admin_token_lists_admins": {
+        "status": 200,
+        "token_type": "admin"
+      }
+    },
+    "secret_exposure": {
+      "settings": {
+        "status": 200,
+        "serves_imported_secret": false,
+        "token_configs_in_settings": 8,
+        "token_configs_masked": 8,
+        "smtp_password_masked": true
+      },
+      "collections_list": {
+        "status": 200,
+        "serves_imported_secret": false
+      },
+      "users_collection": {
+        "status": 200,
+        "serves_imported_secret": false
+      },
+      "agent_users_collection": {
+        "status": 200,
+        "serves_imported_secret": false
+      },
+      "superusers_collection": {
+        "status": 404,
+        "serves_imported_secret": false
+      }
+    }
+  },
   "comparison": {
     "probes": {
       "admin_lists_admins": {
@@ -1570,6 +2194,10 @@
         "pocketbase": 200,
         "ppbase": 200
       },
+      "admin_ref_token_after_reset_refresh": {
+        "pocketbase": 200,
+        "ppbase": 200
+      },
       "users_refresh": {
         "pocketbase": 200,
         "ppbase": 200
@@ -1579,6 +2207,10 @@
         "ppbase": 200
       },
       "users_reads_protected_supplier": {
+        "pocketbase": 200,
+        "ppbase": 200
+      },
+      "users_ref_token_after_changes_refresh": {
         "pocketbase": 200,
         "ppbase": 200
       },
@@ -1661,10 +2293,30 @@
       "forged_base_collection_users_refresh": {
         "pocketbase": 401,
         "ppbase": 500
+      },
+      "users_ref_token_before_password_reset_refresh": {
+        "pocketbase": 401,
+        "ppbase": 401
+      },
+      "users_ref_token_before_password_reset_protected_supplier": {
+        "pocketbase": 404,
+        "ppbase": 404
+      },
+      "users_ref_token_before_email_change_refresh": {
+        "pocketbase": 401,
+        "ppbase": 401
+      },
+      "admin_ref_token_before_reset_lists_admins": {
+        "pocketbase": 401,
+        "ppbase": 401
+      },
+      "admin_ref_token_before_reset_refresh": {
+        "pocketbase": 401,
+        "ppbase": 401
       }
     },
-    "same_status": 23,
-    "total": 26,
+    "same_status": 30,
+    "total": 33,
     "known_pre_existing_ppbase_divergences": [
       {
         "probe": "admin_token_on_users_refresh",
@@ -1728,6 +2380,26 @@
         "probe": "users_token_on_admin_refresh",
         "pocketbase": "The request requires valid admin authorization token to be set.",
         "ppbase": "The request requires admin authorization token to be set."
+      },
+      {
+        "probe": "users_ref_token_before_password_reset_refresh",
+        "pocketbase": "The request requires valid record authorization token to be set.",
+        "ppbase": "The request requires valid auth token to be set."
+      },
+      {
+        "probe": "users_ref_token_before_email_change_refresh",
+        "pocketbase": "The request requires valid record authorization token to be set.",
+        "ppbase": "The request requires valid auth token to be set."
+      },
+      {
+        "probe": "admin_ref_token_before_reset_lists_admins",
+        "pocketbase": "The request requires valid admin authorization token to be set.",
+        "ppbase": "The request requires admin authorization token to be set."
+      },
+      {
+        "probe": "admin_ref_token_before_reset_refresh",
+        "pocketbase": "The request requires valid admin authorization token to be set.",
+        "ppbase": "The request requires admin authorization token to be set."
       }
     ],
     "error_envelope_keys": {
@@ -1764,6 +2436,205 @@
         "pocketbase": 204,
         "ppbase": 405
       }
+    },
+    "realtime": {
+      "subscribe_with_legacy_users_token": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "anonymous_subscribe": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "protected_update_status": {
+        "pocketbase": 200,
+        "ppbase": 200
+      },
+      "event_delivered_to_legacy_token_subscriber": {
+        "pocketbase": true,
+        "ppbase": true
+      },
+      "event_delivered_to_anonymous_subscriber": {
+        "pocketbase": false,
+        "ppbase": false
+      },
+      "legacy_users_token_refresh_status": {
+        "pocketbase": 200,
+        "ppbase": 200
+      },
+      "refreshed_token_type": {
+        "pocketbase": "authRecord",
+        "ppbase": "auth"
+      },
+      "resubscribe_same_client_after_refresh": {
+        "pocketbase": 204,
+        "ppbase": 403
+      },
+      "unsubscribe_same_client_after_refresh": {
+        "pocketbase": 204,
+        "ppbase": 403
+      },
+      "native_token_type": {
+        "pocketbase": "authRecord",
+        "ppbase": "auth"
+      },
+      "native_subscribe": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "native_resubscribe_same_client_after_refresh": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "guest_subscribe": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "guest_then_legacy_token_same_client": {
+        "pocketbase": 204,
+        "ppbase": 403
+      },
+      "legacy_token_then_guest_same_client": {
+        "pocketbase": 403,
+        "ppbase": 403
+      },
+      "admin_subscribe_with_legacy_token": {
+        "pocketbase": 204,
+        "ppbase": 204
+      },
+      "admin_refresh_status": {
+        "pocketbase": 200,
+        "ppbase": 200
+      },
+      "admin_refreshed_token_type": {
+        "pocketbase": "admin",
+        "ppbase": "admin"
+      },
+      "admin_resubscribe_same_client_after_refresh": {
+        "pocketbase": 204,
+        "ppbase": 204
+      }
+    },
+    "realtime_known_divergences": [
+      {
+        "probe": "resubscribe_same_client_after_refresh",
+        "pocketbase_status": 204,
+        "ppbase_status": 403,
+        "resolved": false,
+        "cause": "mixed tokens after the import: the 0.22 token (type=authRecord) is refreshed by PPBase into type=auth, so ppbase/api/realtime.py:45-52 builds another key"
+      },
+      {
+        "probe": "unsubscribe_same_client_after_refresh",
+        "pocketbase_status": 204,
+        "ppbase_status": 403,
+        "resolved": false,
+        "cause": "same key change: the SDK unsubscribe also POSTs /api/realtime (js-sdk v0.21.5 src/services/RealtimeService.ts:258-283)"
+      },
+      {
+        "probe": "guest_then_legacy_token_same_client",
+        "pocketbase_status": 204,
+        "ppbase_status": 403,
+        "resolved": false,
+        "cause": "pre-existing PPBase behaviour, independent of the import: ppbase/api/realtime.py:168-175 records the guest key at the first subscription"
+      }
+    ],
+    "token_type_after_login_or_refresh": {
+      "pocketbase_login": "authRecord",
+      "pocketbase_refresh": "authRecord",
+      "ppbase_login": "auth",
+      "ppbase_refresh": "auth",
+      "ppbase_admin_refresh": "admin",
+      "js_sdk_0_21_isAuthRecord_after_refresh": {
+        "pocketbase": true,
+        "ppbase": false
+      },
+      "js_sdk_0_21_isAdmin_after_admin_refresh": {
+        "pocketbase": true,
+        "ppbase": true
+      },
+      "resolved": false
+    },
+    "secret_exposure_to_superusers": {
+      "settings": {
+        "status": {
+          "pocketbase": 200,
+          "ppbase": 200
+        },
+        "serves_imported_secret": {
+          "pocketbase": false,
+          "ppbase": true
+        }
+      },
+      "collections_list": {
+        "status": {
+          "pocketbase": 200,
+          "ppbase": 200
+        },
+        "serves_imported_secret": {
+          "pocketbase": false,
+          "ppbase": true
+        }
+      },
+      "users_collection": {
+        "status": {
+          "pocketbase": 200,
+          "ppbase": 200
+        },
+        "serves_imported_secret": {
+          "pocketbase": false,
+          "ppbase": true
+        }
+      },
+      "agent_users_collection": {
+        "status": {
+          "pocketbase": 200,
+          "ppbase": 200
+        },
+        "serves_imported_secret": {
+          "pocketbase": false,
+          "ppbase": true
+        }
+      },
+      "superusers_collection": {
+        "status": {
+          "pocketbase": 404,
+          "ppbase": 200
+        },
+        "serves_imported_secret": {
+          "pocketbase": false,
+          "ppbase": true
+        }
+      }
+    },
+    "rollback_to_pocketbase_sessions": {
+      "pre_import_users_token_refresh": {
+        "status": 200,
+        "token_type": "authRecord"
+      },
+      "pre_import_admin_token_lists_admins": {
+        "status": 200,
+        "token_type": "admin"
+      },
+      "ppbase_users_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_users_token_protected_supplier": {
+        "status": 404,
+        "token_type": "auth"
+      },
+      "ppbase_agent_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_refreshed_legacy_users_token_refresh": {
+        "status": 401,
+        "token_type": "auth"
+      },
+      "ppbase_admin_token_lists_admins": {
+        "status": 200,
+        "token_type": "admin"
+      }
     }
   },
   "summary": {
@@ -1772,13 +2643,21 @@
       "users": true,
       "agent_users": true
     },
+    "tokens_invalidated_by_pocketbase_tokenKey_renewal_still_refused": true,
     "original_passwords_accepted_after_import": true,
     "passwords_changed_in_pocketbase_accepted_after_import": true,
-    "rejections_with_pocketbase_status": 14,
-    "rejections_total": 17,
+    "rejections_with_pocketbase_status": 19,
+    "rejections_total": 22,
     "known_pre_existing_ppbase_divergences": 3,
     "purpose_tokens_issued_before_import_continued": false,
-    "buma_legacy_probes_match_contract": true
+    "buma_legacy_probes_match_contract": true,
+    "realtime_legacy_token_subscription_and_delivery_match_pocketbase": true,
+    "realtime_resubscribe_after_ppbase_refresh_matches_pocketbase": false,
+    "js_sdk_0_21_isAuthRecord_after_ppbase_refresh": false,
+    "ppbase_serves_imported_secrets_to_superusers": true,
+    "rollback_pocketbase_accepts_ppbase_record_tokens": false,
+    "rollback_pocketbase_accepts_ppbase_admin_token": true,
+    "import_refusals_rolled_back": 10
   },
   "cleanup": "owned_container_processes_and_temporary_files_removed"
 }

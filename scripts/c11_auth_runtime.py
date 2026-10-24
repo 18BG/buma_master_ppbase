@@ -3,11 +3,16 @@
 Synthetic only, on owned disposable resources. PocketBase 0.22.34 builds its
 own fixture (the corrected export imported like scripts/c11_fixture.py, admins
 created by ``pocketbase admin create``, users/agent_users with known passwords),
-issues tokens over HTTP and e-mails purpose tokens to a local SMTP sink. After
-a clean stop the snapshot goes through diagnose, stage_snapshot, load_isolated
-and import_auth in one transaction of a disposable PostgreSQL 16 container,
-then PPBase serves it with the BUMA hooks and the same probes run again.
-There is no --db/--data argument: no supplied backup or database is touched.
+issues tokens over HTTP (some before a password reset or an email change renews
+the account tokenKey), e-mails purpose tokens to a local SMTP sink and serves a
+realtime subscription. After a clean stop the snapshot goes through diagnose,
+stage_snapshot, load_isolated and import_auth in one transaction of a
+disposable PostgreSQL 16 container (every import_auth refusal is exercised
+there and rolled back), then PPBase serves it with the BUMA hooks and the same
+probes run again, realtime and secret exposure included. PocketBase is finally
+restarted on its untouched source (the rollback path) to probe the sessions
+PPBase issued. There is no --db/--data argument: no supplied backup or
+database is touched.
 
 python -m scripts.c11_auth_runtime --pocketbase /path/to/pocketbase-0.22.34 \
     --schema /path/to/export.json --report /new/report.json
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import email
 import email.policy
 import json
@@ -30,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,7 +46,7 @@ import jwt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from scripts.c11_auth_import import ARCHIVE_TABLE, import_auth
+from scripts.c11_auth_import import ARCHIVE_TABLE, TOKEN_KEYS, import_auth
 from scripts.c11_import import (
     ImportBlocked,
     diagnose,
@@ -57,6 +64,9 @@ VERSION_GATE = "source_pocketbase_version_unvalidated"
 PASSWORD = "C11-auth-password"
 NEW_PASSWORD = "C11-auth-password-new"
 ADMIN_PASSWORD = "C11-admin-password"
+# Synthetic SMTP credentials, set after the last mail (the sink offers no AUTH);
+# only their presence in HTTP responses is reported, never the value.
+SMTP_USERNAME, SMTP_PASSWORD = "c11-smtp-user", "C11-smtp-synthetic-password"
 ADMIN_EMAIL = "c11-admin@example.invalid"
 ADMIN_REF_EMAIL = "c11-admin-ref@example.invalid"
 ROLE, USER, REF, PROBE = "c11authrole0001", "c11authuser0001", "c11authref00001", "c11authprobe001"
@@ -75,17 +85,28 @@ ACCESS_PATH = f"/api/collections/buma_caisse_access/records/{ACCESS}"
 AGENT_PATH = f"/api/collections/agent_users/records/{AGENT}"
 JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
-# label, method, path, credential. Identical against PocketBase and PPBase.
-PROBES = (
+# label, method, path, credential, expected id. Identical against PocketBase
+# and PPBase; every token was issued by PocketBase 0.22.34 before the import.
+ACCEPTED_PROBES = (
     ("admin_lists_admins", "GET", "/api/admins", "admin", "ADMIN"),
     ("admin_refresh", "POST", "/api/admins/auth-refresh", "admin", "ADMIN"),
     ("admin_reads_protected_supplier", "GET", SUPPLIER_PATH, "admin", SUPPLIER),
+    (
+        "admin_ref_token_after_reset_refresh",
+        "POST",
+        "/api/admins/auth-refresh",
+        "admin_ref_after_reset",
+        "ADMIN_REF",
+    ),
     ("users_refresh", "POST", USERS_REFRESH, "users", USER),
     ("users_reads_admin_role_caisse_access", "GET", ACCESS_PATH, "users", ACCESS),
     ("users_reads_protected_supplier", "GET", SUPPLIER_PATH, "users", SUPPLIER),
+    ("users_ref_token_after_changes_refresh", "POST", USERS_REFRESH, "ref_after_changes", REF),
     ("agent_refresh", "POST", AGENTS_REFRESH, "agent", AGENT),
     ("agent_reads_own_record", "GET", AGENT_PATH, "agent", AGENT),
     ("agent_reads_protected_supplier", "GET", SUPPLIER_PATH, "agent", SUPPLIER),
+)
+REFUSED_PROBES = (
     ("anonymous_protected_supplier", "GET", SUPPLIER_PATH, None, None),
     ("anonymous_users_refresh", "POST", USERS_REFRESH, None, None),
     ("tampered_admin_lists_admins", "GET", "/api/admins", "admin_tampered", None),
@@ -103,8 +124,90 @@ PROBES = (
     ("agent_token_on_admin_role_caisse_access", "GET", ACCESS_PATH, "agent", None),
     ("forged_base_collection_protected_supplier", "GET", SUPPLIER_PATH, "users_forged", None),
     ("forged_base_collection_users_refresh", "POST", USERS_REFRESH, "users_forged", None),
+    # Issued before PocketBase renewed the account tokenKey (password reset, email
+    # change): v0.22.34 models/record.go:942-962, models/admin.go:45-67.
+    (
+        "users_ref_token_before_password_reset_refresh",
+        "POST",
+        USERS_REFRESH,
+        "ref_before_reset",
+        None,
+    ),
+    (
+        "users_ref_token_before_password_reset_protected_supplier",
+        "GET",
+        SUPPLIER_PATH,
+        "ref_before_reset",
+        None,
+    ),
+    (
+        "users_ref_token_before_email_change_refresh",
+        "POST",
+        USERS_REFRESH,
+        "ref_before_email_change",
+        None,
+    ),
+    (
+        "admin_ref_token_before_reset_lists_admins",
+        "GET",
+        "/api/admins",
+        "admin_ref_before_reset",
+        None,
+    ),
+    (
+        "admin_ref_token_before_reset_refresh",
+        "POST",
+        "/api/admins/auth-refresh",
+        "admin_ref_before_reset",
+        None,
+    ),
 )
-ACCEPTED = {label for label, *_rest in PROBES[:9]}
+PROBES = ACCEPTED_PROBES + REFUSED_PROBES
+ACCEPTED = {label for label, *_rest in ACCEPTED_PROBES}
+TOKEN_KEY_RENEWAL_PROBES = {label for label, *_rest in REFUSED_PROBES if "_before_" in label}
+REALTIME_TOPIC = f"buma_supplier/{SUPPLIER}"
+# Same outcome required on both servers.
+REALTIME_SAME = (
+    "subscribe_with_legacy_users_token",
+    "anonymous_subscribe",
+    "protected_update_status",
+    "event_delivered_to_legacy_token_subscriber",
+    "event_delivered_to_anonymous_subscriber",
+    "legacy_users_token_refresh_status",
+    "native_subscribe",
+    "native_resubscribe_same_client_after_refresh",
+    "guest_subscribe",
+    "legacy_token_then_guest_same_client",
+    "admin_subscribe_with_legacy_token",
+    "admin_refresh_status",
+    "admin_resubscribe_same_client_after_refresh",
+)
+# PocketBase compares the auth identity only (v0.22.34 apis/realtime.go:187-191
+# and extractAuthIdFromGetter :539-551; v0.40.6 apis/realtime.go:218-221 and
+# isSameAuth :843-853). PPBase keys it with the token type
+# (ppbase/api/realtime.py:45-52, :167-175) and fixes it at the first subscription.
+REALTIME_KNOWN_DIVERGENCES = {
+    "resubscribe_same_client_after_refresh": (
+        "mixed tokens after the import: the 0.22 token (type=authRecord) is refreshed "
+        "by PPBase into type=auth, so ppbase/api/realtime.py:45-52 builds another key"
+    ),
+    "unsubscribe_same_client_after_refresh": (
+        "same key change: the SDK unsubscribe also POSTs /api/realtime (js-sdk "
+        "v0.21.5 src/services/RealtimeService.ts:258-283)"
+    ),
+    "guest_then_legacy_token_same_client": (
+        "pre-existing PPBase behaviour, independent of the import: "
+        "ppbase/api/realtime.py:168-175 records the guest key at the first subscription"
+    ),
+}
+EXPOSURE_PATHS = (
+    ("settings", "/api/settings"),
+    ("collections_list", "/api/collections?perPage=500"),
+    ("users_collection", "/api/collections/users"),
+    ("agent_users_collection", "/api/collections/agent_users"),
+    ("superusers_collection", "/api/collections/_superusers"),
+)
+SECRET_MASK = "******"  # v0.22.34 models/settings/settings.go:19-21
 # Independent of the import (same on any PPBase database); proposed fixes in
 # docs/contracts/c11-auth-import.md. Any other status difference fails the run.
 KNOWN_PPBASE_DIVERGENCES = {
@@ -412,6 +515,7 @@ def fresh_client(base_url: str) -> httpx.AsyncClient:
 
 
 async def run_probes(base_url: str, credentials: dict) -> dict:
+    ids = {"ADMIN": credentials["admin_id"], "ADMIN_REF": credentials["admin_ref_id"]}
     results = {}
     async with fresh_client(base_url) as client:
         for label, method, path, credential, expected in PROBES:
@@ -431,12 +535,15 @@ async def run_probes(base_url: str, credentials: dict) -> dict:
                 if "token" in body:
                     result["new_token_type"] = claims_shape(body["token"])["type"]
                 if expected is not None and response.status_code == 200:
-                    wanted = credentials["admin_id"] if expected == "ADMIN" else expected
+                    wanted = ids.get(expected, expected)
                     if "items" in body:
                         found = {item.get("id") for item in body["items"]}
+                        entity = body["items"][0] if body["items"] else {}
                     else:
-                        found = {(body.get("record") or body.get("admin") or body).get("id")}
+                        entity = body.get("record") or body.get("admin") or body
+                        found = {entity.get("id")}
                     result["expected_id_returned"] = wanted in found
+                    result["entity_keys"] = sorted(entity)
             results[label] = result
     return results
 
@@ -466,6 +573,197 @@ async def run_logins(base_url: str) -> dict:
                     )
                     result["new_token_type"] = claims_shape(body["token"])["type"]
                     result["new_token_follow_up_status"] = check.status_code
+            results[label] = result
+    return results
+
+
+class RealtimeClient:
+    """Minimal SSE subscriber of /api/realtime, both wire formats.
+
+    PocketBase 0.22.34 writes "event:NAME\\ndata:{...}" (apis/realtime.go:93-99),
+    PPBase "event: NAME\\ndata: {...}"; one optional space is stripped as in the
+    SSE specification. Subscriptions are POSTed like the JS SDK does.
+    """
+
+    def __init__(self, base_url: str):
+        self.base_url, self.client_id = base_url, None
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.names: list[str] = []
+        self._http = self._stream = self._reader = None
+
+    async def __aenter__(self):
+        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=httpx.Timeout(15, read=None))
+        try:
+            self._stream = self._http.stream("GET", "/api/realtime")
+            response = await self._stream.__aenter__()
+            if response.status_code != 200:
+                raise RuntimeError(f"realtime connection answered {response.status_code}")
+            self._reader = asyncio.create_task(self._read(response))
+            name, data = await asyncio.wait_for(self.queue.get(), 15)
+            if name != "PB_CONNECT" or not isinstance(data, dict):
+                raise RuntimeError("realtime PB_CONNECT event missing")
+            self.client_id = data["clientId"]
+        except BaseException:
+            await self.__aexit__(None, None, None)
+            raise
+        return self
+
+    async def _read(self, response):
+        name, data = None, []
+        async for line in response.aiter_lines():
+            if line:
+                field, _colon, value = line.partition(":")
+                value = value[1:] if value.startswith(" ") else value
+                if field == "event":
+                    name = value
+                elif field == "data":
+                    data.append(value)
+                continue
+            if data:
+                raw = "\n".join(data)
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    parsed = raw
+                await self.queue.put((name, parsed))
+            name, data = None, []
+
+    async def wait_for(self, topic: str, action: str, record_id: str, timeout=10.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                name, data = await asyncio.wait_for(self.queue.get(), remaining)
+            except TimeoutError:
+                return False
+            self.names.append(name)
+            if not isinstance(data, dict):
+                continue
+            record = data.get("record") or {}
+            if name == topic and data.get("action") == action and record.get("id") == record_id:
+                return True
+        return False
+
+    def received(self, topic: str) -> bool:
+        while not self.queue.empty():
+            self.names.append(self.queue.get_nowait()[0])
+        return topic in self.names
+
+    async def subscribe(self, topics, token=None) -> int:
+        headers = {"Authorization": token} if token else {}
+        async with fresh_client(self.base_url) as client:
+            response = await client.post(
+                "/api/realtime",
+                json={"clientId": self.client_id, "subscriptions": list(topics)},
+                headers=headers,
+            )
+        return response.status_code
+
+    async def __aexit__(self, *exc):
+        if self._reader is not None:
+            self._reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError, httpx.HTTPError):
+                await self._reader
+        if self._stream is not None:
+            with contextlib.suppress(httpx.HTTPError, RuntimeError):
+                await self._stream.__aexit__(None, None, None)
+        if self._http is not None:
+            await self._http.aclose()
+
+
+async def refresh(base_url: str, path: str, token: str) -> dict:
+    async with fresh_client(base_url) as client:
+        response = await client.post(path, headers={"Authorization": token})
+    body = body_of(response)
+    new = body.get("token") if isinstance(body, dict) else None
+    return {
+        "status": response.status_code,
+        "token": new,
+        "type": claims_shape(new)["type"] if new else None,
+    }
+
+
+async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tuple[dict, dict]:
+    """Same calls on PocketBase 0.22.34 (before) and PPBase (after the import).
+
+    Returns (statuses and booleans, tokens kept in memory for the rollback probes).
+    """
+    users, admin, results = credentials["users"], credentials["admin"], {}
+    async with RealtimeClient(base_url) as subscriber, RealtimeClient(base_url) as anonymous:
+        results["subscribe_with_legacy_users_token"] = await subscriber.subscribe(
+            [REALTIME_TOPIC], users
+        )
+        results["anonymous_subscribe"] = await anonymous.subscribe([REALTIME_TOPIC])
+        async with fresh_client(base_url) as client:
+            update = await client.patch(
+                SUPPLIER_PATH,
+                headers={"Authorization": admin},
+                json={"firstname": f"C11 realtime {marker}"},
+            )
+        results["protected_update_status"] = update.status_code
+        results["event_delivered_to_legacy_token_subscriber"] = await subscriber.wait_for(
+            REALTIME_TOPIC, "update", SUPPLIER
+        )
+        await asyncio.sleep(1)
+        results["event_delivered_to_anonymous_subscriber"] = anonymous.received(REALTIME_TOPIC)
+        refreshed = await refresh(base_url, USERS_REFRESH, users)
+        results["legacy_users_token_refresh_status"] = refreshed["status"]
+        results["refreshed_token_type"] = refreshed["type"]
+        results["resubscribe_same_client_after_refresh"] = await subscriber.subscribe(
+            [REALTIME_TOPIC], refreshed["token"]
+        )
+        results["unsubscribe_same_client_after_refresh"] = await subscriber.subscribe(
+            [], refreshed["token"]
+        )
+    async with RealtimeClient(base_url) as client:
+        native = await pocketbase_tokens(
+            base_url, records=(("native", "users", "c11authuser", PASSWORD),)
+        )
+        token = native["native"]["token"]
+        results["native_token_type"] = claims_shape(token)["type"]
+        results["native_subscribe"] = await client.subscribe([REALTIME_TOPIC], token)
+        renewed = await refresh(base_url, USERS_REFRESH, token)
+        results["native_resubscribe_same_client_after_refresh"] = await client.subscribe(
+            [REALTIME_TOPIC], renewed["token"]
+        )
+    async with RealtimeClient(base_url) as client:
+        results["guest_subscribe"] = await client.subscribe([REALTIME_TOPIC])
+        results["guest_then_legacy_token_same_client"] = await client.subscribe(
+            [REALTIME_TOPIC], users
+        )
+    async with RealtimeClient(base_url) as client:
+        await client.subscribe([REALTIME_TOPIC], users)
+        results["legacy_token_then_guest_same_client"] = await client.subscribe([REALTIME_TOPIC])
+    async with RealtimeClient(base_url) as client:
+        results["admin_subscribe_with_legacy_token"] = await client.subscribe(
+            [REALTIME_TOPIC], admin
+        )
+        admin_refreshed = await refresh(base_url, "/api/admins/auth-refresh", admin)
+        results["admin_refresh_status"] = admin_refreshed["status"]
+        results["admin_refreshed_token_type"] = admin_refreshed["type"]
+        results["admin_resubscribe_same_client_after_refresh"] = await client.subscribe(
+            [REALTIME_TOPIC], admin_refreshed["token"]
+        )
+    return results, {"users_refreshed": refreshed["token"]}
+
+
+async def secret_exposure(base_url: str, admin_token: str, values: list[str]) -> dict:
+    """Does a superuser response carry an imported secret? Booleans only."""
+    results = {}
+    async with fresh_client(base_url) as client:
+        for label, path in EXPOSURE_PATHS:
+            response = await client.get(path, headers={"Authorization": admin_token})
+            result = {
+                "status": response.status_code,
+                "serves_imported_secret": any(value in response.text for value in values),
+            }
+            if label == "settings" and response.status_code == 200:
+                body = response.json()
+                configs = [body[key] for key in TOKEN_KEYS if isinstance(body.get(key), dict)]
+                result["token_configs_in_settings"] = len(configs)
+                result["token_configs_masked"] = sum(
+                    c.get("secret") == SECRET_MASK for c in configs
+                )
+                result["smtp_password_masked"] = body["smtp"].get("password") == SECRET_MASK
             results[label] = result
     return results
 
@@ -544,6 +842,13 @@ async def pocketbase_phase(root: Path, binary: Path, schema: Path, report: dict)
                     assert response.status_code in (200, 204), (path, response.status_code)
                     return response.status_code
 
+                # Sessions issued before the flows below renew the tokenKey of REF
+                # (password reset, then email change) and of ADMIN_REF (reset).
+                before_renewal = await pocketbase_tokens(
+                    pb.base_url,
+                    admin=(ADMIN_REF_EMAIL, ADMIN_PASSWORD),
+                    records=(("ref", "users", "c11authref", PASSWORD),),
+                )
                 # Reference: PocketBase 0.22.34 accepts its own purpose tokens.
                 await post("/api/collections/users/request-verification", {"email": EMAILS[REF]})
                 token = await sink.token_for(EMAILS[REF])
@@ -575,6 +880,11 @@ async def pocketbase_phase(root: Path, binary: Path, schema: Path, report: dict)
                     "/api/admins/confirm-password-reset",
                     {"token": token, "password": NEW_PASSWORD, "passwordConfirm": NEW_PASSWORD},
                 )
+                after_renewal = await pocketbase_tokens(
+                    pb.base_url,
+                    admin=(ADMIN_REF_EMAIL, NEW_PASSWORD),
+                    records=(("ref", "users", "c11authref", NEW_PASSWORD),),
+                )
                 # Probe tokens: issued before the import, never consumed by PocketBase.
                 await post("/api/collections/users/request-verification", {"email": EMAILS[PROBE]})
                 purpose["verification"] = await sink.token_for(EMAILS[PROBE])
@@ -596,6 +906,13 @@ async def pocketbase_phase(root: Path, binary: Path, schema: Path, report: dict)
                     "/api/files/token", headers={"Authorization": issued["users"]["token"]}
                 )
                 purpose["users_file"] = file_token.json()["token"]
+                # Last mail sent: synthetic SMTP credentials, for the secret probes.
+                smtp = await client.patch(
+                    "/api/settings",
+                    headers=admin,
+                    json={"smtp": {"username": SMTP_USERNAME, "password": SMTP_PASSWORD}},
+                )
+                assert smtp.status_code == 200, smtp.status_code
 
             await asyncio.sleep(max(0.0, expires_after - time.monotonic()))
             credentials = {
@@ -609,11 +926,19 @@ async def pocketbase_phase(root: Path, binary: Path, schema: Path, report: dict)
                 "admin_expired": expiring["admin"]["token"],
                 "users_expired": expiring["users"]["token"],
                 "users_forged": forged_collection(issued["users"]["token"], "ui5alk9pbys9wai"),
+                "ref_before_reset": before_renewal["ref"]["token"],
+                "ref_before_email_change": ref_session["ref"]["token"],
+                "ref_after_changes": after_renewal["ref"]["token"],
+                "admin_ref_before_reset": before_renewal["admin"]["token"],
+                "admin_ref_after_reset": after_renewal["admin"]["token"],
+                "admin_ref_id": after_renewal["admin"]["id"],
             }
+            realtime, _tokens = await realtime_probes(pb.base_url, credentials, "pocketbase")
             report["pocketbase_reference"] = {
                 "probes": await run_probes(pb.base_url, credentials),
                 "logins": await run_logins(pb.base_url),
                 "purpose_tokens_accepted_by_pocketbase": reference,
+                "realtime": realtime,
             }
             # Background mail interceptors persist last*SentAt after sending.
             await asyncio.sleep(1)
@@ -632,7 +957,20 @@ async def pocketbase_phase(root: Path, binary: Path, schema: Path, report: dict)
         db.execute("PRAGMA journal_mode=DELETE")
     (data / "storage").mkdir(exist_ok=True)
     secrets_seen.update(credentials=credentials, purpose=purpose)
-    return {"data": data, **secrets_seen}
+    return {"data": data, "migrations": migrations, **secrets_seen}
+
+
+def source_secret_values(data: Path) -> list[str]:
+    """Secrets of the synthetic source, in memory only, for the exposure probes."""
+    with sqlite3.connect(
+        f"{(data / 'data.db').resolve().as_uri()}?mode=ro&immutable=1", uri=True
+    ) as db:
+        settings = json.loads(
+            db.execute("SELECT value FROM _params WHERE key='settings'").fetchone()[0]
+        )
+    values = [settings[key]["secret"] for key in TOKEN_KEYS] + [settings["smtp"]["password"]]
+    assert all(isinstance(value, str) and len(value) >= 20 for value in values)
+    return values
 
 
 def verify_signatures(data: Path, credentials: dict, purpose: dict) -> dict:
@@ -647,8 +985,11 @@ def verify_signatures(data: Path, credentials: dict, purpose: dict) -> dict:
         admin_key = admin_key.fetchone()[0]
         user_key = db.execute("SELECT tokenKey FROM users WHERE id=?", (USER,)).fetchone()[0]
         probe_key = db.execute("SELECT tokenKey FROM users WHERE id=?", (PROBE,)).fetchone()[0]
+        ref_key = db.execute("SELECT tokenKey FROM users WHERE id=?", (REF,)).fetchone()[0]
         agent_key = db.execute("SELECT tokenKey FROM agent_users WHERE id=?", (AGENT,))
         agent_key = agent_key.fetchone()[0]
+        admin_ref_key = db.execute("SELECT tokenKey FROM _admins WHERE email=?", (ADMIN_REF_EMAIL,))
+        admin_ref_key = admin_ref_key.fetchone()[0]
 
     def valid(token, key, setting):
         try:
@@ -685,6 +1026,12 @@ def verify_signatures(data: Path, credentials: dict, purpose: dict) -> dict:
         "users_file_tokenKey_plus_recordFileToken": valid(
             purpose["users_file"], user_key, "recordFileToken"
         ),
+        "ref_after_changes_current_tokenKey_plus_recordAuthToken": valid(
+            credentials["ref_after_changes"], ref_key, "recordAuthToken"
+        ),
+        "admin_ref_after_reset_current_tokenKey_plus_adminAuthToken": valid(
+            credentials["admin_ref_after_reset"], admin_ref_key, "adminAuthToken"
+        ),
     }
     negative = {
         "users_auth_with_admin_secret_rejected": not valid(
@@ -692,6 +1039,16 @@ def verify_signatures(data: Path, credentials: dict, purpose: dict) -> dict:
         ),
         "admin_auth_with_record_secret_rejected": not valid(
             credentials["admin"], admin_key, "recordAuthToken"
+        ),
+        # PocketBase renewed these tokenKeys after the tokens were issued.
+        "ref_before_reset_not_signed_with_current_tokenKey": not valid(
+            credentials["ref_before_reset"], ref_key, "recordAuthToken"
+        ),
+        "ref_before_email_change_not_signed_with_current_tokenKey": not valid(
+            credentials["ref_before_email_change"], ref_key, "recordAuthToken"
+        ),
+        "admin_ref_before_reset_not_signed_with_current_tokenKey": not valid(
+            credentials["admin_ref_before_reset"], admin_ref_key, "adminAuthToken"
         ),
     }
     assert all(checks.values()) and all(negative.values()), (checks, negative)
@@ -720,13 +1077,21 @@ async def database_state(engine, definitions) -> dict:
         for table in ("_superusers", "_params"):
             rows = await conn.execute(text(f'SELECT * FROM "{table}" ORDER BY id'))
             state[table] = [dict(r) for r in rows.mappings().all()]
-        options = await conn.execute(
-            text("SELECT name, options FROM _collections WHERE type='auth' ORDER BY name")
+        collections = await conn.execute(
+            text("SELECT id, name, type, options FROM _collections ORDER BY name")
         )
-        state["auth_options"] = [dict(r) for r in options.mappings().all()]
+        state["collections"] = [dict(r) for r in collections.mappings().all()]
         for table in ("_buma_c11_rowids", ARCHIVE_TABLE):
             exists = await conn.execute(text("SELECT to_regclass(:name)"), {"name": table})
             state[table] = exists.scalar_one()
+        # Functions and triggers created by the refusal cases must be rolled back too.
+        leftovers = await conn.execute(
+            text(
+                "SELECT (SELECT count(*) FROM pg_proc WHERE left(proname, 4) = 'c11_') + "
+                "(SELECT count(*) FROM pg_trigger WHERE left(tgname, 4) = 'c11_')"
+            )
+        )
+        state["c11_functions_and_triggers"] = leftovers.scalar_one()
     return state
 
 
@@ -830,6 +1195,10 @@ async def compare_imported(engine, data: Path) -> dict:
         users = {
             r["id"]: dict(r) for r in db.execute("SELECT id, tokenKey, passwordHash FROM users")
         }
+        agents = {
+            r["id"]: dict(r)
+            for r in db.execute("SELECT id, tokenKey, passwordHash FROM agent_users")
+        }
     async with engine.connect() as conn:
         targets = {
             r["id"]: dict(r)
@@ -850,6 +1219,14 @@ async def compare_imported(engine, data: Path) -> dict:
         imported_users = {
             r["id"]: dict(r)
             for r in (await conn.execute(text("SELECT id, token_key, password_hash FROM users")))
+            .mappings()
+            .all()
+        }
+        imported_agents = {
+            r["id"]: dict(r)
+            for r in (
+                await conn.execute(text("SELECT id, token_key, password_hash FROM agent_users"))
+            )
             .mappings()
             .all()
         }
@@ -907,37 +1284,195 @@ async def compare_imported(engine, data: Path) -> dict:
         and all(stored["smtp"][k] == v for k, v in settings["smtp"].items()),
         "settings_s3_and_backups_left_at_ppbase_defaults": stored["s3"]["enabled"] is False
         and stored["backups"]["cron"] == "",
-        "users_tokenKey_and_hash_identical": all(
+        "users_tokenKey_and_hash_identical": set(imported_users) == set(users)
+        and all(
             imported_users[i]["token_key"] == u["tokenKey"]
             and imported_users[i]["password_hash"] == u["passwordHash"]
             for i, u in users.items()
+        ),
+        "agent_users_tokenKey_and_hash_identical": set(imported_agents) == set(agents)
+        and all(
+            imported_agents[i]["token_key"] == a["tokenKey"]
+            and imported_agents[i]["password_hash"] == a["passwordHash"]
+            for i, a in agents.items()
         ),
     }
     assert all(checks.values()), {k: v for k, v in checks.items() if not v}
     return checks
 
 
-async def postgres_phase(root, url, data, schema, credentials, purpose, report):
+def trigger(name: str, table: str, event: str, body: str) -> tuple[str, str]:
+    """Synthetic BEFORE trigger, created and rolled back inside one refusal case."""
+    return (
+        f"CREATE FUNCTION c11_{name}() RETURNS trigger LANGUAGE plpgsql AS "
+        f"$$ BEGIN {body} RETURN NEW; END $$",
+        f"CREATE TRIGGER c11_{name} BEFORE {event} ON {table} "
+        f"FOR EACH ROW EXECUTE FUNCTION c11_{name}()",
+    )
+
+
+# label, SQL run after load_isolated in the same transaction, expected refusal.
+REFUSAL_CASES = (
+    (
+        "settings_row_already_present",
+        (
+            'INSERT INTO "_params" ("id", "key", "value", "created", "updated") '
+            "VALUES ('c11presettings1', 'settings', '{}'::jsonb, now(), now())",
+        ),
+        "settings_target_not_empty",
+    ),
+    (
+        "archive_table_already_present",
+        (f'CREATE TABLE "{ARCHIVE_TABLE}" (c11 integer)',),
+        "auth_archive_exists",
+    ),
+    (
+        "records_from_another_snapshot",
+        (
+            "UPDATE _buma_c11_rowids SET source_rowid = source_rowid + 1000000 "
+            f"WHERE record_id = '{USER}'",
+        ),
+        "records_snapshot_mismatch",
+    ),
+    (
+        "auth_collection_set_changed",
+        ("UPDATE _collections SET type = 'base' WHERE name = 'agent_users'",),
+        "target_auth_collections_mismatch",
+    ),
+    (
+        "auth_collection_id_changed",
+        ("UPDATE _collections SET id = 'c11otherauthid1' WHERE name = 'agent_users'",),
+        "target_auth_collection_id_mismatch",
+    ),
+    (
+        "superusers_readback_altered",
+        trigger("superusers", '"_superusers"', "INSERT", "NEW.avatar := NEW.avatar + 1;"),
+        "superusers_readback_mismatch",
+    ),
+    (
+        "options_readback_altered",
+        trigger(
+            "options",
+            '"_collections"',
+            "UPDATE",
+            "NEW.options := NEW.options || '{\"c11Altered\": true}'::jsonb;",
+        ),
+        "auth_options_readback_mismatch",
+    ),
+    (
+        "settings_readback_altered",
+        trigger(
+            "settings",
+            '"_params"',
+            "INSERT",
+            "NEW.value := NEW.value || '{\"c11Altered\": true}'::jsonb;",
+        ),
+        "settings_readback_mismatch",
+    ),
+    (
+        "database_error_during_admin_insert",
+        trigger(
+            "failure",
+            '"_superusers"',
+            "INSERT",
+            "RAISE EXCEPTION 'c11 synthetic database failure';",
+        ),
+        "auth_import_database_error",
+    ),
+)
+
+
+def synthetic_admin_values(data: Path) -> list[str]:
+    """Hash, tokenKey and email of the synthetic admins: must never leak in errors."""
+    with sqlite3.connect(
+        f"{(data / 'data.db').resolve().as_uri()}?mode=ro&immutable=1", uri=True
+    ) as db:
+        rows = db.execute("SELECT passwordHash, tokenKey, email FROM _admins").fetchall()
+    return [value for row in rows for value in row]
+
+
+async def refusal_cases(engine, url, root, data, staged_report, definitions, baseline) -> dict:
+    """Every database-side refusal of import_auth, each rolled back to the baseline."""
+    staged = root / "refusals"
+    stage_snapshot(data, staged, staged_report)
+    leaked = synthetic_admin_values(staged)
+    results = {}
+    try:
+        for label, statements, code in REFUSAL_CASES:
+            started = time.monotonic()
+            try:
+                async with engine.begin() as conn:
+                    await remove_fresh_seeds(conn, definitions)
+                    await load_isolated(conn, staged, definitions)
+                    for statement in statements:
+                        await conn.execute(text(statement))
+                    await import_auth(conn, staged, definitions)
+            except ImportBlocked as exc:
+                assert str(exc) == code, (label, str(exc))
+                result = {"refused_with": str(exc)}
+                if code == "auth_import_database_error":
+                    rendered = "".join(traceback.format_exception(exc))
+                    result["sqlstate"] = exc.sqlstate
+                    result["context_chained"] = exc.__context__ is not None
+                    result["values_in_message_or_traceback"] = any(
+                        value in rendered for value in leaked
+                    ) or ("parameters" in rendered)
+                    assert exc.sqlstate == "P0001" and not result["context_chained"]
+                    assert not result["values_in_message_or_traceback"]
+            else:
+                raise AssertionError(f"{label} was not refused")
+            assert await database_state(engine, definitions) == baseline, label
+            result["state_after_rollback_equals_baseline"] = True
+            result["seconds"] = round(time.monotonic() - started, 2)
+            results[label] = result
+
+        # SQLAlchemy echoes bound values unless hide_parameters=True: refused first.
+        echoing = create_async_engine(url, connect_args={"ssl": "disable"})
+        try:
+            async with echoing.begin() as conn:
+                await import_auth(conn, staged, definitions)
+        except ImportBlocked as exc:
+            assert str(exc) == "engine_hide_parameters_required", exc
+            results["engine_without_hide_parameters"] = {"refused_with": str(exc)}
+        else:
+            raise AssertionError("an engine echoing bound values was accepted")
+        finally:
+            await echoing.dispose()
+        assert await database_state(engine, definitions) == baseline
+        results["engine_without_hide_parameters"]["state_after_rollback_equals_baseline"] = True
+    finally:
+        shutil.rmtree(staged)
+    return results
+
+
+async def postgres_phase(root, url, data, schema, credentials, purpose, secret_values, report):
+    """Import into the disposable PostgreSQL, then probe PPBase; returns PPBase tokens."""
     from ppbase.services.database_preparation import prepare_database
 
     definitions = load_schema(schema)
     diagnostic = diagnose(data, schema, source_version=SOURCE_VERSION)
     codes = {b["code"] for b in diagnostic["blockers"]}
     assert codes <= {VERSION_GATE}, codes
-    # WS-D owns the 0.22.34 version gate; this synthetic auth proof records the
-    # waiver instead of guessing a version. Any other blocker stops the run.
-    staged_report = {
-        **diagnostic,
-        "ready_for_isolated_rehearsal": True,
-        "c11_auth_runtime_waived_blockers": sorted(codes),
-    }
+    if codes:
+        # WS-D owns the 0.22.34 version gate. Synthetic proof only: the waiver is
+        # recorded and disappears by itself once the gate opens. Never copy it
+        # into the real rehearsal; any other blocker already stopped the run.
+        staged_report = {
+            **diagnostic,
+            "ready_for_isolated_rehearsal": True,
+            "c11_auth_runtime_waived_blockers": sorted(codes),
+        }
+    else:
+        staged_report = diagnostic
     report["version_gate"] = {
         "source_version": SOURCE_VERSION,
         "waived_blockers": sorted(codes),
+        "waiver_applied": bool(codes),
         "other_blockers": 0,
         "rows": diagnostic["rows"],
     }
-    engine = create_async_engine(url, connect_args={"ssl": "disable"})
+    # Hashes, tokenKeys and secrets are bound parameters: never echo them.
+    engine = create_async_engine(url, connect_args={"ssl": "disable"}, hide_parameters=True)
     try:
         async with engine.connect() as conn:
             tables = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
@@ -948,6 +1483,7 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, report):
         report["schema_before"] = await check_schema(url, schema)
         baseline = await database_state(engine, definitions)
         assert not baseline["_superusers"] and not baseline["_params"]
+        assert baseline["c11_functions_and_triggers"] == 0
 
         rollback = {}
         for stage in ("admins", "options", "settings"):
@@ -981,6 +1517,9 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, report):
         finally:
             shutil.rmtree(orphan)
         assert await database_state(engine, definitions) == baseline
+        report["refusals_in_load_isolated_transaction"] = await refusal_cases(
+            engine, url, root, data, staged_report, definitions, baseline
+        )
 
         published = root / "imported"
         stage_snapshot(data, published, staged_report)
@@ -988,6 +1527,7 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, report):
             await remove_fresh_seeds(conn, definitions)
             loaded = await load_isolated(conn, published, definitions)
             auth_report = await import_auth(conn, published, definitions)
+        assert auth_report["records_snapshot"]["rows"] == loaded, auth_report["records_snapshot"]
         report["import"] = {"records_loaded": loaded, "auth": auth_report}
         report["readback"] = await compare_imported(engine, published)
         async with engine.connect() as conn:
@@ -1038,12 +1578,28 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, report):
 
         process, log, base = await ppbase_server(root, url, published)
         try:
-            report["ppbase_after_import"] = {
+            after_import = {
                 "probes": await run_probes(base, credentials),
                 "legacy_probes": await legacy_probes(base, credentials),
                 "purpose_tokens_from_pocketbase": await purpose_probes(base, purpose),
                 "logins": await run_logins(base),
             }
+            after_import["realtime"], realtime_tokens = await realtime_probes(
+                base, credentials, "ppbase"
+            )
+            after_import["secret_exposure"] = await secret_exposure(
+                base, credentials["admin"], secret_values
+            )
+            # Sessions PPBase issues after the cutover, probed on the rollback path.
+            issued = await pocketbase_tokens(
+                base,
+                admin=(ADMIN_EMAIL, ADMIN_PASSWORD),
+                records=(
+                    ("users", "users", "c11authuser", PASSWORD),
+                    ("agent", "agent_users", EMAILS[AGENT], PASSWORD),
+                ),
+            )
+            report["ppbase_after_import"] = after_import
         finally:
             stop(process)
             log.close()
@@ -1063,9 +1619,50 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, report):
         assert report["purpose_tokens_left_records_unchanged"]
     finally:
         await engine.dispose()
+    return {
+        "admin": issued["admin"]["token"],
+        "users": issued["users"]["token"],
+        "agent": issued["agent"]["token"],
+        "users_refreshed": realtime_tokens["users_refreshed"],
+    }
 
 
-def compare(report: dict) -> None:
+# label, method, path, credential source, credential.
+ROLLBACK_PROBES = (
+    ("pre_import_users_token_refresh", "POST", USERS_REFRESH, "pocketbase", "users"),
+    ("pre_import_admin_token_lists_admins", "GET", "/api/admins", "pocketbase", "admin"),
+    ("ppbase_users_token_refresh", "POST", USERS_REFRESH, "ppbase", "users"),
+    ("ppbase_users_token_protected_supplier", "GET", SUPPLIER_PATH, "ppbase", "users"),
+    ("ppbase_agent_token_refresh", "POST", AGENTS_REFRESH, "ppbase", "agent"),
+    (
+        "ppbase_refreshed_legacy_users_token_refresh",
+        "POST",
+        USERS_REFRESH,
+        "ppbase",
+        "users_refreshed",
+    ),
+    ("ppbase_admin_token_lists_admins", "GET", "/api/admins", "ppbase", "admin"),
+)
+
+
+async def rollback_phase(binary, data, root, migrations, credentials, issued, secret_values):
+    """PocketBase restarted on its untouched source: the cutover rollback path."""
+    tokens = {"pocketbase": credentials, "ppbase": issued}
+    probes = {}
+    async with PocketBaseServer(binary, data, root=root, migrations=migrations) as pb:
+        async with fresh_client(pb.base_url) as client:
+            for label, method, path, source, name in ROLLBACK_PROBES:
+                token = tokens[source][name]
+                response = await client.request(method, path, headers={"Authorization": token})
+                probes[label] = {
+                    "status": response.status_code,
+                    "token_type": claims_shape(token)["type"],
+                }
+        exposure = await secret_exposure(pb.base_url, credentials["admin"], secret_values)
+    return {"probes": probes, "secret_exposure": exposure}
+
+
+def compare_probes(report: dict) -> tuple[dict, list, list]:
     reference = report["pocketbase_reference"]["probes"]
     ppbase = report["ppbase_after_import"]["probes"]
     comparison, divergences, messages = {}, [], []
@@ -1076,6 +1673,9 @@ def compare(report: dict) -> None:
             assert pb_status == pp_status == 200, (label, pb_status, pp_status)
             assert ppbase[label]["expected_id_returned"], label
             assert reference[label]["expected_id_returned"], label
+            # Same envelope and entity fields as PocketBase 0.22.34 returns.
+            assert ppbase[label]["keys"] == reference[label]["keys"], label
+            assert ppbase[label]["entity_keys"] == reference[label]["entity_keys"], label
         elif label in KNOWN_PPBASE_DIVERGENCES:
             # Still refused (no data served), but not with PocketBase's status.
             assert pb_status >= 400 and pp_status != 200, (label, pb_status, pp_status)
@@ -1100,6 +1700,66 @@ def compare(report: dict) -> None:
                     "ppbase": ppbase[label].get("message"),
                 }
             )
+    return comparison, divergences, messages
+
+
+def compare_realtime(report: dict) -> tuple[dict, list]:
+    pocketbase = report["pocketbase_reference"]["realtime"]
+    ppbase = report["ppbase_after_import"]["realtime"]
+    # PocketBase 0.22.34 reference behaviour (apis/realtime.go:187-191).
+    assert pocketbase["subscribe_with_legacy_users_token"] == 204, pocketbase
+    assert pocketbase["event_delivered_to_legacy_token_subscriber"] is True, pocketbase
+    assert pocketbase["event_delivered_to_anonymous_subscriber"] is False, pocketbase
+    assert pocketbase["resubscribe_same_client_after_refresh"] == 204, pocketbase
+    assert pocketbase["guest_then_legacy_token_same_client"] == 204, pocketbase
+    assert pocketbase["legacy_token_then_guest_same_client"] == 403, pocketbase
+    for key in REALTIME_SAME:
+        assert pocketbase[key] == ppbase[key], (key, pocketbase[key], ppbase[key])
+    divergences = []
+    for key, cause in REALTIME_KNOWN_DIVERGENCES.items():
+        assert ppbase[key] in (204, 403), (key, ppbase[key])
+        divergences.append(
+            {
+                "probe": key,
+                "pocketbase_status": pocketbase[key],
+                "ppbase_status": ppbase[key],
+                "resolved": pocketbase[key] == ppbase[key],
+                "cause": cause,
+            }
+        )
+    return {key: {"pocketbase": pocketbase[key], "ppbase": ppbase[key]} for key in pocketbase}, (
+        divergences
+    )
+
+
+def compare_exposure(report: dict) -> dict:
+    pocketbase = report["pocketbase_restarted_on_source"]["secret_exposure"]
+    ppbase = report["ppbase_after_import"]["secret_exposure"]
+    # v0.22.34 apis/settings.go:29-30 serves RedactClone (models/settings/settings.go:281-334);
+    # collections carry no token secret in 0.22.
+    assert not any(value["serves_imported_secret"] for value in pocketbase.values()), pocketbase
+    settings = pocketbase["settings"]
+    assert settings["token_configs_in_settings"] == settings["token_configs_masked"] == 8
+    assert settings["smtp_password_masked"] is True
+    return {
+        label: {
+            "status": {
+                "pocketbase": pocketbase[label]["status"],
+                "ppbase": ppbase[label]["status"],
+            },
+            "serves_imported_secret": {
+                "pocketbase": pocketbase[label]["serves_imported_secret"],
+                "ppbase": ppbase[label]["serves_imported_secret"],
+            },
+        }
+        for label, _path in EXPOSURE_PATHS
+    }
+
+
+def compare(report: dict) -> None:
+    reference = report["pocketbase_reference"]["probes"]
+    ppbase = report["ppbase_after_import"]["probes"]
+    comparison, divergences, messages = compare_probes(report)
     logins_pb = report["pocketbase_reference"]["logins"]
     logins_pp = report["ppbase_after_import"]["logins"]
     for label, *_rest in LOGINS:
@@ -1123,6 +1783,42 @@ def compare(report: dict) -> None:
             {tuple(v.get("keys", ())) for k, v in ppbase.items() if k not in ACCEPTED}
         ),
     }
+    realtime, realtime_divergences = compare_realtime(report)
+    # C3 claims: PocketBase 0.22.34 issues type=authRecord (tokens/tokens.go:4-7),
+    # PPBase issues type=auth after its own login or refresh.
+    token_type = {
+        "pocketbase_login": logins_pb["users_by_username"]["new_token_type"],
+        "pocketbase_refresh": reference["users_refresh"]["new_token_type"],
+        "ppbase_login": logins_pp["users_by_username"]["new_token_type"],
+        "ppbase_refresh": ppbase["users_refresh"]["new_token_type"],
+        "ppbase_admin_refresh": ppbase["admin_refresh"]["new_token_type"],
+    }
+    assert token_type["pocketbase_login"] == token_type["pocketbase_refresh"] == "authRecord"
+    assert reference["admin_refresh"]["new_token_type"] == "admin"
+    # js-sdk v0.21.5 src/stores/BaseAuthStore.ts:44-53 reads the type claim.
+    token_type["js_sdk_0_21_isAuthRecord_after_refresh"] = {
+        "pocketbase": token_type["pocketbase_refresh"] == "authRecord",
+        "ppbase": token_type["ppbase_refresh"] == "authRecord",
+    }
+    token_type["js_sdk_0_21_isAdmin_after_admin_refresh"] = {
+        "pocketbase": reference["admin_refresh"]["new_token_type"] == "admin",
+        "ppbase": token_type["ppbase_admin_refresh"] == "admin",
+    }
+    token_type["resolved"] = token_type["pocketbase_refresh"] == token_type["ppbase_refresh"]
+    exposure = compare_exposure(report)
+    rollback = report["pocketbase_restarted_on_source"]["probes"]
+    assert rollback["pre_import_users_token_refresh"]["status"] == 200, rollback
+    assert rollback["pre_import_admin_token_lists_admins"]["status"] == 200, rollback
+    # v0.22.34 apis/middlewares.go:229-249 loads only type=admin|authRecord tokens.
+    for key in (
+        "ppbase_users_token_refresh",
+        "ppbase_agent_token_refresh",
+        "ppbase_refreshed_legacy_users_token_refresh",
+    ):
+        assert rollback[key]["status"] == 401 and rollback[key]["token_type"] == "auth", key
+    assert rollback["ppbase_users_token_protected_supplier"]["status"] == 404, rollback
+    refusals = report["refusals_in_load_isolated_transaction"]
+    assert all(value["state_after_rollback_equals_baseline"] for value in refusals.values())
     report["comparison"] = {
         "probes": comparison,
         "same_status": sum(v["pocketbase"] == v["ppbase"] for v in comparison.values()),
@@ -1136,7 +1832,16 @@ def compare(report: dict) -> None:
             name: {"pocketbase": purpose_pb[name], "ppbase": purpose_pp[name]["status"]}
             for name in purpose_pb
         },
+        "realtime": realtime,
+        "realtime_known_divergences": realtime_divergences,
+        "token_type_after_login_or_refresh": token_type,
+        "secret_exposure_to_superusers": exposure,
+        "rollback_to_pocketbase_sessions": {
+            key: {"status": value["status"], "token_type": value["token_type"]}
+            for key, value in rollback.items()
+        },
     }
+    realtime_pp = report["ppbase_after_import"]["realtime"]
     report["summary"] = {
         "pre_import_tokens_accepted_after_import": {
             "admin": all(comparison[k]["ppbase"] == 200 for k in ACCEPTED if k.startswith("admin")),
@@ -1145,6 +1850,10 @@ def compare(report: dict) -> None:
                 comparison[k]["ppbase"] == 200 for k in ACCEPTED if k.startswith("agent")
             ),
         },
+        "tokens_invalidated_by_pocketbase_tokenKey_renewal_still_refused": all(
+            comparison[k]["pocketbase"] == comparison[k]["ppbase"] >= 400
+            for k in TOKEN_KEY_RENEWAL_PROBES
+        ),
         "original_passwords_accepted_after_import": all(
             logins_pp[k]["status"] == 200
             for k in ("users_by_username", "agent_by_email", "agent_by_username", "admin_by_email")
@@ -1161,6 +1870,23 @@ def compare(report: dict) -> None:
         "known_pre_existing_ppbase_divergences": len(divergences),
         "purpose_tokens_issued_before_import_continued": False,
         "buma_legacy_probes_match_contract": True,
+        "realtime_legacy_token_subscription_and_delivery_match_pocketbase": True,
+        "realtime_resubscribe_after_ppbase_refresh_matches_pocketbase": realtime_pp[
+            "resubscribe_same_client_after_refresh"
+        ]
+        == 204,
+        "js_sdk_0_21_isAuthRecord_after_ppbase_refresh": token_type[
+            "js_sdk_0_21_isAuthRecord_after_refresh"
+        ]["ppbase"],
+        "ppbase_serves_imported_secrets_to_superusers": any(
+            value["serves_imported_secret"]["ppbase"] for value in exposure.values()
+        ),
+        "rollback_pocketbase_accepts_ppbase_record_tokens": False,
+        "rollback_pocketbase_accepts_ppbase_admin_token": rollback[
+            "ppbase_admin_token_lists_admins"
+        ]["status"]
+        == 200,
+        "import_refusals_rolled_back": len(refusals),
     }
 
 
@@ -1169,15 +1895,26 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
     report["pocketbase_signing_key_checks"] = verify_signatures(
         pocketbase["data"], pocketbase["credentials"], pocketbase["purpose"]
     )
+    secret_values = source_secret_values(pocketbase["data"])
     url = start_postgres()
-    await postgres_phase(
+    issued = await postgres_phase(
         root,
         url,
         pocketbase["data"],
         schema,
         pocketbase["credentials"],
         pocketbase["purpose"],
+        secret_values,
         report,
+    )
+    report["pocketbase_restarted_on_source"] = await rollback_phase(
+        binary,
+        pocketbase["data"],
+        root,
+        pocketbase["migrations"],
+        pocketbase["credentials"],
+        issued,
+        secret_values,
     )
     compare(report)
 

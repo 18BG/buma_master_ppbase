@@ -6,7 +6,9 @@ command. They read the closed, staged snapshot through
 in the same transaction as ``load_isolated``: any failure rolls records,
 accounts and settings back together. No password is regenerated, no token is
 minted, and no secret is logged or reported (reports say present, imported and
-length only).
+length only). The caller's engine must hide bound parameters
+(``create_async_engine(..., hide_parameters=True)``) and database errors are
+re-raised as a value-free ``ImportBlocked("auth_import_database_error")``.
 
 The correspondence follows PocketBase's own 0.22 -> 0.23 upgrade
 (v0.23.0 migrations/1717233556_v0.23_migrate.go) wherever PPBase can represent
@@ -22,6 +24,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -140,6 +143,15 @@ NOT_IMPORTED_SECRETS = (
 )
 KNOWN_SETTINGS = frozenset({"meta", "logs", "smtp", *TOKEN_KEYS, *NOT_IMPORTED})
 FAIL_STAGES = ("admins", "options", "settings")
+DATABASE_ERROR = "auth_import_database_error"
+SQLSTATE = re.compile(r"^[0-9A-Z]{5}$")
+# Same fingerprint as scripts.c11_import.diagnose ("rowid:id\n" in rowid order),
+# computed by PostgreSQL over the rows load_isolated archived.
+RECORD_IDENTITIES = (
+    "SELECT collection_id, COUNT(*) AS row_count, encode(sha256(convert_to(string_agg("
+    "source_rowid::text || ':' || record_id || E'\\n', '' ORDER BY source_rowid), 'UTF8')), "
+    "'hex') AS identity FROM \"_buma_c11_rowids\" GROUP BY collection_id"
+)
 
 
 def _rows(db: sqlite3.Connection, sql: str) -> list[dict]:
@@ -169,6 +181,23 @@ def _typed(value, kind) -> bool:
     if kind is int:
         return isinstance(value, int) and not isinstance(value, bool)
     return isinstance(value, kind)
+
+
+def _text_problem(value) -> str | None:
+    """Explicit code for a string PostgreSQL would reject with a raw driver error.
+
+    text, varchar and jsonb refuse NUL (as load_isolated's nul_in_postgresql_text);
+    a lone surrogate decoded from a JSON escape cannot be encoded to UTF-8.
+    """
+    if not isinstance(value, str):
+        return None
+    if "\x00" in value:
+        return "nul_in_postgresql_text"
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return "text_not_utf8_encodable"
+    return None
 
 
 def read_source(db: sqlite3.Connection) -> dict:
@@ -241,11 +270,16 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
                 value = admin[field]
                 if not isinstance(value, str) or not value or len(value) > limit:
                     block("admin_value_not_representable", field=field)
+                elif problem := _text_problem(value):
+                    block(problem, field=field)
             avatar = admin["avatar"]
             if not _typed(avatar, int) or not INT32[0] <= avatar <= INT32[1]:
                 block("admin_value_not_representable", field="avatar")
             if not isinstance(admin["lastResetSentAt"], str):
                 block("admin_value_not_representable", field="lastResetSentAt")
+            elif problem := _text_problem(admin["lastResetSentAt"]):
+                # Written into the archive's jsonb column.
+                block(problem, field="lastResetSentAt")
             for field in ("created", "updated"):
                 try:
                     date_value(admin[field], required=True)
@@ -273,6 +307,8 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
     row = next(row for row in source["params"] if row.get("key") == "settings")
     if not isinstance(row.get("id"), str) or not 0 < len(row["id"]) <= 15:
         block("param_value_not_representable", field="id")
+    elif problem := _text_problem(row["id"]):
+        block(problem, field="id")
     for field in ("created", "updated"):
         try:
             date_value(row.get(field), required=True)
@@ -290,6 +326,8 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
         if not isinstance(secret, str) or not _typed(duration, int) or duration < 0:
             block("invalid_token_config", setting=key)
             continue
+        if problem := _text_problem(secret):
+            block(problem, setting=key)
         if not secret or not duration:
             warnings.append({"code": "token_config_absent_target_default_kept", "setting": key})
         if (secret and not SECRET_LENGTH[0] <= len(secret) <= SECRET_LENGTH[1]) or (
@@ -300,6 +338,8 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
         present, value = _get(settings, path)
         if present and not _typed(value, kind):
             block("invalid_settings_value", path=".".join(path))
+        elif present and (problem := _text_problem(value)):
+            block(problem, path=".".join(path))
     for name in TEMPLATES:
         present, template = _get(settings, ("meta", name))
         if not present:
@@ -308,6 +348,10 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
             not isinstance(template.get(part, ""), str) for part in ("subject", "body", "actionUrl")
         ):
             block("invalid_settings_value", path="meta." + name)
+            continue
+        for part in ("subject", "body", "actionUrl"):
+            if problem := _text_problem(template.get(part, "")):
+                block(problem, path=f"meta.{name}.{part}")
     if _get(settings, ("s3", "enabled"))[1] is True:
         # Files would live in S3 and PPBase would switch its storage runtime.
         block("s3_storage_enabled_requires_decision")
@@ -536,30 +580,72 @@ def diagnose_auth(db: sqlite3.Connection, definitions: list[dict]) -> dict:
     }
 
 
+def hides_parameters(connection) -> bool:
+    """True when the engine keeps bound values out of SQLAlchemy error messages.
+
+    Without hide_parameters=True a DBAPIError repeats every bound value
+    ("[parameters: ...]"): password hashes, tokenKeys and token secrets here,
+    hashes and tokenKeys of every auth record in load_isolated.
+    """
+    engine = getattr(connection, "sync_engine", None)
+    if engine is None:
+        engine = getattr(connection, "engine", None)
+    return getattr(engine, "hide_parameters", False) is True
+
+
 async def import_auth(
     connection, data: Path, definitions: list[dict], *, fail_after: str | None = None
 ) -> dict:
     """Import admins, token secrets and settings on the caller's transaction.
 
     Call it after load_isolated, on the same connection and transaction, so a
-    failure anywhere rolls everything back. Refuses a non-empty target.
+    failure anywhere rolls everything back. Refuses a non-empty target, records
+    that do not come from this snapshot and an engine that would echo bound
+    values. Database errors become a value-free ImportBlocked(DATABASE_ERROR)
+    whose only extra attribute is the SQLSTATE.
     """
-    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
 
     if fail_after is not None and fail_after not in FAIL_STAGES:
         raise ValueError("unknown failure stage")
+    if not hides_parameters(connection):
+        raise ImportBlocked("engine_hide_parameters_required")
     manifest = json.loads((data / "manifest.json").read_text())
     diagnostic = manifest["diagnostic"]
     if not diagnostic["ready_for_isolated_rehearsal"]:
         raise ImportBlocked("diagnostic_blockers")
     if digest(data / "data.db") != diagnostic["data_db_sha256"]:
         raise ImportBlocked("staged_snapshot_changed")
+    try:
+        return await _import_on_connection(connection, data, definitions, diagnostic, fail_after)
+    except SQLAlchemyError as exc:
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        failure = ImportBlocked(DATABASE_ERROR)
+        valid = isinstance(sqlstate, str) and SQLSTATE.match(sqlstate)
+        failure.sqlstate = sqlstate if valid else None
+    # Raised outside the handler: no __context__ keeps the driver error, its SQL
+    # text, a PostgreSQL DETAIL ("Failing row contains ...") or bound values.
+    raise failure
+
+
+def expected_identities(diagnostic: dict) -> dict:
+    """{collection id: (rows, identity sha256)} of the diagnosed snapshot."""
+    collections = diagnostic.get("collections")
+    if not isinstance(collections, list):
+        raise ImportBlocked("records_snapshot_unverifiable")
+    return {c["id"]: (c["rows"], c["identity_sha256"]) for c in collections if c["rows"]}
+
+
+async def _import_on_connection(connection, data, definitions, diagnostic, fail_after) -> dict:
+    from sqlalchemy import text
+
     current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
     if current_db != REHEARSAL_DATABASE:
         raise ImportBlocked("isolated_rehearsal_database_required")
     with snapshot(data) as db:
         source = read_source(db)
     plan = build_plan(source, definitions)
+    identities = expected_identities(diagnostic)
 
     # Lock before the emptiness checks so a concurrent import cannot pass them too.
     await connection.execute(text('LOCK TABLE "_superusers", "_params" IN ACCESS EXCLUSIVE MODE'))
@@ -576,6 +662,15 @@ async def import_auth(
     records = await connection.execute(text("SELECT to_regclass('_buma_c11_rowids')"))
     if records.scalar_one() is None:
         raise ImportBlocked("records_import_required")
+    # ... and from this very snapshot: same per-collection rowid/id fingerprint
+    # as the manifest, so accounts never join records of another backup.
+    await connection.execute(text('LOCK TABLE "_buma_c11_rowids" IN SHARE MODE'))
+    loaded = {
+        row["collection_id"]: (row["row_count"], row["identity"])
+        for row in (await connection.execute(text(RECORD_IDENTITIES))).mappings().all()
+    }
+    if loaded != identities:
+        raise ImportBlocked("records_snapshot_mismatch")
     rows = (
         (
             await connection.execute(
@@ -714,7 +809,13 @@ async def import_auth(
         raise ImportBlocked("settings_readback_mismatch")
     if fail_after == "settings":
         raise ImportBlocked("injected_auth_import_failure")
-    return public_report(plan, imported=True)
+    report = public_report(plan, imported=True)
+    report["records_snapshot"] = {
+        "identity_verified": True,
+        "collections": len(identities),
+        "rows": sum(count for count, _identity in identities.values()),
+    }
+    return report
 
 
 def main():
