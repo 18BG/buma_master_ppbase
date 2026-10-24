@@ -38,8 +38,8 @@ Exit status:
   128+N  interrupted by signal N (130 SIGINT, 143 SIGTERM, 129 SIGHUP); the
          destination was removed (see "destination_removed").
 A run killed without a summary (SIGKILL, power cut) may leave a partial
-destination and a hidden ".c11-extract-*.partial" file next to the manifest:
-remove both by hand and rerun with new paths.
+destination and hidden ".c11-extract-*" files (".partial", ".probe") next to
+the manifest: remove them by hand and rerun with new paths.
 """
 
 from __future__ import annotations

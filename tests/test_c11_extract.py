@@ -1091,7 +1091,7 @@ def test_help_documents_the_exit_status(capsys):
         main(["--help"])
     assert done.value.code == 0
     text = capsys.readouterr().out
-    fragments = ("Exit status:", "\n  0 ", "\n  1 ", "\n  3 ", "128+N", ".c11-extract-*.partial")
+    fragments = ("Exit status:", "\n  0 ", "\n  1 ", "\n  3 ", "128+N", '".c11-extract-*" files')
     for fragment in fragments:
         assert fragment in text, fragment
 
