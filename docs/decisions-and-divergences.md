@@ -859,22 +859,34 @@ la lecture) reste ouverte. Régressions : tests jsonb et listes de
 
 ## D-0027 — C11 : comptes, paramètres et continuité des sessions
 
-Chantier WS-C (BUMA, `scripts/c11_auth_import.py`, contrat
-`docs/contracts/c11-auth-import.md`, banc `scripts/c11_auth_runtime.py`, rapport
-`docs/c11-auth-runtime-report.json`) et chantier WS-A2 (PPBase, branche
-`c11/ws-a2`), relus indépendamment. Applique le choix par défaut du plan (§2) :
-reprendre les secrets de jetons pour que les sessions continuent. La
+Chantiers relus indépendamment : WS-C (BUMA, `scripts/c11_auth_import.py`, contrat
+`docs/contracts/c11-auth-import.md`, banc `scripts/c11_auth_runtime.py`, preuves
+d'origine mesurées avec PPBase `c6821aa`), WS-A2 (PPBase, branche `c11/ws-a2`,
+fusionnée dans `fix/d0019-relation-maxselect` en `237b403`) et WS-C2 (BUMA, banc et
+contrat alignés sur le PPBase corrigé, fusionnés dans `c11/integration` en
+`0bb0b93` ; rapport `docs/c11-auth-runtime-report.json` régénéré avec l'aperçu PPBase
+`22929a0` = fix + WS-A5 + WS-A2). Banc rejoué par l'orchestrateur sur
+`c11/integration` avec PPBase `237b403` : passant. Applique le choix par défaut du
+plan (§2) : reprendre les secrets de jetons pour que les sessions continuent. La
 correspondance suit la mise à niveau officielle de PocketBase
 (`v0.23.0 migrations/1717233556_v0.23_migrate.go`) partout où PPBase sait
 représenter la valeur.
 
-**Import** (`import_auth`, dans la même transaction que les records ; moteur
-`hide_parameters=True` obligatoire ; cible non vide refusée ; records du même
-snapshot, vérifiés par l'empreinte `rowid:id` de chaque collection) :
+**Import** (`import_auth`, appelé par `scripts.c11_import.import_snapshot` dans la
+même transaction que les records, D-0026 ; moteur `hide_parameters=True`
+obligatoire ; cible non vide refusée ; records du même snapshot, vérifiés par
+l'empreinte `rowid:id` de chaque collection) :
 
 - `_admins` → `_superusers` : id, email, hash bcrypt, tokenKey, avatar, created et
-  updated copiés à l'identique, aucun mot de passe régénéré ; `lastResetSentAt`
-  archivé dans `_buma_c11_auth_archive`.
+  updated copiés à l'identique, aucun mot de passe régénéré. `lastResetSentAt` est
+  importé dans `last_reset_sent_at` (même instant, `""` devient NULL) et son texte
+  source archivé avec le rowid dans `_buma_c11_auth_archive` ; une valeur qui n'a pas
+  la forme PocketBase bloque (`admin_value_not_representable`). Motif : PPBase
+  applique au reset admin le délai de 120 s de v0.22.34
+  (`forms/admin_password_reset_request.go` l.73-76) ; sans cet import, un e-mail de
+  reset de plus pouvait partir dans les 120 s suivant la bascule. Écart à l'upgrade
+  officiel 0.23, qui ne reprend pas ce champ, sans autre effet client. Backup réel :
+  1 admin, valeur vide, donc NULL.
 - Secrets et durées : les 5 configurations `record*` vers les options de `users`
   et `agent_users`, `adminAuthToken`, `adminPasswordResetToken` et
   `adminFileToken` vers `_superusers` ; une valeur vide garde la valeur cible ;
@@ -883,72 +895,137 @@ snapshot, vérifiés par l'empreinte `rowid:id` de chaque collection) :
 - Paramètres : `meta` (appName, appUrl devenu appURL, hideControls, expéditeur),
   `logs` (maxDays, minLevel, logIP), `smtp` complet, modèles d'e-mail (sujet et
   corps, `{ACTION_URL}` remplacé).
-- **Non importés**, chacun avec un code : `s3` et `backups.s3` (un S3 activé
-  bloque), `backups.cron` (avertissement), fournisseurs OAuth2 (un fournisseur
-  activé bloque), `emailAuth` (obsolète), `_externalAuths` (une ligne bloque ;
-  0 dans le backup), `logs.db` (jamais importé), paramètres chiffrés (bloquent).
-  Backup réel (structure seulement) : 1 administrateur, 8 configurations de
-  jetons valides, aucun OAuth ni S3, un cron de sauvegarde : prêt, un
-  avertissement.
+- **Non importés**, chacun avec un code : `s3` (`s3.enabled` bloque),
+  `backups.s3` (activé : avertissement `backup_s3_target_not_imported`),
+  `backups.cron` (avertissement), fournisseurs OAuth2 (un fournisseur activé
+  bloque), `emailAuth` (obsolète), `_externalAuths` (une ligne bloque ; 0 dans le
+  backup), `logs.db` (jamais importé), paramètres chiffrés (bloquent). Backup réel
+  (structure seulement) : 1 administrateur, 8 configurations de jetons valides sur 8,
+  aucun OAuth ni S3, un cron de sauvegarde : prêt, un avertissement.
 
-**Continuité prouvée** sur binaire PocketBase 0.22.34 et données synthétiques
-(banc WS-C, 33 sondes HTTP, 22 résultats realtime) : les jetons admin, users et
-agent_users émis par PocketBase **avant** l'import sont acceptés par PPBase après
-(route superuser, records protégés, refresh, `/isConnected`,
-`/master/user/health`), jusqu'à leur expiration ; les mots de passe d'origine
-fonctionnent ; les invalidations PocketBase sont conservées (jeton d'avant un
-reset ou un changement d'e-mail refusé). Claims, algorithme et clé vérifiés dans
-les deux codes : HS256, `tokenKey` + secret du type (`tokens/*.go`,
-`apis/middlewares.go` l.229-249 ; `ppbase/api/deps.py` l.80-150).
+**Continuité prouvée** sur binaire PocketBase 0.22.34 et données synthétiques :
 
-**Corrections PPBase** (chantier WS-A2, branche `c11/ws-a2`, intégrées dans `fix/d0019-relation-maxselect` après relecture ; état à la fin de session dans le ledger), mesurées contre le binaire 0.22.34 :
+- WS-C (PPBase `c6821aa`) : les jetons admin, users et agent_users émis par
+  PocketBase **avant** l'import sont acceptés par PPBase après (route superuser,
+  records protégés, refresh, `/isConnected`, `/master/user/health`), jusqu'à leur
+  expiration ; les mots de passe d'origine fonctionnent ; les invalidations
+  PocketBase sont conservées (jeton d'avant un reset ou un changement d'e-mail
+  refusé).
+- WS-C2 (PPBase `22929a0`, deux passages identiques hors durées, PPBase chargé par le
+  serveur vérifié dans `/proc`) : 33 sondes HTTP sur 33 identiques en statut et
+  libellé, 19 résultats realtime sur 19 identiques (et 3 types de jeton
+  informatifs), 0 secret servi (5 GET, 2 PATCH de settings, 6 PATCH de collections).
+  Jetons d'usage 0.22 émis avant l'import sur des comptes dédiés, consommés en
+  dernier par PPBase puis par PocketBase redémarré sur sa source, qui sert de
+  référence : mêmes statuts, effets et connexions (vérification 204 ; reset 204 puis
+  changement d'e-mail du même compte 400 ; changement d'e-mail avec mauvais mot de
+  passe 400, puis 204, puis reset du même compte 400 ; reset admin 204 ; verified,
+  tokenKey renouvelé, `last_reset_sent_at` remis à NULL). Les liens de vérification,
+  de reset et de changement d'e-mail émis avant la bascule restent valables par
+  l'API jusqu'à leur expiration.
+- Claims, algorithme et clé vérifiés dans les deux codes : HS256, `tokenKey` +
+  secret du type (v0.22.34 `tokens/*.go`, `apis/middlewares.go` l.229-249 ; PPBase
+  `ppbase/api/deps.py`, `get_optional_auth`, à `237b403`).
+
+**Corrections PPBase** (chantier WS-A2, intégrées à `237b403`), mesurées contre le
+binaire 0.22.34 :
 
 - realtime : identité `collectionId:id`, jamais le type de jeton ; un client qui
   rafraîchit son jeton sur la même connexion SSE n'est plus refusé (403) ;
 - secrets jamais servis : sans les secrets de jetons ni `clientSecret` dans les
-  collections, `/api/settings` sous la forme masquée de 0.22.34 ; un secret
-  absent, vide ou masqué renvoyé garde le secret stocké ;
+  collections (un secret absent, `null`, vide ou masqué soumis garde le secret
+  stocké, `merge_auth_options`) ; `/api/settings` sous la forme masquée de 0.22.34
+  (le masque et `null` gardent le secret stocké, une valeur vide l'efface) ;
 - `hide_parameters=True` sur tous les moteurs (les valeurs liées ne sont plus
   ajoutées aux erreurs par SQLAlchemy ; asyncpg ou PostgreSQL peuvent encore
   citer une valeur : journaux PPBase à traiter comme confidentiels) ;
 - jetons à usage 0.22 (`authRecord`) et jetons de fichier sans claim `for`
-  acceptés ; routes 0.22 de réinitialisation du mot de passe admin ;
+  acceptés ; routes 0.22 de réinitialisation du mot de passe admin, avec le délai
+  de 120 s ;
 - liens e-mail construits sur le seul `meta.appURL` stocké, jamais sur des
-  en-têtes du client ; sans `PPBASE_SMTP_*`, rien n'est envoyé ni journalisé
-  (hors `PPBASE_DEV`) ;
+  en-têtes du client ; sans `PPBASE_SMTP_*`, aucun e-mail n'est envoyé (un
+  avertissement sans destinataire, lien ni code est journalisé ; hors `PPBASE_DEV`) ;
 - statuts et libellés des middlewares 0.22.34 ; jeton forgé vers une collection
   non auth traité comme anonyme.
 
 **Écarts restants**, documentés (impact client) :
 
-- après un login ou un refresh PPBase, le jeton porte `type=auth` au lieu de
-  `authRecord` : avec le SDK JS 0.21, `isAuthRecord` devient faux (`isValid` et
-  le SDK Dart inchangés). Aucun usage trouvé dans les projets présents sur le
-  serveur ; les clients BUMA Master (desktop, web, mobile) ne sont pas sur le
-  serveur : **à vérifier sur ces clients avant la bascule** ;
+- après un login ou un refresh PPBase, le jeton porte `type=auth` (PPBase
+  `ppbase/services/auth_service.py` l.19 et l.487, comme v0.40.6
+  `core/record_tokens.go` l.13 et l.62) au lieu de `authRecord` (v0.22.34
+  `tokens/record.go` l.21) : avec le SDK JS 0.21, `isAuthRecord` devient faux
+  (`BaseAuthStore.ts` l.51-53 de js-sdk v0.21.5) ; `isValid` et le SDK Dart
+  (v0.18.1, qui ne lit que `exp`) sont inchangés. Aucun usage trouvé dans les
+  projets présents sur le serveur ; les clients BUMA Master (desktop, web, mobile)
+  ne sont pas sur le serveur : **à vérifier sur ces clients avant la bascule** ;
 - révocation globale : `PATCH /api/settings` (procédure « Invalidate all
   previously issued tokens » du dashboard 0.22) répond 200 sans effet dans PPBase,
-  alors que PocketBase révoque ; la seule révocation globale est la rotation SQL
-  de `options.authToken.secret` (contrat §7, prouvée sans redémarrage) ; après
-  une rotation, un retour arrière vers PocketBase fait revivre les sessions
-  révoquées ;
-- enveloppe d'erreur `{status, message, data}` contre `{code, message, data}` ;
-  forme de `GET /api/settings` (clés propres à PPBase) ; un PATCH sans changement
+  alors que PocketBase révoque. La seule révocation globale **mesurée** est la
+  rotation SQL de `options.authToken.secret` (contrat §7, prouvée sans
+  redémarrage) ; à la lecture du code, `PUT /api/collections/import` avec un
+  secret explicite non masqué le remplacerait aussi (non mesuré, à ne pas
+  utiliser). Après une rotation, un retour arrière vers PocketBase fait revivre
+  les sessions révoquées ;
+- enveloppe d'erreur : PocketBase 0.22.34 répond `{code, message, data}`
+  (`apis/api_error.go` l.12-15), la version actuelle `{status, message, data}`
+  (v0.40.6 `tools/router/error.go` l.36-42). Le PPBase intégré (`237b403`, fusion de
+  WS-A5) recopie `status` dans `code` pour toutes ses erreurs JSON
+  (`ErrorEnvelopeCodeMiddleware`, `ppbase/app.py` l.427-429,
+  `docs/error-envelope.md`, test `tests/test_error_envelope.py`) : un client 0.22
+  qui lit `response.code` (JS) ou `response['code']` (Dart) le trouve ; restent la
+  clé `status` en plus, pour un client qui compare tout le corps, et les messages
+  de la version actuelle (« Only superusers… » au lieu de « Only admins… ») ;
+- corps de refus des jetons d'usage, statuts identiques (WS-C2) : changement
+  d'e-mail avec un jeton invalidé, PPBase ne signale que `token` (0.22.34 aussi
+  `password`) ; mauvais mot de passe : `validation_invalid_credentials` au lieu de
+  `validation_invalid_password` ; reset avec un jeton invalidé : « Failed to confirm
+  password reset. » au lieu de « Something went wrong while processing your
+  request. ». Impact : un client qui affiche le message ou lit `data.password` ;
+  aucun appelant BUMA connu. Test : `PURPOSE_KNOWN_DIVERGENCES` du banc, épinglé
+  des deux côtés ;
+- les pages `/_/#/auth/confirm-*` et `/_/#/confirm-password-reset` ouvertes par les
+  liens e-mail (0.22 comme PPBase) n'existent pas dans le dashboard PPBase : ces
+  liens ne valent que si un client poste le jeton à l'API ; sinon l'utilisateur
+  arrive sur la connexion ;
+- `POST /api/files/token` sans auth répond 401 « The request requires
+  authentication. » au lieu de 400 « Failed to generate file token. » (mesuré par
+  la relecture WS-A2) ; aucun champ fichier protégé dans BUMA ;
+- forme de `GET /api/settings` (clés propres à PPBase) ; un PATCH sans changement
   n'écrit rien et ne diffuse rien ;
 - identité realtime `collectionId:id` (version actuelle) contre l'id seul en
-  0.22.34 : aucun id partagé entre `users`, `agent_users` et `_admins` dans le
-  backup réel, donc sans effet ;
-- les e-mails passent par `PPBASE_SMTP_*` seulement, jamais par
-  `_params.settings.smtp`.
+  0.22.34 : 0 id partagé entre chaque paire de `users`, `agent_users` et `_admins`
+  du backup réel (agrégat mesuré en lecture seule par la relecture WS-ORCH du
+  2026-10-24), donc sans effet ;
+- e-mails : ils passent par `PPBASE_SMTP_*` seulement, **sauf** l'e-mail de test
+  `POST /api/settings/test/email`, envoyé avec le `_params.settings.smtp` importé,
+  donc avec les identifiants SMTP de production (`ppbase/api/settings.py` l.482-534,
+  `_smtp_config_from_settings` l.151-180). Risque : un envoi par le SMTP de
+  production depuis un PPBase de répétition ou de staging. Consigne : ne jamais
+  appeler cette route tant que `smtp` vient de la production (contrat §3 et §9,
+  runbook).
 
 **Exploitation** : le gel des écritures doit précéder le backup frais (l'import
 recopie l'état d'authentification du snapshot) ; aucune reconnexion forcée à la
 bascule ; au retour arrière vers PocketBase intact, les jetons 0.22 restent
 valides, les jetons record émis par PPBase sont refusés (reconnexion), les jetons
-admin émis par PPBase restent acceptés sauf après une rotation ; vérifier
-`meta.appURL` et `PPBASE_SMTP_*` avant d'ouvrir.
+admin émis par PPBase restent acceptés sauf après une rotation, et un jeton d'usage
+0.22 consommé sur PPBase reste utilisable sur PocketBase jusqu'à son expiration
+(mesuré). Avant d'ouvrir : vérifier `meta.appURL` importé (seule base des liens,
+sinon `http://localhost:8090`), ne configurer `PPBASE_SMTP_*` que si des e-mails
+doivent partir, ne jamais activer `PPBASE_DEV` en production ; traiter les journaux
+PPBase comme confidentiels ; pendant les répétitions sur données réelles, ne jamais
+appeler les routes `request-*`, `confirm-*` ni l'e-mail de test.
 
-Régressions : `tests/test_c11_auth_import.py` (57 tests, chaque refus et
+Non mesuré : le sort, au retour arrière, des jetons d'usage émis par PPBase après
+la bascule ; un lien déjà consommé dans PocketBase après le backup, qui redevient
+valable sur PPBase (conséquence du snapshot) ; les vrais SDK JS et Dart et le
+desktop (le realtime est sondé au niveau HTTP/SSE avec les requêtes du SDK JS
+0.21) ; le délai de 120 s côté PPBase, prouvé par la relecture en base et les tests
+WS-A2, pas par HTTP (le banc ne donne pas de SMTP à PPBase).
+
+Régressions : `tests/test_c11_auth_import.py` (68 tests, chaque refus et
 avertissement), banc `scripts/c11_auth_runtime.py` (sondes appariées
-PocketBase/PPBase, révocation, exposition des secrets, retour arrière, trois
-rollbacks injectés et l'import concurrent), tests PPBase de WS-A2.
+PocketBase/PPBase, jetons d'usage, révocation, exposition des secrets, retour
+arrière, trois rollbacks injectés aux étapes des comptes et l'import concurrent ;
+l'échec côté records est prouvé par `scripts/c11_rehearsal.py`), tests PPBase de
+WS-A2.
