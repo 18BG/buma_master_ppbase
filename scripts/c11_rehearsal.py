@@ -10,28 +10,37 @@ server. Run from the BUMA root; the report (and --private-logs) must be new::
 
 The PocketBase version is the one the binary reports
 (``scripts.c11_fixture.pocketbase_version``); the fixture builder must accept
-it and ``scripts.c11_import`` must have validated it. Profile ``real_shape``
-(the default) carries the shapes of the real 0.22.34 backup; ``default`` is
-the historical 9-record input. Scenario, synthetic data only:
+it and ``scripts.c11_import`` must have validated it, else nothing runs.
+Profile ``real_shape`` (the default) carries the shapes of the real 0.22.34
+backup; ``default`` is the historical 9-record input. Scenario, synthetic
+data only:
 
 1. PocketBase builds the fixture itself (``scripts.c11_fixture``).
 2. PocketBase serves it: tokens are issued over its HTTP API before the import
-   (admin, users, agent_users), then the reference probes run (sessions,
-   logins, lists, filters and expand on the multiple relations, orphans,
-   custom IDs, undeclared selects, JSON null, dates, files, refusals and a
-   realtime subscription), and PocketBase stops cleanly.
+   (admin, users, agent_users), then the reference probes run (sessions and
+   refresh, logins, lists, filters and expand on the multiple relations,
+   orphans, custom IDs, undeclared selects, JSON null, user dates, files,
+   refusals) and PocketBase stops cleanly; its realtime probe (a write) runs
+   on a copy, so the snapshot imported is the one the probes read.
 3. Read-only diagnosis of the stopped snapshot: ready, preserved anomalies
    counted against the fixture documentation, negative cases.
-4. Disposable PostgreSQL 16: migrations and schema check; an injected record
-   failure and an account refusal after a complete load, both rolled back
-   completely; two concurrent imports, of which exactly one commits: the
-   complete import of ``import_snapshot`` (records, accounts and settings).
-5. Independent checks in PostgreSQL, schema check again.
+4. Disposable PostgreSQL 16: migrations, schema and relation columns checked;
+   an injected record failure, an injected accounts-stage failure after the
+   complete record load and an accounts precondition refusal, each leaving
+   exactly the empty migrated state; two concurrent imports, of which exactly
+   one commits the complete ``import_snapshot`` (records, accounts, settings).
+5. Independent checks in PostgreSQL (rowids, values, arrays, orphans, dates,
+   superusers and token secrets), schema check again.
 6. An isolated PPBase server (BUMA hooks, jobs disabled) on the PPBase this
-   process loads, read from the live server process: the same probes, with
-   the tokens PocketBase issued before the import, compared answer by answer
-   with PocketBase's (status, body, JSON number literals, file bytes).
-7. Source unchanged, every process stopped, container and files removed.
+   process loads (the caller's PYTHONPATH, read back from the live server
+   process): the same probes with the tokens PocketBase issued before the
+   import, then its realtime probe. Answers are compared one by one with
+   PocketBase's (status, body with JSON number literals, token shape, file
+   bytes and headers): a difference fails unless it is a declared probe
+   divergence (KNOWN_DIVERGENCES, status pair) or matches one narrow, cited
+   class (DIVERGENCE_CLASSES) that exists on any PPBase database.
+7. Source unchanged, only the expected writes, schema checked after the HTTP
+   probes, every process stopped, container and files removed.
 
 The public report holds statuses, booleans, counts and synthetic labels; no
 token, password hash, tokenKey, secret or email.
@@ -630,8 +639,7 @@ async def realtime_probe(base: str, credentials: dict) -> dict:
         await asyncio.sleep(1)
         results["event_delivered_to_anonymous_subscriber"] = anonymous.received(REALTIME_TOPIC)
     body = typed_json(update.content)
-    for volatile in ("updated", "firstname"):
-        body.pop(volatile, None)
+    body.pop("updated", None)  # the time of each server's own update
     return {"results": results, "update_body": body}
 
 
