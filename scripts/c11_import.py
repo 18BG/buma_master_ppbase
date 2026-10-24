@@ -245,11 +245,16 @@ def extract_archive(archive_path: Path, destination: Path, manifest_path: Path) 
         try:
             for member in archive.infolist():
                 target = destination.joinpath(*PurePosixPath(member.filename).parts)
+                # One level at a time: mkdir(parents=True) would give the
+                # intermediate directories the default mode instead of 0700.
+                relative = target.relative_to(destination)
+                levels = [*reversed(relative.parents)][1:]
                 if member.is_dir():
-                    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    levels.append(relative)
+                for level in levels:
+                    (destination / level).mkdir(mode=0o700, exist_ok=True)
+                if member.is_dir():
                     continue
-                for parent in reversed(target.relative_to(destination).parents):
-                    (destination / parent).mkdir(mode=0o700, exist_ok=True)
                 sha, crc, size = hashlib.sha256(), 0, 0
                 fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
                 with os.fdopen(fd, "wb") as output, archive.open(member) as stream:

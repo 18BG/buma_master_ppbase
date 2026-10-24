@@ -949,6 +949,23 @@ def test_verified_extraction_writes_private_files_and_the_manifest_format(tmp_pa
     assert not (tmp_path / "other.json").exists()
 
 
+def test_extraction_keeps_every_directory_private_with_directory_entries(tmp_path):
+    archive = tmp_path / "backup.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.mkdir("storage/c/r")  # explicit directory entries, as many ZIPs have
+        zipped.writestr("data.db", b"database")
+        zipped.writestr("storage/c/r/thumbs_f/100x100_f", b"thumb")
+        zipped.writestr("storage/c/r/f", b"file")
+    destination = tmp_path / "extracted"
+    c11.extract_archive(archive, destination, tmp_path / "manifest.json")
+    directories = [path for path in destination.rglob("*") if path.is_dir()]
+    assert len(directories) == 4
+    assert {oct(path.stat().st_mode & 0o777) for path in [destination, *directories]} == {"0o700"}
+    assert {oct(p.stat().st_mode & 0o777) for p in destination.rglob("*") if p.is_file()} == {
+        "0o600"
+    }
+
+
 @pytest.mark.parametrize(
     "members,code",
     [
