@@ -180,6 +180,27 @@ CITATIONS = {
     "gomod_gocloud_new": (NEW, "go.mod", 30, "gocloud.dev v0.40.0"),
     "release_go_old": (OLD, ".github/workflows/release.yaml", 24, ">=1.22.8"),
     "release_go_new": (NEW, ".github/workflows/release.yaml", 24, ">=1.23.5"),
+    # The admin UI change of v0.22.28 (the only ui/ change between the tags).
+    "changelog_ui_file_token": (NEW, "CHANGELOG.md", 36, "Renew the superuser file token cache"),
+    "ui_thumb_file_token": (
+        NEW,
+        "ui/src/components/records/RecordFileThumb.svelte",
+        58,
+        "token = await ApiClient.getAdminFileToken(record.collectionId);",
+    ),
+    # Where the changed dependencies touch the local storage path.
+    "s3_constructor": (NEW, "tools/filesystem/filesystem.go", 39, "func NewS3("),
+    "local_constructor": (NEW, "tools/filesystem/filesystem.go", 89, "func NewLocal("),
+    "thumb_imaging_decode": (NEW, "tools/filesystem/filesystem.go", 474, "imaging.Decode("),
+    "thumb_imaging_encode": (NEW, "tools/filesystem/filesystem.go", 519, "imaging.Encode("),
+    "mimetype_upload_content_type": (
+        NEW,
+        "tools/filesystem/filesystem.go",
+        195,
+        "mimetype.DetectReader(f)",
+    ),
+    "mimetype_name_extension": (NEW, "tools/filesystem/file.go", 238, "mimetype.DetectReader"),
+    "mimetype_upload_validation": (NEW, "forms/validators/file.go", 65, "mimetype.DetectReader"),
 }
 
 # Every non-UI file changed between the tags must be assessed here.
@@ -260,30 +281,54 @@ UI_CHANGE = {
     "release": "v0.22.28 (backport of v0.23.10)",
     "change": "Admin UI: renew the superuser file token cache from thumb previews/downloads; "
     "rebuilt ui/dist and ui version string.",
+    "citations": ["changelog_ui_file_token", "ui_thumb_file_token"],
     "importer_input": "None: embedded dashboard assets.",
     "effect": "None on storage.",
 }
+# Upstream module changes are not on this server (no Go module cache): what a
+# note says about a module's own release is marked UNVERIFIED_UPSTREAM. Where a
+# module meets the storage path is cited in PocketBase itself (CITATIONS, checked
+# on every run); its effect is covered only by the binary comparison, which
+# exercises the synthetic fixtures, not every input a module can receive.
+UNVERIFIED_UPSTREAM = "not verified offline (module sources absent from this server)"
 DEPENDENCY_NOTES = {
-    "modernc.org/sqlite": "Pure-Go SQLite driver of the official CGO_ENABLED=0 binaries; both "
-    "binaries embed SQLite 3.46.0 (probe), same file format.",
-    "github.com/mattn/go-sqlite3": "CGO driver; the official archives use the non-CGO build.",
-    "github.com/pocketbase/dbx": "Query builder (DDL and writes); v1.11.0 only adds "
-    "SelectQuery.PreFragment/PostFragment, unused by PocketBase 0.22.34.",
-    "github.com/spf13/cast": "Casts in SchemaField.PrepareValue; v1.7.1 only fixes ToUint64E "
-    "for strings above int64, not used for stored values.",
+    "modernc.org/sqlite": "Pure-Go SQLite driver of the official CGO_ENABLED=0 binaries "
+    "(core/db_nocgo.go:7); both binaries embed SQLite 3.46.0 (probe), same file format.",
+    "github.com/mattn/go-sqlite3": "CGO driver; the official archives use the non-CGO build "
+    "(.goreleaser.yaml:29,51).",
+    "github.com/pocketbase/dbx": "Query builder (DDL and writes). Upstream summary consulted "
+    "online by WS-D on 2026-10-24, " + UNVERIFIED_UPSTREAM + ": v1.11.0 only adds "
+    "SelectQuery.PreFragment/PostFragment, unused by PocketBase 0.22.34. Effect covered by "
+    "the binary comparison only.",
+    "github.com/spf13/cast": "Casts in SchemaField.PrepareValue. Upstream summary consulted "
+    "online by WS-D on 2026-10-24, " + UNVERIFIED_UPSTREAM + ": v1.7.1 only fixes ToUint64E "
+    "for strings above int64. Effect covered by the binary comparison only.",
     "golang.org/x/crypto": "bcrypt (cost 12) and ACME; same $2a$12$ format for both binaries, "
-    "whose hashes verify the synthetic passwords.",
-    "gocloud.dev": "blob/fileblob local storage; the v0.40.0 blob changes concern uploads with "
-    "WriterOptions.ContentMD5 (not set by PocketBase), io/fs helpers and cloud drivers; "
-    "identical local storage observed.",
-    "github.com/gabriel-vasile/mimetype": "Content type stored in .attrs sidecars; identical "
-    ".attrs observed for the uploaded PNG and text files.",
-    "github.com/goccy/go-json": "HTTP response JSON encoder, not storage.",
-    "github.com/golang-jwt/jwt/v4": "JWT parsing security fix (GHSA-mh63-6h87-95cp); tokens are "
-    "not stored and tokens/ is identical.",
-    "golang.org/x/net": "CVE-2024-45338 fix (HTML parsing for mails), not storage.",
+    "whose hashes verify the synthetic passwords (observed, not an upstream claim).",
+    "gocloud.dev": "blob/fileblob local storage (tools/filesystem/filesystem.go:89-97). "
+    "Upstream release notes consulted online by WS-D on 2026-10-24, "
+    + UNVERIFIED_UPSTREAM
+    + ": the v0.40.0 blob changes concern WriterOptions.ContentMD5 (not set by PocketBase), "
+    "io/fs helpers and cloud drivers. Identical local storage observed for the fixtures.",
+    "github.com/gabriel-vasile/mimetype": "On the local storage path three ways: content type "
+    "written to the .attrs sidecar at upload (tools/filesystem/filesystem.go:195), extension "
+    "given to a stored name when the client name has none (tools/filesystem/file.go:178,238) "
+    "and upload MIME validation (forms/validators/file.go:65). Upstream changes 1.4.5 -> "
+    "1.4.7 " + UNVERIFIED_UPSTREAM + ". Observed: identical .attrs for the uploaded PNG and "
+    "text files; no fixture upload lacks an extension, so detected extensions are not "
+    "compared.",
+    "golang.org/x/image": "Indirect, through github.com/disintegration/imaging, which "
+    "System.CreateThumb uses to decode, resize and encode thumbnails "
+    "(tools/filesystem/filesystem.go:474-519): on the local storage path for thumbs_ "
+    "objects only. Upstream changes v0.19.0 -> v0.23.0 " + UNVERIFIED_UPSTREAM + ". "
+    "Observed: byte-identical 100x100 thumbnails of the two synthetic PNG uploads only.",
+    "github.com/goccy/go-json": "HTTP response JSON encoder (tools/rest), not storage.",
+    "github.com/golang-jwt/jwt/v4": "JWT parsing security fix (GHSA-mh63-6h87-95cp, "
+    "CHANGELOG.md:13); tokens are not stored and tokens/ is identical.",
+    "golang.org/x/net": "CVE-2024-45338 fix (CHANGELOG.md:30, HTML parsing for mails), not "
+    "storage.",
     "golang.org/x/oauth2": "OAuth2 providers, unused by the real backup, not storage.",
-    "golang.org/x/sync": "Concurrency helpers, not storage.",
+    "golang.org/x/sync": "Concurrency helpers (apis, tools/search), not storage.",
     "github.com/fatih/color": "Terminal colors, not storage.",
 }
 # What scripts/c11_import.py reads, the 0.22 code producing it and the evidence.
@@ -370,7 +415,13 @@ STATEMENT = (
     "D-0019 and D-0021 blockers are independent of the version."
 )
 DEFAULT_DEPENDENCY_NOTE = (
-    "S3/AWS, Google API or indirect dependency, not on the local storage path."
+    "AWS SDK modules: imported only by the S3 storage code (NewS3, "
+    "tools/filesystem/filesystem.go:39-78), not by NewLocal, the local storage used while s3 "
+    "is disabled, as in the real settings (filesystem.go:89-97). Other modules of this "
+    "default note: indirect, imported by no non-test PocketBase package "
+    "(imported_by_packages is empty); their transitive use and "
+    "their upstream changes are " + UNVERIFIED_UPSTREAM + " and covered only by the binary "
+    "comparison."
 )
 
 
@@ -538,7 +589,10 @@ def source_comparison(src: Path) -> dict:
             {**change, "citations": [citations[c] for c in change["citations"]]}
             for change in CHANGES
         ]
-        + [UI_CHANGE | {"paths": ["ui/**"], "citations": []}],
+        + [
+            UI_CHANGE
+            | {"paths": ["ui/**"], "citations": [citations[c] for c in UI_CHANGE["citations"]]}
+        ],
         "storage_paths": trees,
         "storage_paths_identical": [t["path"] for t in trees if t["identical"]],
         "storage_paths_changed": [t["path"] for t in trees if not t["identical"]],
