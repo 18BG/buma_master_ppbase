@@ -7,7 +7,9 @@ rehearsal and the volume benchmark own their own disposable database.
 Storage modes: ``directory`` reads and hashes a real ``storage/`` tree;
 ``manifest`` checks references and declared sizes against the private
 extraction manifest ``{archive_sha256, files: [{path, bytes, sha256, crc32}]}``
-and never copies or claims file bytes.
+and never copies or claims file bytes. The verified extraction of a real ZIP
+(full mode) is ``scripts/c11_extract.py``; its manifest is the format read
+here. This module only inventories an archive (``--archive``).
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import zlib
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
@@ -95,8 +97,21 @@ NUMERIC_MAX_SCALE = 16383
 JSON_MAX_DEPTH = 256
 HEX64 = re.compile(r"[0-9a-f]{64}")
 HEX8 = re.compile(r"[0-9a-f]{8}")
+# The only date text PocketBase 0.22 writes: DateTime.Value/String format UTC
+# with DefaultDateLayout (v0.22.34 tools/types/datetime.go:12, 47-53, 69-72).
+# ASCII digits only: \d would also accept other Unicode digits.
+PB_DATE_LAYOUT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
 ANOMALY_POLICY = "imported_as_is_no_target_or_file_invented_no_reference_removed_or_redirected"
+# jsonb representation changes visible to clients. PocketBase 0.22.34 serves
+# the stored JSON bytes (tools/types/json_raw.go:26-32); jsonb keeps the value
+# but not its text. Duplicate keys would lose the earlier values: blocked.
+JSONB_KEY_ORDER = "jsonb_key_order_normalized"
+JSONB_DUPLICATE_KEYS = "jsonb_duplicate_keys_collapsed"
+SQL_NULL_JSON = "sql_null_json_stored_as_jsonb_null"
+JSON_WARNING_CODES = (JSONB_KEY_ORDER, SQL_NULL_JSON)
 MULTISET_MODULUS = 2**256
+# Rows per round trip of the end-of-load re-read (server-side portal).
+FINAL_PREFETCH = 10000
 _FAILED = object()
 
 
@@ -133,11 +148,29 @@ def file_checksums(path: Path) -> tuple[str, str, int]:
     return sha.hexdigest(), f"{crc:08x}", size
 
 
-def write_json_new(path: Path, value: dict) -> None:
+def json_bytes(value, *, ascii: bool = False) -> bytes:
+    """Complete UTF-8 JSON document, serialized before any file is created.
+
+    ``ascii`` escapes every non-ASCII character (``\\uXXXX``): exact, and the
+    only form that can carry a lone surrogate (an undecodable file name, a
+    JSON ``\\ud800`` escape) in a valid UTF-8 file. Used for private details.
+    """
+    return (json.dumps(value, ensure_ascii=ascii, indent=2, allow_nan=False) + "\n").encode()
+
+
+def write_bytes_new(path: Path, data: bytes) -> None:
+    """Create a new 0600 file; on any write failure remove the partial file."""
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    with os.fdopen(fd, "w") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
-        stream.write("\n")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+    except BaseException:
+        path.unlink(missing_ok=True)  # only the file this call just created
+        raise
+
+
+def write_json_new(path: Path, value: dict, *, ascii: bool = False) -> None:
+    write_bytes_new(path, json_bytes(value, ascii=ascii))
 
 
 def inventory_fingerprint(files: dict) -> str:
@@ -160,9 +193,11 @@ def peak_rss_kib() -> int:
 
 
 def archive_blockers(archive: zipfile.ZipFile) -> tuple[list[str], list[str], int]:
-    """Member-level refusals shared by the inventory and the extraction.
+    """Member-level refusals of the archive inventory.
 
-    Returns (sorted blocking codes, data.db member names, declared bytes).
+    ``scripts.c11_extract`` runs ``inspect_archive`` (hence these checks) before
+    its own stricter ones. Returns (sorted blocking codes, data.db member
+    names, declared bytes).
     """
     blockers, names, databases = [], set(), []
     total_bytes = 0
@@ -216,87 +251,6 @@ def inspect_archive(path: Path) -> dict:
         "ready_for_isolated_rehearsal": False,
         "content_crc_verified": False,
         "database_schema_and_records_checked": False,
-    }
-
-
-def extract_archive(archive_path: Path, destination: Path, manifest_path: Path) -> dict:
-    """Verified private extraction: CRC-32 and SHA-256 of every member.
-
-    For the full-mode rehearsal with the real ZIP. The destination directory
-    and the manifest must be new; directories are 0700 and files 0600, nothing
-    is written outside the destination. Any refusal or mismatch removes what
-    this call created. The manifest has the private format of
-    ``read_manifest``. No database record is read here.
-    """
-    initial = archive_path.stat()
-    with zipfile.ZipFile(archive_path) as archive:
-        blockers, databases, declared = archive_blockers(archive)
-        if blockers:
-            raise ImportBlocked(blockers[0], blockers=blockers)
-        if databases != ["data.db"]:
-            raise ImportBlocked("data_db_must_be_at_archive_root")
-        if manifest_path.exists() or manifest_path.is_symlink():
-            raise FileExistsError(manifest_path)
-        free = shutil.disk_usage(destination.parent).free
-        if free < declared + (1 << 30):
-            raise ImportBlocked("insufficient_disk_space")
-        destination.mkdir(mode=0o700, exist_ok=False)
-        files, total = [], 0
-        try:
-            for member in archive.infolist():
-                target = destination.joinpath(*PurePosixPath(member.filename).parts)
-                # One level at a time: mkdir(parents=True) would give the
-                # intermediate directories the default mode instead of 0700.
-                relative = target.relative_to(destination)
-                levels = [*reversed(relative.parents)][1:]
-                if member.is_dir():
-                    levels.append(relative)
-                for level in levels:
-                    (destination / level).mkdir(mode=0o700, exist_ok=True)
-                if member.is_dir():
-                    continue
-                sha, crc, size = hashlib.sha256(), 0, 0
-                fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                with os.fdopen(fd, "wb") as output, archive.open(member) as stream:
-                    while chunk := stream.read(1 << 20):
-                        output.write(chunk)
-                        sha.update(chunk)
-                        crc = zlib.crc32(chunk, crc)
-                        size += len(chunk)
-                if crc != member.CRC or size != member.file_size:
-                    raise ImportBlocked("archive_member_crc_mismatch")
-                files.append(
-                    {
-                        "path": member.filename,
-                        "bytes": size,
-                        "sha256": sha.hexdigest(),
-                        "crc32": f"{crc:08x}",
-                    }
-                )
-                total += size
-            checksum = digest(archive_path)
-            final = archive_path.stat()
-            if (initial.st_size, initial.st_mtime_ns) != (final.st_size, final.st_mtime_ns):
-                raise ImportBlocked("archive_changed_during_extraction")
-            write_json_new(manifest_path, {"archive_sha256": checksum, "files": files})
-        except zipfile.BadZipFile as exc:
-            shutil.rmtree(destination)
-            raise ImportBlocked("archive_member_crc_mismatch") from exc
-        except BaseException:
-            shutil.rmtree(destination)
-            raise
-    return {
-        "mode": "verified_private_extraction",
-        "production_authorized": False,
-        "archive_sha256": checksum,
-        "files": len(files),
-        "bytes": total,
-        "crc_all_files_ok": True,
-        "sha256_all_files_recorded": True,
-        "directories_mode": "0700",
-        "files_mode": "0600",
-        "database_records_read": False,
-        "ready_for_isolated_rehearsal": False,
     }
 
 
@@ -372,13 +326,15 @@ def strict_json(value):
 
 
 def _check_pg_string(value: str, nul_code: str) -> None:
+    """PostgreSQL text and jsonb refuse U+0000 and need valid UTF-8."""
     if "\x00" in value:
         raise ImportBlocked(nul_code)
-    try:
-        value.encode("utf-8")
-    except UnicodeEncodeError:
-        # Lone surrogates (e.g. a JSON \ud800 escape) have no UTF-8 encoding.
-        raise ImportBlocked("invalid_unicode_for_postgresql") from None
+    if not value.isascii():  # O(1) in CPython: most values skip the encoding
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            # Lone surrogates (e.g. a JSON \ud800 escape) have no UTF-8 encoding.
+            raise ImportBlocked("invalid_unicode_for_postgresql") from None
 
 
 def _check_json_number(number: Decimal) -> None:
@@ -409,14 +365,25 @@ def _parse_exact_json(text: str, **hooks):
         raise ImportBlocked("invalid_json") from None
 
 
+def _unique_pairs(pairs):
+    """object_pairs_hook: jsonb keeps only the last value of a duplicate key."""
+    result = dict(pairs)
+    if len(result) != len(pairs):
+        raise ImportBlocked(JSONB_DUPLICATE_KEYS)
+    return result
+
+
 def check_json_text(text: str) -> None:
     """Reject JSON that PostgreSQL jsonb cannot store exactly; never repair it.
 
-    Nesting deeper than JSON_MAX_DEPTH is refused explicitly: PostgreSQL's
-    parser depth depends on its stack setting and the exact comparison of the
-    readback is recursive. Real BUMA json values are shallow configurations.
+    A duplicate object key is refused (``jsonb_duplicate_keys_collapsed``):
+    jsonb would keep only its last value, while PocketBase serves the stored
+    text with every occurrence. Nesting deeper than JSON_MAX_DEPTH is refused
+    explicitly: PostgreSQL's parser depth depends on its stack setting and the
+    exact comparison of the readback is recursive. Real BUMA json values are
+    shallow configurations.
     """
-    stack = [(_parse_exact_json(text), 1)]
+    stack = [(_parse_exact_json(text, object_pairs_hook=_unique_pairs), 1)]
     while stack:
         item, depth = stack.pop()
         if isinstance(item, str):
@@ -437,9 +404,15 @@ def check_json_text(text: str) -> None:
 def json_text(value) -> str:
     """Exact JSON text to store for a PB 0.22 json column value.
 
-    PB declares ``JSON DEFAULT NULL`` (NUMERIC affinity). A text value is kept
-    verbatim; a numeric storage class is what PB serves after json.Marshal; SQL
-    NULL is served as JSON null (v0.22.34 models/schema/schema_field.go:157).
+    PB declares ``JSON DEFAULT NULL`` (v0.22.34 models/schema/schema_field.go:
+    156-157; NUMERIC affinity in SQLite). A text value is kept verbatim (and
+    stored in jsonb, which keeps its value, not its text: see
+    ``jsonb_key_order_changes``). A numeric storage class is what JsonRaw.Scan
+    serves after json.Marshal (tools/types/json_raw.go:74-79). SQL NULL scans
+    to an empty JsonRaw that MarshalJSON serves as ``null`` (json_raw.go:26-29,
+    60-61): the NOT NULL jsonb target of PPBase can only store JSON null, which
+    the diagnosis reports as ``sql_null_json_stored_as_jsonb_null`` (same value
+    in responses, not the same SQL value for filters).
     """
     if value is None:
         return "null"
@@ -459,22 +432,30 @@ def json_text(value) -> str:
     return value
 
 
-def json_representation_flags(text: str) -> set[str]:
-    """jsonb normalizations visible to clients: key order and duplicate keys."""
-    flags = set()
+def _jsonb_key(key: str) -> tuple[int, bytes]:
+    # jsonb sorts object keys by UTF-8 length, then bytes (uniqueifyJsonbObject).
+    encoded = key.encode("utf-8", "surrogatepass")
+    return len(encoded), encoded
+
+
+def jsonb_key_order_changes(text: str) -> bool:
+    """True when jsonb would serve an object of this JSON with its keys reordered.
+
+    PocketBase 0.22.34 serves the stored bytes, so clients iterate the keys in
+    their stored order; PPBase serves the jsonb order. Values are unchanged.
+    Duplicate keys are refused by ``check_json_text`` before this is asked.
+    """
+    changed = False
 
     def pairs_hook(pairs):
-        keys = [key for key, _ in pairs]
-        unique = list(dict.fromkeys(keys))
-        if len(unique) != len(keys):
-            flags.add("duplicate_keys")
-        # jsonb orders keys by UTF-8 length, then bytes; the last duplicate wins.
-        if unique != sorted(unique, key=lambda key: (len(key.encode()), key.encode())):
-            flags.add("key_order_normalized")
+        nonlocal changed
+        keys = list(dict.fromkeys(key for key, _ in pairs))
+        if not changed and keys != sorted(keys, key=_jsonb_key):
+            changed = True
         return dict(pairs)
 
     _parse_exact_json(text, object_pairs_hook=pairs_hook)
-    return flags
+    return changed
 
 
 def array_value(value) -> list[str]:
@@ -490,20 +471,27 @@ def array_value(value) -> list[str]:
 
 
 def date_value(value, *, required=False):
+    """Exact instant of a stored PB 0.22 date, or None for "" when optional.
+
+    PocketBase writes every date as ``YYYY-MM-DD HH:MM:SS.mmmZ`` in UTC
+    (DateTime.Value/String, v0.22.34 tools/types/datetime.go:12, 47-53,
+    69-72). Its reader also tolerates other layouts through cast.ToTime and
+    yields the zero time when nothing matches (:82-91). Here any other text
+    is ``date_not_pocketbase_layout``: no offset conversion, no alternative
+    notation and no digit below the millisecond is ever silently accepted or
+    truncated. Real backup: every non-empty date has this layout.
+    """
     if value == "" and not required:
         return None
     if not isinstance(value, str) or not value:
         raise ImportBlocked("invalid_date")
+    if not PB_DATE_LAYOUT.fullmatch(value):
+        raise ImportBlocked("date_not_pocketbase_layout")
     try:
-        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ImportBlocked("invalid_date") from exc
-    if result.tzinfo is None:
-        raise ImportBlocked("date_without_timezone")
-    try:
-        return result.astimezone(UTC)
-    except (OverflowError, ValueError) as exc:
-        raise ImportBlocked("invalid_date") from exc
+        # The layout is fixed: exactly three fraction digits, UTC.
+        return datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        raise ImportBlocked("invalid_date") from None  # e.g. 2024-02-30, 24:00
 
 
 def required_date_value(value):
@@ -513,8 +501,7 @@ def required_date_value(value):
 def text_value(value) -> str:
     if not isinstance(value, str):
         raise ImportBlocked("invalid_text")
-    if "\x00" in value:
-        raise ImportBlocked("nul_in_postgresql_text")
+    _check_pg_string(value, "nul_in_postgresql_text")
     return value
 
 
@@ -531,10 +518,14 @@ def auth_text_value(value) -> str:
 
 
 def text_array_value(value) -> list[str]:
+    """JSON list of strings, element order and duplicates kept as stored.
+
+    Each element is checked like a text value: a JSON ``\\u0000`` or a lone
+    surrogate escape (``\\ud800``) cannot be stored in PostgreSQL text[].
+    """
     items = array_value(value)
     for item in items:
-        if "\x00" in item:
-            raise ImportBlocked("nul_in_postgresql_text")
+        _check_pg_string(item, "nul_in_postgresql_text")
     return items
 
 
@@ -582,7 +573,16 @@ def unsupported_value(_):
 
 
 def relation_unbounded(field: dict) -> bool:
-    """maxSelect null is unlimited in 0.22.34; 0 is invalid there, kept blocked."""
+    """Relation without a usable maxSelect: null, or 0 by deliberate choice.
+
+    maxSelect null is an unlimited multiple relation in PocketBase 0.22.34
+    (RelationOptions.IsMultiple, models/schema/schema_field.go:715-716).
+    maxSelect 0 is refused by its validation (:709, NilOrNotEmpty) and that
+    IsMultiple would call it single (``*MaxSelect > 1``); the 0.23 upgrade
+    makes it unlimited (v0.23.0 migrations/1717233556_v0.23_migrate.go:
+    844-848). Deliberate divergence from 0.22.34, without effect: 0 is grouped
+    with null and stays blocked (D-0019); the export has no maxSelect 0.
+    """
     return field["type"] == "relation" and (field.get("options") or {}).get("maxSelect") in (
         None,
         0,
@@ -590,7 +590,12 @@ def relation_unbounded(field: dict) -> bool:
 
 
 def source_multiple(field: dict) -> bool:
-    """PocketBase 0.22.34 IsMultiple: models/schema/schema_field.go:627, 668, 716."""
+    """Whether PB 0.22 stores this field as a JSON list.
+
+    PocketBase 0.22.34 IsMultiple (models/schema/schema_field.go:626-627 select,
+    667-668 file, 715-716 relation: maxSelect > 1, or null for a relation),
+    except the maxSelect 0 relation documented in ``relation_unbounded``.
+    """
     if relation_unbounded(field):
         return True
     return field["type"] in LIST_KINDS and ((field.get("options") or {}).get("maxSelect") or 1) > 1
@@ -686,6 +691,23 @@ class RowPlan:
                 values.append(_FAILED)
         archive = {key: row[key] for key in AUTH_ARCHIVE_ORDER if key in row}
         return values, archive
+
+
+def auth_legacy_text(archive: dict) -> str:
+    """jsonb text of the archived PB 0.22 auth dates, raw source values.
+
+    Checked identically by the diagnosis and before each COPY: a value that
+    jsonb cannot hold exactly (U+0000, a non-finite number) blocks the field
+    ``auth_legacy`` instead of failing in PostgreSQL.
+    """
+    if not archive:
+        return "{}"
+    try:
+        text = json.dumps(archive, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        raise ImportBlocked("invalid_auth_field") from None
+    check_json_text(text)
+    return text
 
 
 def field_value(field, value):
@@ -842,6 +864,11 @@ def directory_manifest(root: Path) -> dict:
     return {"archive_sha256": listing, "files": files}
 
 
+def path_present(path: Path) -> bool:
+    """Exists, or is a symbolic link (even a dangling one)."""
+    return path.exists() or path.is_symlink()
+
+
 def storage_source(data: Path, manifest: Path | None) -> tuple[dict, dict]:
     """(inventory, report fields) for one diagnosis or staging."""
     if manifest is None:
@@ -851,7 +878,7 @@ def storage_source(data: Path, manifest: Path | None) -> tuple[dict, dict]:
             "file_bytes_verified": True,
             "file_sizes_source": "storage_directory",
         }
-    if (data / "storage").exists() or (data / "storage").is_symlink():
+    if path_present(data / "storage"):
         raise ImportBlocked("storage_directory_and_manifest_both_supplied")
     checked = read_manifest(manifest, data / "data.db")
     return checked["storage"], {
@@ -1051,9 +1078,9 @@ def _scalar_checker(column: TargetColumn):
         def check(value):
             if not isinstance(value, str):
                 raise ImportBlocked("invalid_text")
-            if "\x00" in value:
-                raise ImportBlocked("nul_in_postgresql_text")
+            _check_pg_string(value, "nul_in_postgresql_text")
             if length is not None and len(value) > length:
+                # varchar(n) counts characters (code points of valid UTF-8).
                 # PostgreSQL would even truncate excess trailing spaces silently.
                 raise ImportBlocked("value_exceeds_target_length")
 
@@ -1308,6 +1335,29 @@ def _add_blocker(blockers: list, code: str, **context) -> None:
     blockers.append({"code": code, **context})
 
 
+def _entry_key(entry) -> tuple:
+    if isinstance(entry, dict):
+        return entry.get("code"), entry.get("collection"), entry.get("field")
+    return entry, None, None
+
+
+def merge_entries(entries: list) -> list:
+    """One entry per (code, collection, field), details merged in order.
+
+    The preflight of a target column and the rows it blocks describe the same
+    problem (e.g. an unbounded relation over a scalar column): one blocker
+    carries both the expected/actual column and the affected rows.
+    """
+    merged: dict[tuple, object] = {}
+    for entry in entries:
+        key = _entry_key(entry)
+        if key in merged and isinstance(entry, dict):
+            merged[key] = {**merged[key], **entry}
+        else:
+            merged.setdefault(key, entry)
+    return list(merged.values())
+
+
 def diagnose(
     data: Path,
     schema: Path,
@@ -1321,8 +1371,13 @@ def diagnose(
 
     Orphan relations and absent referenced files are preserved anomalies, not
     blockers. With ``target_columns`` (see ``target_spec_from_json``) every
-    value is also checked against its PostgreSQL column. ``private`` receives
-    record-level details (IDs, references, file keys) for a private report.
+    value is also checked against its PostgreSQL column. jsonb changes that a
+    client can observe are explicit warnings with affected rows per field:
+    ``jsonb_key_order_normalized`` (keys served in jsonb order) and
+    ``sql_null_json_stored_as_jsonb_null`` (PB SQL NULL stored as JSON null);
+    a duplicate JSON key, whose earlier values jsonb would drop, blocks
+    (``jsonb_duplicate_keys_collapsed``). ``private`` receives record-level
+    details (IDs, references, file keys) for a private report.
     """
     started = time.monotonic()
     definitions = load_schema(schema)
@@ -1349,7 +1404,6 @@ def diagnose(
     spec = target_columns
     report["target_types_checked"] = spec is not None
     anomalies = SourceAnomalies(details=private is not None)
-    json_flags: dict[tuple, Counter] = {}
     referenced = set()
     relation_count = 0
     blocked_rows = 0
@@ -1431,8 +1485,9 @@ def diagnose(
             if "WITHOUT ROWID" in table[0].upper() or columns & {"rowid", "_rowid_", "oid"}:
                 _add_blocker(blockers, "ambiguous_sqlite_rowid", collection=name)
                 continue
-            for field in collection["schema"]:
+            for field in collection["schema"] if not UNBOUNDED_RELATION_ARRAYS else ():
                 if relation_unbounded(field):
+                    # Kept for empty tables; merged away when a blocker exists.
                     report["warnings"].append(
                         {
                             "code": "unbounded_relation_target_scalar",
@@ -1472,6 +1527,7 @@ def diagnose(
             count, low, high = 0, None, None
             ids_hash, rows_hash = hashlib.sha256(), hashlib.sha256()
             issue_counts = Counter()
+            json_counts = Counter()
             for raw in source_rows(db, collection):
                 row = dict(raw)
                 count += 1
@@ -1483,7 +1539,7 @@ def diagnose(
                 )
                 problems = []
                 try:
-                    values, _ = plan.convert(row, problems)
+                    values, archive = plan.convert(row, problems)
                 except KeyError:
                     problems.append((None, "missing_source_column"))
                     values = None
@@ -1496,16 +1552,20 @@ def diagnose(
                         except ImportBlocked as exc:
                             problems.append((compiled[1], exc.code))
                 if values is not None:
+                    try:
+                        auth_legacy_text(archive)  # the same check as before COPY
+                    except ImportBlocked as exc:
+                        problems.append(("auth_legacy", exc.code))
                     for position, column in json_positions:
                         if values[position] is _FAILED:
                             continue
-                        flags = json_representation_flags(values[position])
                         if row[column] is None:
-                            # PB 0.22 serves SQL NULL as null; the NOT NULL jsonb
-                            # target stores JSON null (same API value).
-                            flags.add("sql_null_stored_as_json_null")
-                        if flags:
-                            json_flags.setdefault((name, column), Counter()).update(flags)
+                            # PB 0.22 serves SQL NULL as null and matches it with
+                            # `field = null`; the NOT NULL jsonb target can only
+                            # store JSON null, which PPBase's filter does not match.
+                            json_counts[(column, SQL_NULL_JSON)] += 1
+                        elif jsonb_key_order_changes(values[position]):
+                            json_counts[(column, JSONB_KEY_ORDER)] += 1
                 record = row.get("id")
                 record_ok = isinstance(record, str) and bool(record)
                 dangling_row = False
@@ -1550,6 +1610,10 @@ def diagnose(
                     entry["field"] = column
                 entry["affected_rows"] = issues
                 blockers.append(entry)
+            for (column, code), affected in sorted(json_counts.items()):
+                report["warnings"].append(
+                    {"code": code, "collection": name, "field": column, "affected_rows": affected}
+                )
             report["collections"].append(
                 {
                     "name": name,
@@ -1584,9 +1648,12 @@ def diagnose(
         raise ImportBlocked("snapshot_changed_during_diagnosis")
     unreferenced = sorted(set(files) - referenced)
     report["preserved_source_anomalies"] = anomalies.report()
-    report["json_representation"] = [
-        {"collection": collection, "field": field, **dict(sorted(flags.items()))}
-        for (collection, field), flags in json_flags.items()
+    report["blockers"] = blockers = merge_entries(blockers)
+    blocker_keys = {_entry_key(entry) for entry in blockers}
+    report["warnings"] = [
+        entry
+        for entry in merge_entries(report["warnings"])
+        if _entry_key(entry) not in blocker_keys
     ]
     if private is not None:
         private.update(anomalies.private)
@@ -1619,9 +1686,13 @@ def diagnose(
 def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Path | None = None):
     """Private verified copy; destination must be new and unpublished.
 
-    Directory mode copies data.db and every storage object byte for byte.
-    Manifest mode copies data.db only, checked against the manifest, and
-    records that no file byte was copied. Returns the storage inventory.
+    Directory mode copies data.db and every storage object byte for byte
+    (every directory 0700, every file 0600). Manifest mode copies data.db
+    only, checked against the manifest, and records that no file byte was
+    copied. Returns the storage inventory. Any failure raised here removes the
+    destination. A killed process (SIGKILL, OOM) cannot clean up: the private
+    copy of data.db (and storage/) stays at ``destination``, and a retry with
+    the same path fails with FileExistsError. Remove it, or use a new path.
     """
     if not report["ready_for_isolated_rehearsal"]:
         raise ImportBlocked("diagnostic_blockers")
@@ -1634,7 +1705,7 @@ def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Pat
             if manifest is None:
                 before = storage_inventory(data / "storage")
             else:
-                if (data / "storage").exists():
+                if path_present(data / "storage"):
                     raise ImportBlocked("storage_directory_and_manifest_both_supplied")
                 checked = read_manifest(manifest, data / "data.db")
                 if checked["summary"]["sha256"] != report["manifest"]["sha256"]:
@@ -1647,13 +1718,22 @@ def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Pat
             if digest(destination / "data.db") != report["data_db_sha256"]:
                 raise ImportBlocked("snapshot_changed_after_diagnosis")
             if manifest is None:
-                (destination / "storage").mkdir(mode=0o700)
+                root = destination / "storage"
+                root.mkdir(mode=0o700)
+                created = set()
                 for relative in before:
-                    target = destination / "storage" / relative
-                    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    # One level at a time: mkdir(parents=True) would give the
+                    # intermediate directories the default mode, not 0700.
+                    parent = root
+                    for part in PurePosixPath(relative).parts[:-1]:
+                        parent = parent / part
+                        if parent not in created:
+                            parent.mkdir(mode=0o700, exist_ok=True)
+                            created.add(parent)
+                    target = root / relative
                     shutil.copyfile(data / "storage" / relative, target)
                     target.chmod(0o600)
-                if storage_inventory(destination / "storage") != before:
+                if storage_inventory(root) != before:
                     raise ImportBlocked("storage_copy_mismatch")
                 if storage_inventory(data / "storage") != before:
                     raise ImportBlocked("storage_changed_during_copy")
@@ -1665,6 +1745,7 @@ def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Pat
                     "storage_mode": mode,
                     "file_bytes_copied": manifest is None,
                 },
+                ascii=True,  # file names may carry undecodable bytes
             )
             return before
     except BaseException:
@@ -1679,13 +1760,21 @@ def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Pat
 
 
 class _Verification:
-    """Per table: source and readback fingerprints, server row-hash sum."""
+    """Evidence of one table, or of the rowid archive, during one load.
+
+    ``source``: multiset digest of the converted source rows, taken when each
+    batch is prepared. ``server_rows``/``server_hash``: count and exact sum of
+    PostgreSQL's hash of each stored row, as returned by the batch readback.
+    ``target``/``final_hash``: multiset digest and hash sum of the full typed
+    re-read once every batch is in (``_reread``), compared by ``check_final``.
+    """
 
     def __init__(self):
         self.source = Fingerprint()
         self.target = Fingerprint()
         self.server_rows = 0
         self.server_hash = 0
+        self.final_hash = 0
 
 
 class _LoadState:
@@ -1699,11 +1788,6 @@ class _LoadState:
         self.seconds = Counter()
         self.archive = _Verification()
 
-    def flush_now(self, pending: int) -> bool:
-        if pending >= self.batch_size:
-            return True
-        return self.fail_after is not None and self.count + pending >= self.fail_after
-
 
 ARCHIVE_SPEC = (
     TargetColumn("collection_id", "text", False, None, True, False),
@@ -1713,6 +1797,7 @@ ARCHIVE_SPEC = (
 )
 # Readback order of the archive: key first, as for the record tables.
 ARCHIVE_READ = ARCHIVE_SPEC[1:] + ARCHIVE_SPEC[:1]
+ARCHIVE_JSON = (2,)
 ROW_ALIAS = "c11_row"
 # PostgreSQL's own hash of the complete stored row (every column, including
 # defaulted ones), summed exactly: readback time versus end of the load.
@@ -1734,47 +1819,102 @@ async def _copy(state, table, columns, records, collection):
             table, records=records, columns=list(columns), schema_name="public"
         )
     except asyncpg.PostgresError as exc:
+        sqlstate = getattr(exc, "sqlstate", None)
+        # Class 23 is an integrity constraint (CHECK, UNIQUE, NOT NULL, FK...);
+        # anything else (trigger error, disk, cancel) keeps its own code.
+        code = (
+            "target_constraint_violation"
+            if str(sqlstate).startswith("23")
+            else "target_copy_failed"
+        )
         raise ImportBlocked(
-            "target_constraint_violation",
+            code,
             collection=collection,
-            sqlstate=getattr(exc, "sqlstate", None),
+            sqlstate=sqlstate,
             constraint=getattr(exc, "constraint_name", None),
         ) from exc
+    except UnicodeEncodeError as exc:
+        # Unreachable after the value checks; still a code, never a crash.
+        raise ImportBlocked("invalid_unicode_for_postgresql", collection=collection) from exc
     state.statements["copy"] += 1
 
 
-async def _verify_batch(state, sql, arguments, expected, json_positions, names, check, table):
-    """Typed readback of one batch compared value by value with the source.
+def _first_difference(source, values, json_positions, names):
+    """Name of the first column whose read-back value differs, if any."""
+    for index, name in enumerate(names):
+        pair = (source[index], values[index])
+        if index in json_positions:
+            pair = tuple(canonical_json(v) if isinstance(v, str) else v for v in pair)
+        if repr(pair[0]) != repr(pair[1]):
+            return name
+    return None
 
-    ``expected`` holds (key, source values, source row key); the first selected
-    column is the key and the last one PostgreSQL's hash of the stored row.
+
+async def _verify_batch(state, sql, arguments, expected, json_positions, names, check, table):
+    """Typed readback of one batch, compared value by value with the source.
+
+    ``expected`` holds (key, converted source values, source row key) per
+    copied row. The first selected column is the key, the last one
+    PostgreSQL's hash of the complete stored row. Each returned row must be
+    exactly one expected row, equal in every compared column (str/int/float/
+    bool/None types, microseconds, -0.0, list order and JSON values). The
+    hashes are summed for ``check_final``.
     """
     found = await state.driver.fetch(sql, *arguments)
     state.statements["readback"] += 1
-    if len(found) != len(expected):
-        raise ImportBlocked("target_readback_mismatch", collection=table)
-    by_key = {record[0]: record for record in found}
     width = len(names)
+    by_key = {}
+    for record in found:
+        if record[0] in by_key:
+            raise ImportBlocked("target_readback_mismatch", collection=table)
+        by_key[record[0]] = record
+    if len(by_key) != len(expected):
+        raise ImportBlocked("target_readback_mismatch", collection=table)
     for key, source, source_key in expected:
         record = by_key.get(key)
         if record is None:
             raise ImportBlocked("target_readback_mismatch", collection=table)
         values = tuple(record)
-        target_key = row_key(values[:width], json_positions)
-        if target_key != source_key:
-            for index in range(width):
-                pair = (source[index], values[index])
-                if index in json_positions:
-                    pair = tuple(canonical_json(v) if isinstance(v, str) else v for v in pair)
-                if repr(pair[0]) != repr(pair[1]):
-                    raise ImportBlocked(
-                        "target_readback_mismatch", collection=table, field=names[index]
-                    )
-            raise ImportBlocked("target_readback_mismatch", collection=table)
-        check.source.add(row_digest(source_key))
-        check.target.add(row_digest(target_key))
+        if row_key(values[:width], json_positions) != source_key:
+            field = _first_difference(source, values, json_positions, names)
+            details = {} if field is None else {"field": field}
+            raise ImportBlocked("target_readback_mismatch", collection=table, **details)
         check.server_rows += 1
         check.server_hash += values[width]
+
+
+async def _reread(state, table, columns, json_positions, check) -> None:
+    """Full typed re-read of one table once every batch is in.
+
+    Independent of the batch comparison: another query (sequential scan, no
+    key list), another time (after every table and the archive were written)
+    and another accumulation. Fills the multiset digest of the row keys and
+    the exact sum of PostgreSQL's row hashes of every stored row.
+    """
+    width = len(columns)
+    sql = f"SELECT {_select_list(columns)},{ROW_HASH} FROM {quote(table)} {ROW_ALIAS}"
+    async for record in state.driver.cursor(sql, prefetch=FINAL_PREFETCH):
+        values = tuple(record)
+        check.target.add(row_digest(row_key(values[:width], json_positions)))
+        check.final_hash += values[width]
+    state.statements["final_check"] += 1
+
+
+def check_final(table: str, check: _Verification, expected_rows) -> None:
+    """End-of-load verdict for one table; the first failing layer is raised.
+
+    source rows = diagnosis; rows verified by the batch readback = rows re-read
+    = source rows; hash sum of the stored rows unchanged since the readback;
+    multiset digest of the re-read rows = that of the converted source rows.
+    """
+    if check.source.rows != expected_rows:
+        raise ImportBlocked("source_row_count_mismatch", collection=table)
+    if check.server_rows != check.source.rows or check.target.rows != check.source.rows:
+        raise ImportBlocked("target_row_count_mismatch", collection=table)
+    if check.final_hash != check.server_hash:
+        raise ImportBlocked("target_changed_after_readback", collection=table)
+    if check.target.hexdigest() != check.source.hexdigest():
+        raise ImportBlocked("target_fingerprint_mismatch", collection=table)
 
 
 class _Prepared:
@@ -1783,6 +1923,10 @@ class _Prepared:
     def __init__(self):
         self.batch, self.archive_batch = [], []
         self.expected, self.archive_expected = [], []
+
+
+def json_columns(specs) -> tuple[int, ...]:
+    return tuple(index for index, column in enumerate(specs) if column.type == "jsonb")
 
 
 async def _load_table(state, db, collection, plan, specs, check, report_table):
@@ -1799,7 +1943,7 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
     rowid_at = position["__c11_rowid"]
     archive_at = [(key, position[key]) for key in AUTH_ARCHIVE_ORDER if key in position]
     checkers = [(value_checker(column), column.name) for column in specs]
-    json_positions = tuple(i for i, column in enumerate(specs) if column.type == "jsonb")
+    json_positions = json_columns(specs)
     readback = (
         f"SELECT {_select_list(specs)},{ROW_HASH} FROM {quote(name)} {ROW_ALIAS} "
         f"WHERE {ROW_ALIAS}.id = ANY($1::text[])"
@@ -1814,7 +1958,11 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
     started = time.monotonic()
 
     def prepare():
-        """Runs in a worker thread: read, convert, check and key one batch."""
+        """Runs in a worker thread: read, convert, check and key one batch.
+
+        The source digest is taken here, from the converted source values,
+        apart from anything read back from PostgreSQL.
+        """
         clock = time.perf_counter()
         out, limit = _Prepared(), state.batch_size
         if state.fail_after is not None:
@@ -1833,22 +1981,20 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
                     checker(value)
                 except ImportBlocked as exc:
                     raise ImportBlocked(exc.code, collection=name, field=column) from None
-            if archive_at:
-                legacy = json.dumps(
-                    {key: raw[index] for key, index in archive_at}, ensure_ascii=False
-                )
-                try:
-                    check_json_text(legacy)
-                except ImportBlocked as exc:
-                    raise ImportBlocked(exc.code, collection=name, field="auth_legacy") from None
-            else:
-                legacy = "{}"
+            try:
+                legacy = auth_legacy_text({key: raw[index] for key, index in archive_at})
+            except ImportBlocked as exc:
+                raise ImportBlocked(exc.code, collection=name, field="auth_legacy") from None
             record, rowid = values[0], raw[rowid_at]
+            source_key = row_key(values, json_positions)
+            archived = (record, rowid, legacy, collection["id"])
+            archive_key = row_key(archived, ARCHIVE_JSON)
             out.batch.append(tuple(values))
             out.archive_batch.append((collection["id"], record, rowid, legacy))
-            out.expected.append((record, values, row_key(values, json_positions)))
-            archived = (record, rowid, legacy, collection["id"])
-            out.archive_expected.append((record, archived, row_key(archived, (2,))))
+            out.expected.append((record, values, source_key))
+            out.archive_expected.append((record, archived, archive_key))
+            check.source.add(row_digest(source_key))
+            state.archive.source.add(row_digest(archive_key))
             if len(out.batch) >= limit:
                 break
         state.prepared += len(out.batch)
@@ -1869,7 +2015,7 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
             archive_readback,
             [collection["id"], ids],
             prepared.archive_expected,
-            (2,),
+            ARCHIVE_JSON,
             archive_names,
             state.archive,
             name,
@@ -1903,15 +2049,6 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
                 pass  # the primary failure is already propagating
     report_table["rows"] = check.source.rows
     report_table["seconds"] = round(time.monotonic() - started, 3)
-
-
-async def _server_rows(state, table) -> tuple[int, int]:
-    """Count and exact hash sum of every stored row, computed by PostgreSQL."""
-    count, total = await state.driver.fetchrow(
-        f"SELECT count(*), coalesce(sum({ROW_HASH}), 0) FROM {quote(table)} {ROW_ALIAS}"
-    )
-    state.statements["final_check"] += 1
-    return count, int(total)
 
 
 async def target_anomalies(connection, definitions, spec, inventory, row_counts=None) -> dict:
@@ -2073,6 +2210,18 @@ def _comparable(anomalies: dict) -> dict:
     }
 
 
+def check_conservation(recount: dict, diagnostic: dict) -> None:
+    """The anomalies recounted in the target must equal the diagnosis."""
+    preserved = diagnostic.get("preserved_source_anomalies")
+    if (
+        preserved is None
+        or _comparable(recount) != _comparable(preserved)
+        or recount["relations_checked"] != diagnostic.get("relations_checked")
+        or recount["unreferenced_files"] != diagnostic.get("unreferenced_files")
+    ):
+        raise ImportBlocked("anomaly_conservation_mismatch")
+
+
 async def load_isolated(
     connection,
     data: Path,
@@ -2085,14 +2234,24 @@ async def load_isolated(
     """Load on the caller's transaction; requires empty tables, never clears data.
 
     No hooks/repositories/HTTP writes: historical balances, authors, numbers and
-    timestamps must not be recomputed. Rows go through COPY batches on the
-    caller's own connection (same transaction), each value checked against its
-    introspected column first, each batch read back and compared value by value
-    (source and readback fingerprints per table). At the end PostgreSQL rehashes
-    every stored row of every table and of the rowid archive: the exact sums
-    must equal those taken at readback time (nothing changed, nothing added).
-    The preserved anomalies are then recounted in the target. Returns the row
-    count; ``report`` (optional dict) receives the aggregated evidence.
+    timestamps must not be recomputed. The caller owns the transaction
+    (``engine.begin()``): checked before any SQL, then on the driver connection
+    (an AUTOCOMMIT connection is refused). Rows go through COPY batches on the
+    caller's own connection, each value checked against its introspected
+    column first. Verification layers, all exact:
+
+    1. each batch is read back by key right after its COPY and compared value
+       by value with the converted source (``target_readback_mismatch``);
+    2. once everything is in, each table and the rowid archive are re-read in
+       full: the row count, the multiset digest of the re-read rows against
+       the digest of the converted source rows taken at preparation, and the
+       sum of PostgreSQL's hash of every stored row (all columns) against the
+       sum seen at readback (``check_final``);
+    3. orphan relations and absent files are recounted by SQL in the target
+       and must equal the diagnosis (``check_conservation``).
+
+    Returns the row count; ``report`` (optional dict) receives the aggregated
+    evidence, including the jsonb normalizations stated by the diagnosis.
     """
     from sqlalchemy import text
 
@@ -2109,17 +2268,24 @@ async def load_isolated(
         if storage_inventory(data / "storage") != staged["storage"]:
             raise ImportBlocked("staged_storage_changed")
     elif mode == "manifest":
-        if (data / "storage").exists() or staged.get("file_bytes_copied"):
+        if path_present(data / "storage") or staged.get("file_bytes_copied"):
             raise ImportBlocked("storage_mode_mismatch")
         if inventory_fingerprint(staged["storage"]) != diagnostic["file_manifest_sha256"]:
             raise ImportBlocked("staged_storage_changed")
     else:
         raise ImportBlocked("storage_mode_mismatch")
-    current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
-    if current_db != "buma_c11_rehearsal":
-        raise ImportBlocked("isolated_rehearsal_database_required")
+    # Before any statement: SQLAlchemy would otherwise autobegin a transaction
+    # that nobody owns (and that is rolled back when the connection closes).
     if not connection.in_transaction():
         raise ImportBlocked("caller_transaction_required")
+    current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
+    raw = await connection.get_raw_connection()
+    driver = raw.driver_connection
+    if not driver.is_in_transaction():
+        # e.g. an AUTOCOMMIT isolation level: every statement would commit alone.
+        raise ImportBlocked("caller_transaction_required")
+    if current_db != "buma_c11_rehearsal":
+        raise ImportBlocked("isolated_rehearsal_database_required")
     tables = [c for c in definitions if c["type"] != "view"]
     # Lock the complete set before checking emptiness, so a concurrent importer
     # cannot pass the same precondition. PostgreSQL constraints remain enabled.
@@ -2135,10 +2301,6 @@ async def load_isolated(
             raise ImportBlocked("target_not_empty")
     if (await connection.execute(text(f"SELECT to_regclass('{ARCHIVE_TABLE}')"))).scalar_one():
         raise ImportBlocked("rowid_archive_exists")
-    raw = await connection.get_raw_connection()
-    driver = raw.driver_connection
-    if not driver.is_in_transaction():
-        raise ImportBlocked("caller_transaction_required")
     # The keyed readbacks are prepared once per table and their tables grow
     # from empty: a cached generic plan chosen on a small table would scan the
     # whole table at every batch. Plan each execution for its real arguments;
@@ -2161,11 +2323,17 @@ async def load_isolated(
             )
         )
     ).all()
+    json_normalizations = [
+        entry
+        for entry in diagnostic.get("warnings", [])
+        if isinstance(entry, dict) and entry.get("code") in JSON_WARNING_CODES
+    ]
     evidence.update(
         {
             "storage_mode": mode,
             "file_bytes_copied": mode == "directory",
             "batch_size": batch_size,
+            "json_normalizations": json_normalizations,
             "preflight": {
                 "tables": len(spec),
                 "columns_checked": checked["columns_checked"],
@@ -2193,7 +2361,7 @@ async def load_isolated(
     # current_database, LOCK, emptiness per table, to_regclass, two SET LOCAL,
     # introspection per table, triggers and CREATE TABLE of the rowid archive.
     state.statements["other"] += 7 + len(tables) + len(spec)
-    tables_report, checks = [], {}
+    tables_report, loaded = [], []
     evidence["tables"] = tables_report
     load_started = time.monotonic()
     with snapshot(data, worker_threads=True) as db:
@@ -2202,48 +2370,37 @@ async def load_isolated(
             specs = [spec[c["name"]][column] for column in plan.columns]
             entry = {"name": c["name"], "rows": 0, "copy_batches": 0}
             tables_report.append(entry)
-            checks[c["name"]] = _Verification()
-            await _load_table(state, db, c, plan, specs, checks[c["name"]], entry)
+            check = _Verification()
+            loaded.append((entry, specs, check))
+            await _load_table(state, db, c, plan, specs, check, entry)
     load_seconds = time.monotonic() - load_started
     final_started = time.monotonic()
-    expected_rows = {c["name"]: c["rows"] for c in diagnostic["collections"]}
-    for entry in tables_report:
-        name, check = entry["name"], checks[entry["name"]]
-        if check.source.rows != expected_rows.get(name):
-            raise ImportBlocked("target_row_count_mismatch", collection=name)
+    archive_expected = 0
+    for entry, specs, check in loaded:
+        name = entry["name"]
+        await _reread(state, name, specs, json_columns(specs), check)
+        check_final(name, check, row_counts.get(name))
+        archive_expected += row_counts.get(name)
         entry["source_fingerprint"] = check.source.hexdigest()
         entry["target_fingerprint"] = check.target.hexdigest()
-        if check.target.hexdigest() != check.source.hexdigest():
-            raise ImportBlocked("target_fingerprint_mismatch", collection=name)
-        if await _server_rows(state, name) != (check.server_rows, check.server_hash):
-            raise ImportBlocked("target_changed_after_readback", collection=name)
     archive = state.archive
-    if archive.target.hexdigest() != archive.source.hexdigest():
-        raise ImportBlocked("target_fingerprint_mismatch", collection=ARCHIVE_TABLE)
-    if await _server_rows(state, ARCHIVE_TABLE) != (archive.server_rows, archive.server_hash):
-        raise ImportBlocked("target_changed_after_readback", collection=ARCHIVE_TABLE)
-    if archive.server_rows != state.count:
-        raise ImportBlocked("target_row_count_mismatch", collection=ARCHIVE_TABLE)
+    await _reread(state, ARCHIVE_TABLE, ARCHIVE_READ, ARCHIVE_JSON, archive)
+    check_final(ARCHIVE_TABLE, archive, archive_expected)
     final_seconds = time.monotonic() - final_started
     conservation_started = time.monotonic()
     recount = await target_anomalies(
-        connection, definitions, spec, staged["storage"], row_counts=expected_rows
+        connection, definitions, spec, staged["storage"], row_counts=row_counts
     )
     state.statements["conservation"] += recount["statements"]
-    preserved = diagnostic.get("preserved_source_anomalies")
-    if preserved is None or _comparable(recount) != _comparable(preserved):
-        raise ImportBlocked("anomaly_conservation_mismatch")
-    if recount["relations_checked"] != diagnostic.get("relations_checked"):
-        raise ImportBlocked("anomaly_conservation_mismatch")
-    if recount["unreferenced_files"] != diagnostic.get("unreferenced_files"):
-        raise ImportBlocked("anomaly_conservation_mismatch")
+    check_conservation(recount, diagnostic)
     evidence.update(
         {
             "rows": state.count,
-            "archive_rows": archive.server_rows,
-            "archive_fingerprint": archive.source.hexdigest(),
-            "fingerprints_match": True,
+            "archive_rows": archive.target.rows,
+            "archive_fingerprint": archive.target.hexdigest(),
             "typed_batch_readback": True,
+            "final_typed_reread": True,
+            "fingerprints_match": True,
             "server_row_hashes_unchanged_since_readback": True,
             "conservation": {
                 "dangling_relations": recount["dangling_relations"],
@@ -2285,7 +2442,11 @@ async def import_snapshot(
     """Stage, then load in one transaction; on any failure nothing remains.
 
     The transaction is rolled back and the fresh staging directory created by
-    this call is removed. On success the staged copy is kept for serving.
+    this call is removed. On success the staged copy is kept for serving (it
+    holds a private copy of data.db: destroy it after a rehearsal). A killed
+    process (SIGKILL, OOM) leaves nothing in PostgreSQL (the open transaction
+    is rolled back by the server) but cannot remove ``destination``: delete it
+    or use a new path, a retry at the same path fails with FileExistsError.
     """
     evidence = report if report is not None else {}
     started = time.monotonic()
@@ -2315,14 +2476,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     inputs = parser.add_mutually_exclusive_group(required=True)
     inputs.add_argument("--data", type=Path, help="Closed backup directory")
-    inputs.add_argument("--archive", type=Path, help="ZIP inventory only; never extracted")
     inputs.add_argument(
-        "--extract",
+        "--archive",
         type=Path,
-        help="Verified private extraction of a ZIP (needs --destination and --manifest-out)",
+        help="ZIP inventory only; never extracted (verified extraction: scripts.c11_extract)",
     )
-    parser.add_argument("--destination", type=Path, help="New private extraction directory")
-    parser.add_argument("--manifest-out", type=Path, help="New private manifest file")
     parser.add_argument("--schema", type=Path)
     parser.add_argument("--source-version", help="Version supplied with this backup; not guessed")
     parser.add_argument(
@@ -2346,10 +2504,8 @@ def main():
         parser.error("--schema is required with --data")
     if not args.data and (args.manifest or args.private_report or args.target_columns):
         parser.error("--manifest, --target-columns and --private-report require --data")
-    if bool(args.extract) != bool(args.destination and args.manifest_out):
-        parser.error("--extract needs --destination and --manifest-out (and only it does)")
     for path in (args.report, args.private_report):
-        if path is not None and (path.exists() or path.is_symlink()):
+        if path is not None and path_present(path):
             parser.error(f"{path} must be a new path")
     if args.private_report is not None and args.private_report == args.report:
         parser.error("--private-report must differ from --report")
@@ -2357,8 +2513,6 @@ def main():
     try:
         if args.archive:
             report = inspect_archive(args.archive)
-        elif args.extract:
-            report = extract_archive(args.extract, args.destination, args.manifest_out)
         else:
             spec = None
             if args.target_columns:
@@ -2378,9 +2532,13 @@ def main():
             "error": str(exc) if isinstance(exc, ImportBlocked) else type(exc).__name__,
         }
         private = None
-    write_json_new(args.report, report)
-    if private is not None:
-        write_json_new(args.private_report, private)
+    # Both documents are complete before any file exists: a value that cannot
+    # be encoded never leaves one report written and the other one partial.
+    public = json_bytes(report)
+    details = json_bytes(private, ascii=True) if private is not None else None
+    write_bytes_new(args.report, public)
+    if details is not None:
+        write_bytes_new(args.private_report, details)
     print(
         json.dumps(
             {
@@ -2390,15 +2548,8 @@ def main():
             }
         )
     )
-    return (
-        0
-        if (
-            report["ready_for_isolated_rehearsal"]
-            or report.get("ready_for_offline_extraction_review")
-            or report.get("crc_all_files_ok")
-        )
-        else 1
-    )
+    ok = report["ready_for_isolated_rehearsal"] or report.get("ready_for_offline_extraction_review")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

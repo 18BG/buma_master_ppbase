@@ -3,11 +3,13 @@
 import asyncio
 import hashlib
 import json
+import re
 import sqlite3
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import asyncpg
 import pytest
 
 import scripts.c11_import as c11
@@ -50,13 +52,52 @@ def test_integer_range_and_non_finite_json_are_checked():
     assert field_value({"type": "json"}, '{"nested":[false,0,"é"]}') == {"nested": [False, 0, "é"]}
 
 
-def test_dates_preserve_milliseconds_and_require_explicit_timezone():
+def test_dates_keep_the_exact_pocketbase_instant():
     assert date_value("2024-02-29 12:34:56.789Z") == datetime(2024, 2, 29, 12, 34, 56, 789000, UTC)
+    assert date_value("0001-01-01 00:00:00.000Z") == datetime(1, 1, 1, tzinfo=UTC)
     assert date_value("") is None
-    with pytest.raises(ImportBlocked, match="date_without_timezone"):
-        date_value("2024-02-29 12:34:56")
-    with pytest.raises(ImportBlocked, match="invalid_date"):
-        date_value("", required=True)
+    for value in ("", None, 0, b"2024-02-29 12:34:56.789Z"):
+        with pytest.raises(ImportBlocked, match="invalid_date"):
+            date_value(value, required=True)
+    # The layout matches, the calendar does not: never rolled over or clamped.
+    for value in (
+        "2023-02-29 00:00:00.000Z",
+        "2024-13-01 00:00:00.000Z",
+        "2024-01-01 24:00:00.000Z",
+        "2024-01-01 23:59:60.000Z",
+        "0000-01-01 00:00:00.000Z",
+    ):
+        with pytest.raises(ImportBlocked, match="invalid_date"):
+            date_value(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2024-02-29 12:34:56Z",  # no milliseconds
+        "2024-02-29 12:34:56.7Z",
+        "2024-02-29 12:34:56.1234Z",
+        "2024-02-29 12:34:56.123456Z",
+        "2024-02-29 12:34:56.1234567Z",  # fromisoformat would truncate silently
+        "2024-02-29T12:34:56.789Z",
+        "2024-02-29 12:34:56.789+00:00",
+        "2024-02-29 12:34:56.789+05:30",  # an offset would be converted
+        "2024-02-29 12:34:56.789",
+        "2024-02-29 12:34:56,789Z",
+        "2024-02-29 12:34:56.789z",
+        "20240229T123456Z",
+        "2024-W09-4 12:34:56.789Z",
+        "2024-02-29 12Z",
+        "12:34:56.789Z",
+        " 2024-02-29 12:34:56.789Z",
+        "2024-02-29 12:34:56.789Z\n",
+        "٢٠٢٤-02-29 12:34:56.789Z",  # non-ASCII digits
+        "12024-02-29 12:34:56.789Z",
+    ],
+)
+def test_dates_accept_only_the_layout_pocketbase_writes(value):
+    with pytest.raises(ImportBlocked, match="date_not_pocketbase_layout"):
+        date_value(value)
 
 
 def test_multifiles_preserve_names_and_order_without_coercion():
@@ -64,6 +105,27 @@ def test_multifiles_preserve_names_and_order_without_coercion():
     for value in ('"a"', "null", '["a",2]'):
         with pytest.raises(ImportBlocked):
             array_value(value)
+
+
+def test_text_and_array_elements_refuse_values_postgresql_cannot_store():
+    files = {"type": "file", "options": {"maxSelect": 99}}
+    assert field_value(files, '["b.bin","a.bin","b.bin"]') == ["b.bin", "a.bin", "b.bin"]
+    assert field_value(files, '["\\u00e9t\\u00e9.bin"]') == ["été.bin"]
+    with pytest.raises(ImportBlocked, match="invalid_unicode_for_postgresql"):
+        field_value(files, '["one.bin","\\ud800.bin"]')
+    with pytest.raises(ImportBlocked, match="nul_in_postgresql_text"):
+        field_value(files, '["one\\u0000.bin"]')
+    with pytest.raises(ImportBlocked, match="invalid_unicode_for_postgresql"):
+        field_value({"type": "text"}, "lone \udc80 surrogate")
+    for kind, array, value in (
+        ("text", True, ["ok", "\ud800"]),
+        ("character varying", True, ["\udfff"]),
+        ("text", False, "x\ud800"),
+    ):
+        target = c11.TargetColumn("c", kind, array, 15 if "varying" in kind else None, True, False)
+        with pytest.raises(ImportBlocked, match="invalid_unicode_for_postgresql"):
+            c11.check_value(target, value)
+    c11.check_value(c11.TargetColumn("c", "character varying", False, 4, True, False), "été!")
 
 
 @pytest.mark.parametrize("part", ["../x", "a/b", "a\\b", "..", ".", "", "x\x00"])
@@ -93,8 +155,8 @@ def test_original_rowid_required_and_unknown_columns_rejected():
     collection = {"name": "buma_article", "type": "base", "schema": []}
     source = {
         "id": "same",
-        "created": "2024-01-01 00:00:00Z",
-        "updated": "2024-01-01 00:00:00Z",
+        "created": "2024-01-01 00:00:00.000Z",
+        "updated": "2024-01-01 00:00:00.000Z",
         "__c11_rowid": 7001,
     }
     values, archive = mapped_row(collection, source)
@@ -141,8 +203,6 @@ def test_private_staging_verifies_bytes_and_never_replaces_existing_files(tmp_pa
         conn.execute("CREATE TABLE sample(id TEXT)")
     (data / "storage").mkdir()
     (data / "storage" / "proof.bin").write_bytes(b"\x00\xfforiginal")
-    import hashlib
-
     manifest = storage_inventory(data / "storage")
     report = {
         "ready_for_isolated_rehearsal": True,
@@ -164,6 +224,30 @@ def test_private_staging_verifies_bytes_and_never_replaces_existing_files(tmp_pa
     assert not failed.exists()
 
 
+def test_directory_staging_keeps_every_level_private(tmp_path):
+    data = tmp_path / "source"
+    data.mkdir()
+    with sqlite3.connect(data / "data.db") as conn:
+        conn.execute("CREATE TABLE sample(id TEXT)")
+    for relative in ("col/rec/a.bin", "col/rec/thumbs_a.bin/100x100_a.bin", "other/r2/b.bin"):
+        path = data / "storage" / relative
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        path.write_bytes(relative.encode())
+        path.chmod(0o644)
+    inventory = storage_inventory(data / "storage")
+    report = {
+        "ready_for_isolated_rehearsal": True,
+        "data_db_sha256": digest(data / "data.db"),
+        "file_manifest_sha256": c11.inventory_fingerprint(inventory),
+    }
+    staged = tmp_path / "staged"
+    assert stage_snapshot(data, staged, report) == inventory
+    directories = [p for p in staged.rglob("*") if p.is_dir()]
+    assert len(directories) == 6  # storage, col, col/rec, thumbs, other, other/r2
+    assert {oct(p.stat().st_mode & 0o777) for p in [staged, *directories]} == {"0o700"}
+    assert {oct(p.stat().st_mode & 0o777) for p in staged.rglob("*") if p.is_file()} == {"0o600"}
+
+
 def test_symlinks_and_report_overwrite_are_rejected(tmp_path):
     (tmp_path / "outside").write_bytes(b"outside")
     (tmp_path / "storage").mkdir()
@@ -178,6 +262,32 @@ def test_symlinks_and_report_overwrite_are_rejected(tmp_path):
     assert target.stat().st_mode & 0o777 == 0o600
 
 
+def test_a_failed_report_write_leaves_no_partial_file(tmp_path, monkeypatch):
+    class Broken:
+        def __init__(self, fd, mode):
+            self.fd = fd
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            c11.os.close(self.fd)
+
+        def write(self, data):
+            raise OSError("disk full")
+
+    target = tmp_path / "report.json"
+    monkeypatch.setattr(c11.os, "fdopen", Broken)
+    with pytest.raises(OSError, match="disk full"):
+        write_json_new(target, {"value": 1})
+    assert not target.exists()
+    # A value that cannot be encoded fails before any file is created.
+    monkeypatch.undo()
+    with pytest.raises(ValueError):
+        write_json_new(target, {"value": float("nan")})
+    assert not target.exists()
+
+
 def test_archive_inventory_does_not_extract_or_claim_database_validation(tmp_path):
     path = tmp_path / "backup.zip"
     with zipfile.ZipFile(path, "w") as archive:
@@ -188,6 +298,7 @@ def test_archive_inventory_does_not_extract_or_claim_database_validation(tmp_pat
     assert not result["ready_for_isolated_rehearsal"]
     assert not result["content_crc_verified"]
     assert {p.name for p in tmp_path.iterdir()} == {"backup.zip"}
+    assert not hasattr(c11, "extract_archive")  # one verified extraction: c11_extract
 
 
 @pytest.mark.parametrize(
@@ -382,14 +493,22 @@ def test_orphans_and_missing_files_are_preserved_and_reported(tmp_path, monkeypa
         2,
     )
     assert report["unreferenced_files"] == 1 and report["relations_checked"] == 3
-    assert report["json_representation"] == [
+    # Client-visible jsonb changes are explicit warnings with their affected rows.
+    assert report["warnings"] == [
         {
+            "code": "jsonb_key_order_normalized",
             "collection": "parent",
             "field": "data",
-            "key_order_normalized": 1,
-            "sql_null_stored_as_json_null": 1,
-        }
+            "affected_rows": 1,
+        },
+        {
+            "code": "sql_null_json_stored_as_jsonb_null",
+            "collection": "parent",
+            "field": "data",
+            "affected_rows": 1,
+        },
     ]
+    assert "json_representation" not in report
     # Private details carry the record-level values; the public report never does.
     assert sorted(map(tuple, private["dangling_relations"])) == [
         ("parent", "child", "p2", "absent"),
@@ -418,6 +537,94 @@ def test_other_value_problems_still_block_with_field_counts(tmp_path, monkeypatc
     assert report["preserved_source_anomalies"]["dangling_relations"]["references"] == 2
 
 
+def test_duplicate_json_keys_block_and_never_collapse(tmp_path, monkeypatch):
+    with pytest.raises(ImportBlocked, match="jsonb_duplicate_keys_collapsed"):
+        c11.json_text('{"a":1,"a":2}')
+    with pytest.raises(ImportBlocked, match="jsonb_duplicate_keys_collapsed"):
+        c11.json_text('[{"x":{"k":true,"k":false}}]')
+    assert c11.json_text('{"a":{"a":1},"b":{"a":2}}') == '{"a":{"a":1},"b":{"a":2}}'
+    rows = PARENT_ROWS + [("p4", "c1", "", "[]", '{"k":1,"k":2}', 1)]
+    data, export, _ = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert report["blockers"] == [
+        {
+            "code": "jsonb_duplicate_keys_collapsed",
+            "collection": "parent",
+            "field": "data",
+            "affected_rows": 1,
+        }
+    ]
+    assert not report["ready_for_isolated_rehearsal"]
+
+
+def test_auth_legacy_dates_are_checked_by_the_diagnosis(tmp_path, monkeypatch):
+    assert c11.auth_legacy_text({}) == "{}"
+    legacy = {"lastResetSentAt": "", "lastVerificationSentAt": "x", "lastLoginAlertSentAt": ""}
+    assert json.loads(c11.auth_legacy_text(legacy)) == legacy
+    with pytest.raises(ImportBlocked, match="nul_in_postgresql_jsonb"):
+        c11.auth_legacy_text({**legacy, "lastResetSentAt": "2024\x00"})
+    with pytest.raises(ImportBlocked, match="invalid_auth_field"):
+        c11.auth_legacy_text({**legacy, "lastResetSentAt": float("nan")})
+    users = {**CHILD, "id": "_pb_users_auth_", "name": "users", "type": "auth"}
+    users["schema"] = []
+    export = tmp_path / "schema.json"
+    export.write_text(json.dumps([users]))
+    monkeypatch.setattr(c11, "SCHEMA_SHA256", digest(export))
+    data = tmp_path / "backup"
+    (data / "storage").mkdir(parents=True)
+    with sqlite3.connect(data / "data.db") as db:
+        db.execute(
+            "CREATE TABLE _collections (id TEXT PRIMARY KEY, system BOOLEAN, type TEXT, "
+            "name TEXT, schema JSON, indexes JSON, listRule TEXT, viewRule TEXT, "
+            "createRule TEXT, updateRule TEXT, deleteRule TEXT, options JSON)"
+        )
+        db.execute(
+            "INSERT INTO _collections VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (users["id"], False, "auth", "users", "[]", "[]", None, None, None, None, None, "{}"),
+        )
+        db.execute(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, created TEXT, updated TEXT, username TEXT, "
+            "email TEXT, emailVisibility BOOLEAN, verified BOOLEAN, tokenKey TEXT, "
+            "passwordHash TEXT, lastResetSentAt TEXT, lastVerificationSentAt TEXT, "
+            "lastLoginAlertSentAt TEXT)"
+        )
+        db.execute(
+            "INSERT INTO users VALUES ('u1', ?, ?, 'u', '', 0, 1, 'k', 'h', ?, '', '')",
+            (TIMESTAMP, TIMESTAMP, "2024\x00"),
+        )
+        db.execute("CREATE TABLE buma_transaction (id TEXT PRIMARY KEY, system_id TEXT)")
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert report["blockers"] == [
+        {
+            "code": "nul_in_postgresql_jsonb",
+            "collection": "users",
+            "field": "auth_legacy",
+            "affected_rows": 1,
+        }
+    ]
+
+
+def test_lone_surrogates_block_and_private_reports_stay_valid_json(tmp_path, monkeypatch, capsys):
+    rows = PARENT_ROWS + [("p5", "c1", "", '["one.bin","\\ud800.bin"]', "{}", 1)]
+    data, export, _ = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert {"code": "invalid_unicode_for_postgresql", "field": "gallery"} in [
+        {k: b.get(k) for k in ("code", "field")} for b in report["blockers"]
+    ]
+    public, private = tmp_path / "public.json", tmp_path / "private.json"
+    argv = ["c11_import", "--data", str(data), "--schema", str(export)]
+    argv += ["--source-version", "0.22.27", "--report", str(public)]
+    monkeypatch.setattr("sys.argv", argv + ["--private-report", str(private)])
+    assert c11.main() == 1
+    capsys.readouterr()
+    raw = private.read_bytes()
+    raw.decode("utf-8")  # valid UTF-8: the surrogate is an escape, not bytes
+    assert b"\\ud800" in raw
+    keys = json.loads(raw)["missing_files"]
+    assert f"{PARENT['id']}/p5/\ud800.bin" in keys
+    assert json.loads(public.read_text())["ready_for_isolated_rehearsal"] is False
+
+
 def test_unbounded_relations_stay_blocked_but_their_orphans_are_counted(tmp_path, monkeypatch):
     unbounded = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
     parent = {**PARENT, "schema": [*PARENT["schema"], unbounded]}
@@ -434,6 +641,39 @@ def test_unbounded_relations_stay_blocked_but_their_orphans_are_counted(tmp_path
     )
     # One stored element is one reference: never split on the comma.
     assert (tags["references"], tags["records"], tags["distinct_targets"]) == (3, 3, 1)
+
+
+def test_unbounded_relation_is_reported_once_per_field(tmp_path, monkeypatch):
+    unbounded = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
+    parent = {**PARENT, "schema": [*PARENT["schema"], unbounded]}
+    rows = [row + ('["c1"]',) for row in PARENT_ROWS]
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
+    spec = spec_for(schema)
+    spec["parent"]["tags"] = c11.TargetColumn("tags", "character varying", False, 15, True, True)
+    for target in (None, spec):
+        report = c11.diagnose(data, export, source_version="0.22.27", target_columns=target)
+        entries = [
+            entry
+            for entry in report["blockers"] + report["warnings"]
+            if isinstance(entry, dict) and entry["code"] == "unbounded_relation_target_scalar"
+        ]
+        expected = {
+            "code": "unbounded_relation_target_scalar",
+            "collection": "parent",
+            "field": "tags",
+            "affected_rows": 3,
+        }
+        if target is not None:  # the preflight details join the same blocker
+            expected["expected"] = "character varying[]|text[]"
+            expected["actual"] = "character varying(15)"
+        assert entries == [expected]
+    # Empty table: the field is still reported, once, as a warning.
+    (tmp_path / "empty").mkdir()
+    data, export, schema = tiny_snapshot(tmp_path / "empty", monkeypatch, [], parent)
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    assert report["blockers"] == []
+    assert [w["code"] for w in report["warnings"]] == ["unbounded_relation_target_scalar"]
+    assert report["warnings"][0]["actual"] == "character varying(15)"
 
 
 def test_unbounded_relation_arrays_are_copied_exactly_once_enabled(monkeypatch):
@@ -516,11 +756,13 @@ def test_accepted_values_and_nullable_columns():
         ('{"k":"\\u0000"}', "nul_in_postgresql_jsonb"),
         ('{"\\u0000":1}', "nul_in_postgresql_jsonb"),
         ('"\\ud800"', "invalid_unicode_for_postgresql"),
+        ('{"\\udfff":1}', "invalid_unicode_for_postgresql"),
         ('{"v":-0}', "json_number_not_representable"),
         ('{"v":-0.0e5}', "json_number_not_representable"),
         ('{"v":1e-20000}', "json_number_outside_target_range"),
         ("[1e200000]", "json_number_outside_target_range"),
         ('{"v":NaN}', "non_finite_json"),
+        ('{"v":1,"v":1}', "jsonb_duplicate_keys_collapsed"),
         ("not json", "invalid_json"),
         ("", "invalid_json"),
         pytest.param("[" * 257 + "]" * 257, "json_nesting_too_deep", id="deep"),
@@ -532,17 +774,20 @@ def test_json_must_be_exactly_representable_in_jsonb(text, code):
         c11.json_text(text)
 
 
-def test_json_source_text_is_kept_verbatim():
+def test_json_source_text_is_kept_verbatim_and_key_order_changes_are_detected():
     exact = '{"b": 0.12345678901234567890123, "a": 1e400, "n": [1.50, true]}'
     assert c11.json_text(exact) == exact  # no float round-trip, no re-serialization
     assert (c11.json_text(None), c11.json_text(5), c11.json_text(1.5)) == ("null", "5", "1.5")
     with pytest.raises(ImportBlocked, match="json_number_not_representable"):
         c11.json_text(-0.0)
-    assert c11.json_representation_flags('{"aa":1,"b":2,"b":3}') == {
-        "duplicate_keys",
-        "key_order_normalized",
-    }
-    assert c11.json_representation_flags('{"b":1,"aa":[{"a":1}]}') == set()
+    # jsonb orders keys by UTF-8 length, then bytes, at every depth.
+    assert c11.jsonb_key_order_changes('{"aa":1,"b":2}')
+    assert c11.jsonb_key_order_changes('[{"ok":1},{"x":{"zz":1,"y":2}}]')
+    assert c11.jsonb_key_order_changes('{"é":1,"z":2}')  # é is two bytes
+    assert not c11.jsonb_key_order_changes('{"b":1,"aa":[{"a":1}]}')
+    assert not c11.jsonb_key_order_changes('{"z":1,"é":2}')
+    assert not c11.jsonb_key_order_changes("null")
+    assert not c11.jsonb_key_order_changes("[3,[]]")
 
 
 def test_row_keys_compare_exact_typed_values():
@@ -694,6 +939,10 @@ def test_manifest_mode_checks_references_without_file_bytes(tmp_path, monkeypatc
     (bundle / "storage").mkdir()
     with pytest.raises(ImportBlocked, match="storage_directory_and_manifest_both_supplied"):
         c11.diagnose(bundle, export, source_version="0.22.27", manifest=manifest)
+    (bundle / "storage").rmdir()
+    (bundle / "storage").symlink_to(tmp_path / "nowhere")  # even a dangling link
+    with pytest.raises(ImportBlocked, match="storage_directory_and_manifest_both_supplied"):
+        c11.diagnose(bundle, export, source_version="0.22.27", manifest=manifest)
 
 
 def entry(path, size=0, sha="0" * 64, crc="0" * 8):
@@ -712,6 +961,7 @@ def entry(path, size=0, sha="0" * 64, crc="0" * 8):
         (lambda m: m["files"].append(entry("/abs")), "manifest_unsafe_entry"),
         (lambda m: m["files"].append(entry("storage\\x")), "manifest_unsafe_entry"),
         (lambda m: m["files"].append(entry("storage//x")), "manifest_unsafe_entry"),
+        (lambda m: m["files"].append(entry("./storage/x")), "manifest_unsafe_entry"),
         (lambda m: m["files"].append(dict(m["files"][0])), "manifest_duplicate_entry"),
         (lambda m: m["files"].append(entry("pb_data/x")), "unexpected_manifest_entry"),
         (
@@ -750,6 +1000,11 @@ def test_empty_sidecars_are_accepted_and_reported(tmp_path, monkeypatch):
     assert checked["storage"] == storage_inventory(data / "storage")
 
 
+# ---------------------------------------------------------------------------
+# Load: transaction checks, verification layers and their failure codes.
+# ---------------------------------------------------------------------------
+
+
 class FakeResult:
     def __init__(self, value):
         self.value = value
@@ -758,11 +1013,21 @@ class FakeResult:
         return self.value
 
 
+class FakeRaw:
+    def __init__(self, transaction):
+        self.driver_connection = self
+        self.transaction = transaction
+
+    def is_in_transaction(self):
+        return self.transaction
+
+
 class FakeConnection:
     """Answers only current_database(); proves the checks that precede SQL."""
 
-    def __init__(self, database="buma_c11_rehearsal", transaction=False):
+    def __init__(self, database="buma_c11_rehearsal", transaction=True, driver_transaction=True):
         self.database, self.transaction = database, transaction
+        self.driver_transaction = driver_transaction
         self.statements = []
 
     async def execute(self, statement, parameters=None):
@@ -771,6 +1036,9 @@ class FakeConnection:
 
     def in_transaction(self):
         return self.transaction
+
+    async def get_raw_connection(self):
+        return FakeRaw(self.driver_transaction)
 
 
 def test_manifest_staging_copies_only_data_db_and_load_checks_the_mode(tmp_path, monkeypatch):
@@ -787,15 +1055,12 @@ def test_manifest_staging_copies_only_data_db_and_load_checks_the_mode(tmp_path,
     written = json.loads((staged / "manifest.json").read_text())
     assert (written["storage_mode"], written["file_bytes_copied"]) == ("manifest", False)
     assert (staged / "manifest.json").stat().st_mode & 0o777 == 0o600
-    with pytest.raises(ImportBlocked, match="isolated_rehearsal_database_required"):
-        asyncio.run(c11.load_isolated(FakeConnection("other"), staged, schema))
-    with pytest.raises(ImportBlocked, match="caller_transaction_required"):
-        asyncio.run(c11.load_isolated(FakeConnection(), staged, schema))
     (staged / "storage").mkdir()
     connection = FakeConnection()
     with pytest.raises(ImportBlocked, match="storage_mode_mismatch"):
         asyncio.run(c11.load_isolated(connection, staged, schema))
     assert connection.statements == []
+    (staged / "storage").rmdir()
     # A manifest edited after the diagnosis cannot be staged.
     changed = json.loads(manifest.read_text())
     changed["files"].append(entry("README.md", size=3))
@@ -804,6 +1069,27 @@ def test_manifest_staging_copies_only_data_db_and_load_checks_the_mode(tmp_path,
     with pytest.raises(ImportBlocked, match="manifest_changed_after_diagnosis"):
         stage_snapshot(bundle, tmp_path / "late", report, manifest=manifest)
     assert not (tmp_path / "late").exists()
+
+
+def test_load_requires_a_caller_transaction_before_any_statement(tmp_path, monkeypatch):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    staged = tmp_path / "staged"
+    stage_snapshot(data, staged, report)
+    # engine.connect() without begin(): refused before SQLAlchemy can autobegin.
+    connection = FakeConnection(transaction=False)
+    with pytest.raises(ImportBlocked, match="caller_transaction_required"):
+        asyncio.run(c11.load_isolated(connection, staged, schema))
+    assert connection.statements == []
+    # An AUTOCOMMIT driver connection: refused before LOCK or any write.
+    connection = FakeConnection(driver_transaction=False)
+    with pytest.raises(ImportBlocked, match="caller_transaction_required"):
+        asyncio.run(c11.load_isolated(connection, staged, schema))
+    assert connection.statements == ["SELECT current_database()"]
+    connection = FakeConnection("other")
+    with pytest.raises(ImportBlocked, match="isolated_rehearsal_database_required"):
+        asyncio.run(c11.load_isolated(connection, staged, schema))
+    assert connection.statements == ["SELECT current_database()"]
 
 
 def test_import_snapshot_removes_its_staging_after_any_failure(tmp_path, monkeypatch):
@@ -835,6 +1121,306 @@ def test_import_snapshot_removes_its_staging_after_any_failure(tmp_path, monkeyp
     assert stage_snapshot(data, destination, report) == storage_inventory(data / "storage")
 
 
+def server_hash(row) -> int:
+    """Deterministic stand-in for hashtextextended(row::text, 0) (signed 64-bit)."""
+    return int.from_bytes(hashlib.sha256(repr(row).encode()).digest()[:8], "big", signed=True)
+
+
+class FakePostgres:
+    """In-memory stand-in for the asyncpg calls of the load (COPY, fetch, cursor).
+
+    Rows are stored in COPY column order. ``on_copy`` may alter rows as they are
+    stored, like a BEFORE INSERT trigger. Readback and re-read return the
+    selected order (the archive is read key first) plus a row hash computed from
+    the stored row at query time, like PostgreSQL.
+    """
+
+    def __init__(self, on_copy=None):
+        self.tables, self.calls, self.on_copy = {}, [], on_copy
+
+    async def copy_records_to_table(self, table, records, columns, schema_name):
+        self.calls.append(("copy", table, len(records)))
+        rows = [tuple(record) for record in records]
+        if self.on_copy:
+            rows = [self.on_copy(table, row) for row in rows]
+        self.tables.setdefault(table, []).extend(rows)
+
+    def selected(self, sql):
+        table = re.search(r'FROM "([^"]+)"', sql).group(1)
+        rows = self.tables.get(table, [])
+        if table == c11.ARCHIVE_TABLE:
+            return [(r[1], r[2], r[3], r[0], server_hash(r)) for r in rows]
+        return [(*r, server_hash(r)) for r in rows]
+
+    async def fetch(self, sql, *arguments):
+        self.calls.append(("fetch", sql))
+        rows = self.selected(sql)
+        if c11.ARCHIVE_TABLE in sql:
+            collection, ids = arguments
+            return [r for r in rows if r[3] == collection and r[0] in ids]
+        return [r for r in rows if r[0] in arguments[0]]
+
+    def cursor(self, sql, prefetch=None):
+        self.calls.append(("cursor", sql, prefetch))
+        rows = self.selected(sql)
+
+        class Cursor:
+            def __aiter__(self):
+                self.rows = iter(rows)
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(self.rows)
+                except StopIteration:
+                    raise StopAsyncIteration from None
+
+        return Cursor()
+
+
+def parent_load(tmp_path, monkeypatch, fake, *, spec=None, batch_size=2, after_batches=None):
+    """_load_table, then the end-of-load re-read and verdicts, on FakePostgres."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    plan = c11.RowPlan(PARENT)
+    spec = spec or spec_for(schema)
+    specs = [spec["parent"][column] for column in plan.columns]
+    state = c11._LoadState(fake, batch_size, None)
+    check = c11._Verification()
+    entry = {"name": "parent", "rows": 0, "copy_batches": 0}
+
+    async def run():
+        with snapshot(data, worker_threads=True) as db:
+            await c11._load_table(state, db, PARENT, plan, specs, check, entry)
+        if after_batches:
+            after_batches(fake)
+        await c11._reread(state, "parent", specs, c11.json_columns(specs), check)
+        c11.check_final("parent", check, 3)
+        await c11._reread(
+            state, c11.ARCHIVE_TABLE, c11.ARCHIVE_READ, c11.ARCHIVE_JSON, state.archive
+        )
+        c11.check_final(c11.ARCHIVE_TABLE, state.archive, 3)
+
+    asyncio.run(run())
+    return state, check, entry
+
+
+def test_load_pipeline_verifies_batches_and_the_final_reread(tmp_path, monkeypatch):
+    fake = FakePostgres()
+    state, check, entry = parent_load(tmp_path, monkeypatch, fake)
+    assert (entry["rows"], entry["copy_batches"]) == (3, 2)
+    assert check.source.hexdigest() == check.target.hexdigest()
+    assert check.server_rows == 3 and check.final_hash == check.server_hash
+    assert state.archive.target.rows == 3
+    assert dict(state.statements) == {"copy": 4, "readback": 4, "final_check": 2}
+    cursors = [call for call in fake.calls if call[0] == "cursor"]
+    assert [call[2] for call in cursors] == [c11.FINAL_PREFETCH] * 2
+    assert all("ANY" not in call[1] for call in cursors)  # full scans, no key list
+    # The archive keeps the source rowids and the collection of each record.
+    stored = fake.tables[c11.ARCHIVE_TABLE]
+    assert [(r[0], r[1], r[2], r[3]) for r in stored] == [
+        (PARENT["id"], record, rowid, "{}") for rowid, record in enumerate(("p1", "p2", "p3"), 1)
+    ]
+
+
+@pytest.mark.parametrize(
+    "column,alter",
+    [
+        ("amount", lambda value: value + 2**-40 if isinstance(value, float) else value),
+        ("updated", lambda value: value + timedelta(microseconds=1)),
+        ("gallery", lambda value: list(reversed(value))),
+        ("data", lambda value: value.replace("2", "3") if isinstance(value, str) else value),
+        ("child", lambda value: value + " "),
+        ("photo", lambda value: None if value == "" else value),
+    ],
+)
+def test_batch_readback_detects_a_value_changed_while_stored(tmp_path, monkeypatch, column, alter):
+    position = c11.RowPlan(PARENT).columns.index(column)
+
+    def trigger(table, row):
+        if table != "parent" or row[0] != ("p3" if column == "photo" else "p1"):
+            return row
+        changed = list(row)
+        changed[position] = alter(changed[position])
+        return tuple(changed)
+
+    with pytest.raises(ImportBlocked, match="target_readback_mismatch") as raised:
+        parent_load(tmp_path, monkeypatch, FakePostgres(trigger))
+    assert raised.value.details == {"collection": "parent", "field": column}
+
+
+def test_batch_readback_detects_missing_extra_and_duplicate_rows():
+    names = ("id", "label")
+    values = [("a", "x"), ("b", "y")]
+    expected = [(v[0], v, c11.row_key(v)) for v in values]
+
+    def run(found):
+        state = c11._LoadState(type("D", (), {"fetch": staticmethod(fetch(found))})(), 5, None)
+        check = c11._Verification()
+        asyncio.run(c11._verify_batch(state, "SQL", [], expected, (), names, check, "t"))
+        return check
+
+    def fetch(found):
+        async def answer(sql, *arguments):
+            return found
+
+        return answer
+
+    check = run([(*values[0], 5), (*values[1], -7)])
+    assert (check.server_rows, check.server_hash) == (2, -2)
+    for found in (
+        [(*values[0], 5)],  # a copied row is absent
+        [(*values[0], 5), (*values[1], 1), ("c", "z", 1)],  # an extra row
+        [(*values[0], 5), (*values[0], 5)],  # the same key twice, one missing
+        [(*values[0], 5), ("c", "y", 1)],  # another key
+    ):
+        with pytest.raises(ImportBlocked, match="target_readback_mismatch"):
+            run(found)
+    with pytest.raises(ImportBlocked, match="target_readback_mismatch") as raised:
+        run([(*values[0], 5), ("b", "Y", 1)])
+    assert raised.value.details == {"collection": "t", "field": "label"}
+
+
+def test_final_reread_detects_changes_after_the_batch_readback(tmp_path, monkeypatch):
+    amount = c11.RowPlan(PARENT).columns.index("amount")
+
+    def update(fake):  # like a later UPDATE of an already verified row
+        row = list(fake.tables["parent"][0])
+        row[amount] = 99.0
+        fake.tables["parent"][0] = tuple(row)
+
+    with pytest.raises(ImportBlocked, match="target_changed_after_readback"):
+        parent_load(tmp_path / "update", monkeypatch, FakePostgres(), after_batches=update)
+
+    def insert(fake):  # like a trigger inserting into an already verified table
+        fake.tables["parent"].append(("p9", *fake.tables["parent"][0][1:]))
+
+    with pytest.raises(ImportBlocked, match="target_row_count_mismatch"):
+        parent_load(tmp_path / "insert", monkeypatch, FakePostgres(), after_batches=insert)
+
+    def archive(fake):
+        row = list(fake.tables[c11.ARCHIVE_TABLE][1])
+        row[2] = -1  # another source rowid
+        fake.tables[c11.ARCHIVE_TABLE][1] = tuple(row)
+
+    with pytest.raises(ImportBlocked, match="target_changed_after_readback") as raised:
+        parent_load(tmp_path / "archive", monkeypatch, FakePostgres(), after_batches=archive)
+    assert raised.value.details == {"collection": c11.ARCHIVE_TABLE}
+
+
+def test_final_reread_catches_what_a_broken_batch_comparison_would_miss(tmp_path, monkeypatch):
+    """Regression guard: the re-read digest is independent of _verify_batch."""
+    amount = c11.RowPlan(PARENT).columns.index("amount")
+
+    def trigger(table, row):
+        if table == "parent" and row[0] == "p2":
+            row = (*row[:amount], 1.0, *row[amount + 1 :])
+        return row
+
+    async def accepts_anything(state, sql, arguments, expected, json_positions, names, check, t):
+        found = await state.driver.fetch(sql, *arguments)
+        for record in found:  # sums the hashes but compares nothing
+            check.server_rows += 1
+            check.server_hash += record[len(names)]
+
+    monkeypatch.setattr(c11, "_verify_batch", accepts_anything)
+    with pytest.raises(ImportBlocked, match="target_fingerprint_mismatch"):
+        parent_load(tmp_path, monkeypatch, FakePostgres(trigger))
+
+
+def test_check_final_reports_each_layer_with_its_own_code():
+    def verification(source=("a",), server=1, target=("a",), hashes=(5, 5)):
+        check = c11._Verification()
+        for key in source:
+            check.source.add(c11.row_digest(key))
+        for key in target:
+            check.target.add(c11.row_digest(key))
+        check.server_rows = server
+        check.server_hash, check.final_hash = hashes
+        return check
+
+    c11.check_final("t", verification(), 1)
+    for check, expected, code in (
+        (verification(), 2, "source_row_count_mismatch"),
+        (verification(server=0), 1, "target_row_count_mismatch"),
+        (verification(target=("a", "b")), 1, "target_row_count_mismatch"),
+        (verification(hashes=(5, 6)), 1, "target_changed_after_readback"),
+        (verification(target=("b",)), 1, "target_fingerprint_mismatch"),
+    ):
+        with pytest.raises(ImportBlocked, match=code) as raised:
+            c11.check_final("t", check, expected)
+        assert raised.value.details == {"collection": "t"}
+
+
+def test_values_are_checked_before_any_copy(tmp_path, monkeypatch):
+    narrow = c11.TargetColumn("child", "character varying", False, 3, True, True)
+    fake = FakePostgres()
+    spec = spec_for([CHILD, PARENT], {("parent", "child"): narrow})
+    with pytest.raises(ImportBlocked, match="value_exceeds_target_length") as raised:
+        parent_load(tmp_path, monkeypatch, fake, spec=spec, batch_size=5)
+    assert raised.value.details == {"collection": "parent", "field": "child"}
+    assert fake.calls == []  # the failing batch was never sent
+
+
+def test_copy_failures_are_coded_with_their_sqlstate():
+    def state_raising(error):
+        class Driver:
+            async def copy_records_to_table(self, *args, **kwargs):
+                raise error
+
+        return c11._LoadState(Driver(), 5, None)
+
+    check = asyncpg.exceptions.CheckViolationError.new(
+        {"C": "23514", "M": "violates check constraint", "n": "c11_negative_check"}
+    )
+    for error, code, sqlstate, constraint in (
+        (check, "target_constraint_violation", "23514", "c11_negative_check"),
+        (asyncpg.exceptions.RaiseError("raised by a trigger"), "target_copy_failed", "P0001", None),
+        (asyncpg.exceptions.DiskFullError("disk full"), "target_copy_failed", "53100", None),
+    ):
+        with pytest.raises(ImportBlocked, match=code) as raised:
+            asyncio.run(c11._copy(state_raising(error), "t", ("id",), [("a",)], "t"))
+        assert raised.value.details == {
+            "collection": "t",
+            "sqlstate": sqlstate,
+            "constraint": constraint,
+        }
+    unicode_error = UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogates not allowed")
+    with pytest.raises(ImportBlocked, match="invalid_unicode_for_postgresql"):
+        asyncio.run(c11._copy(state_raising(unicode_error), "t", ("id",), [("\ud800",)], "t"))
+
+
+def test_conservation_recount_must_equal_the_diagnosis(tmp_path, monkeypatch):
+    data, export, _ = tiny_snapshot(tmp_path, monkeypatch)
+    diagnostic = c11.diagnose(data, export, source_version="0.22.27")
+    preserved = diagnostic["preserved_source_anomalies"]
+    recount = {
+        **json.loads(json.dumps(preserved)),
+        "relations_checked": diagnostic["relations_checked"],
+        "unreferenced_files": diagnostic["unreferenced_files"],
+    }
+    c11.check_conservation(recount, diagnostic)
+
+    def changed(edit):
+        value = json.loads(json.dumps(recount))
+        edit(value)
+        return value
+
+    for variant in (
+        changed(lambda v: v["dangling_relations"]["fields"][0].update(references=1)),
+        changed(lambda v: v["dangling_relations"]["fields"][0].update(distinct_targets=2)),
+        changed(lambda v: v["dangling_relations"].update(records=1)),
+        changed(lambda v: v["missing_files"]["fields"].pop()),
+        changed(lambda v: v["missing_files"].update(records=3)),
+        changed(lambda v: v.update(relations_checked=2)),
+        changed(lambda v: v.update(unreferenced_files=0)),
+    ):
+        with pytest.raises(ImportBlocked, match="anomaly_conservation_mismatch"):
+            c11.check_conservation(variant, diagnostic)
+    with pytest.raises(ImportBlocked, match="anomaly_conservation_mismatch"):
+        c11.check_conservation(recount, {**diagnostic, "preserved_source_anomalies": None})
+
+
 def test_cli_writes_new_public_and_private_reports(tmp_path, monkeypatch, capsys):
     data, export, _ = tiny_snapshot(tmp_path, monkeypatch)
     public, private = tmp_path / "public.json", tmp_path / "private.json"
@@ -851,6 +1437,9 @@ def test_cli_writes_new_public_and_private_reports(tmp_path, monkeypatch, capsys
     with pytest.raises(SystemExit):
         c11.main()  # the public report already exists: nothing is overwritten
     assert not (tmp_path / "new.json").exists()
+    monkeypatch.setattr("sys.argv", ["c11_import", "--extract", "x.zip", "--report", "r.json"])
+    with pytest.raises(SystemExit):
+        c11.main()  # extraction belongs to scripts.c11_extract only
 
 
 def test_rowid_archive_and_auth_columns_have_a_fixed_order():
@@ -899,122 +1488,3 @@ def test_rowid_archive_and_auth_columns_have_a_fixed_order():
         key=str,
     )
     assert c11.inventory_fingerprint({}) == hashlib.sha256(b"{}").hexdigest()
-
-
-def backup_zip(tmp_path, members, name="backup.zip"):
-    path = tmp_path / name
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
-        for member, content in members:
-            archive.writestr(member, content)
-    return path
-
-
-def test_verified_extraction_writes_private_files_and_the_manifest_format(tmp_path):
-    with sqlite3.connect(tmp_path / "source.db") as conn:
-        conn.execute("CREATE TABLE sample(id TEXT)")
-    database = (tmp_path / "source.db").read_bytes()
-    archive = backup_zip(
-        tmp_path,
-        [
-            ("data.db", database),
-            ("data.db-wal", b""),
-            ("storage/col/rec/file.bin", b"\x00\xffbytes"),
-            ("storage/col/rec/thumbs_file.bin/100x100_file.bin", b"thumb"),
-        ],
-    )
-    destination, manifest = tmp_path / "extracted", tmp_path / "manifest.json"
-    result = c11.extract_archive(archive, destination, manifest)
-    assert result["crc_all_files_ok"] and result["files"] == 4
-    assert result["archive_sha256"] == digest(archive)
-    written = json.loads(manifest.read_text())
-    assert written["archive_sha256"] == digest(archive)
-    assert [entry["path"] for entry in written["files"]] == [
-        "data.db",
-        "data.db-wal",
-        "storage/col/rec/file.bin",
-        "storage/col/rec/thumbs_file.bin/100x100_file.bin",
-    ]
-    for entry in written["files"]:
-        path = destination / entry["path"]
-        sha, crc, size = c11.file_checksums(path)
-        assert (sha, crc, size) == (entry["sha256"], entry["crc32"], entry["bytes"])
-        assert path.stat().st_mode & 0o777 == 0o600
-        assert path.parent.stat().st_mode & 0o777 == 0o700
-    assert manifest.stat().st_mode & 0o777 == 0o600
-    # The same manifest drives both storage modes.
-    checked = c11.read_manifest(manifest, destination / "data.db")
-    assert checked["storage"] == storage_inventory(destination / "storage")
-    with pytest.raises(FileExistsError):
-        c11.extract_archive(archive, destination, tmp_path / "other.json")
-    assert not (tmp_path / "other.json").exists()
-
-
-def test_extraction_keeps_every_directory_private_with_directory_entries(tmp_path):
-    archive = tmp_path / "backup.zip"
-    with zipfile.ZipFile(archive, "w") as zipped:
-        zipped.mkdir("storage/c/r")  # explicit directory entries, as many ZIPs have
-        zipped.writestr("data.db", b"database")
-        zipped.writestr("storage/c/r/thumbs_f/100x100_f", b"thumb")
-        zipped.writestr("storage/c/r/f", b"file")
-    destination = tmp_path / "extracted"
-    c11.extract_archive(archive, destination, tmp_path / "manifest.json")
-    directories = [path for path in destination.rglob("*") if path.is_dir()]
-    assert len(directories) == 4
-    assert {oct(path.stat().st_mode & 0o777) for path in [destination, *directories]} == {"0o700"}
-    assert {oct(p.stat().st_mode & 0o777) for p in destination.rglob("*") if p.is_file()} == {
-        "0o600"
-    }
-
-
-@pytest.mark.parametrize(
-    "members,code",
-    [
-        ([("data.db", b"x"), ("../escape", b"x")], "unsafe_archive_member"),
-        ([("data.db", b"x"), ("data.db-wal", b"live")], "live_or_incomplete_sqlite_snapshot"),
-        ([("nested/data.db", b"x")], "data_db_must_be_at_archive_root"),
-        ([("storage/a", b"x")], "exactly_one_data_db_required"),
-    ],
-)
-def test_extraction_refuses_unsafe_archives_without_writing(tmp_path, members, code):
-    archive = backup_zip(tmp_path, members)
-    destination = tmp_path / "extracted"
-    with pytest.raises(ImportBlocked, match=code):
-        c11.extract_archive(archive, destination, tmp_path / "manifest.json")
-    assert not destination.exists() and not (tmp_path / "manifest.json").exists()
-
-
-def test_extraction_detects_corrupted_member_bytes_and_removes_everything(tmp_path):
-    archive = backup_zip(tmp_path, [("data.db", b"database"), ("storage/c/r/f", b"ORIGINAL")])
-    raw = bytearray(archive.read_bytes())
-    offset = raw.index(b"ORIGINAL")
-    raw[offset] = ord("X")  # stored member: same size, wrong CRC
-    archive.write_bytes(bytes(raw))
-    destination = tmp_path / "extracted"
-    with pytest.raises(ImportBlocked, match="archive_member_crc_mismatch"):
-        c11.extract_archive(archive, destination, tmp_path / "manifest.json")
-    assert not destination.exists() and not (tmp_path / "manifest.json").exists()
-
-
-def test_extraction_requires_disk_space_for_declared_sizes(tmp_path, monkeypatch):
-    archive = backup_zip(tmp_path, [("data.db", b"database")])
-    usage = type("Usage", (), {"free": 4})
-    monkeypatch.setattr(c11.shutil, "disk_usage", lambda path: usage)
-    with pytest.raises(ImportBlocked, match="insufficient_disk_space"):
-        c11.extract_archive(archive, tmp_path / "extracted", tmp_path / "manifest.json")
-    assert not (tmp_path / "extracted").exists()
-
-
-def test_extraction_cli_reports_without_record_values(tmp_path, monkeypatch, capsys):
-    archive = backup_zip(tmp_path, [("data.db", b"database"), ("storage/c/r/f", b"x")])
-    report = tmp_path / "extraction.json"
-    argv = ["c11_import", "--extract", str(archive), "--destination", str(tmp_path / "out")]
-    monkeypatch.setattr(
-        "sys.argv", argv + ["--manifest-out", str(tmp_path / "m.json"), "--report", str(report)]
-    )
-    assert c11.main() == 0
-    written = json.loads(report.read_text())
-    assert written["crc_all_files_ok"] and written["files"] == 2
-    assert written["ready_for_isolated_rehearsal"] is False
-    monkeypatch.setattr("sys.argv", argv + ["--report", str(tmp_path / "other.json")])
-    with pytest.raises(SystemExit):
-        c11.main()  # an extraction always names its new manifest
