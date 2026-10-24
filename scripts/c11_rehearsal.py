@@ -2013,6 +2013,16 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
         await engine.dispose()
 
 
+def buma_checkout() -> dict:
+    """The BUMA commit this rehearsal ran from, and whether files differed from it."""
+    try:
+        commit = command("git", "-C", str(PROJECT), "rev-parse", "HEAD")
+        changed = bool(command("git", "-C", str(PROJECT), "status", "--porcelain"))
+    except (OSError, subprocess.CalledProcessError):
+        return {"git_commit": None, "uncommitted_changes": None}
+    return {"git_commit": commit, "uncommitted_changes": changed}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -2055,6 +2065,8 @@ def main():
     report = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "scope": "c11_complete_synthetic_rehearsal",
+        "command": " ".join(["python -m scripts.c11_rehearsal", *sys.argv[1:]]),
+        "buma": buma_checkout(),
         "profile": args.profile,
         "pocketbase": {"version": version, "binary_sha256": digest(args.pocketbase)},
         "importer": {
