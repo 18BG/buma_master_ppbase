@@ -6,7 +6,9 @@ replays 1789236849 (after 1789236850, the latest migration), checks lock+lookup
 concurrency without the C4 mobile index, then replays C4, C7 and C9 against an
 isolated PPBase server. The server gets the caller's PYTHONPATH after this
 project, so PYTHONPATH selects the PPBase under test; the report records the
-PPBase it loads, which must be the one this process uses. The container and
+PPBase it loads (a probe with the server's interpreter, environment and cwd),
+which must be the one this process uses, and the PYTHONPATH, cwd and command
+read from the live server process (/proc, when available). The container and
 temporary files are removed at the end.
 Run as python -m scripts.c11_idempotency_runtime --report /new/path.json
 """
@@ -269,6 +271,30 @@ def server_ppbase(root: Path, env: dict[str, str]) -> dict:
     }
 
 
+def live_server_process(pid: int, env: dict[str, str], root: Path) -> dict:
+    """PYTHONPATH, cwd and command of the running server, read from /proc."""
+    proc = Path("/proc") / str(pid)
+    try:
+        variables = (proc / "environ").read_bytes().decode().split("\0")
+        cwd = Path(os.readlink(proc / "cwd"))
+        argv = (proc / "cmdline").read_bytes().decode().split("\0")
+    except OSError:  # no /proc (e.g. macOS): the probe above remains the evidence
+        return {"source": "unavailable"}
+    pythonpath = next(
+        (item.split("=", 1)[1] for item in variables if item.startswith("PYTHONPATH=")), None
+    )
+    assert pythonpath == env["PYTHONPATH"], pythonpath
+    assert cwd == root.resolve(), cwd
+    assert argv[:4] == [sys.executable, "-m", "ppbase", "serve"], argv[:4]
+    assert "app.hooks.register:register" in argv, argv
+    return {
+        "source": "/proc/<server pid>",
+        "pythonpath": pythonpath.split(os.pathsep),
+        "cwd_is_the_probe_cwd": True,
+        "command": "python -m ppbase serve --hooks app.hooks.register:register",
+    }
+
+
 async def isolated_server(root: Path, url: str, report: dict):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -302,17 +328,35 @@ async def isolated_server(root: Path, url: str, report: dict):
         stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{port}"
-    async with httpx.AsyncClient() as client:
-        for _ in range(200):
-            if server.poll() is not None:
-                raise RuntimeError("Isolated PPBase startup failed; see private http.log")
-            try:
-                if (await client.get(base + "/api/health")).status_code == 200:
-                    return server, log, base
-            except httpx.ConnectError:
-                pass
-            await asyncio.sleep(0.1)
-    raise TimeoutError("Isolated PPBase startup")
+    try:
+        async with httpx.AsyncClient() as client:
+            for _ in range(200):
+                if server.poll() is not None:
+                    raise RuntimeError("Isolated PPBase startup failed; see private http.log")
+                try:
+                    if (await client.get(base + "/api/health")).status_code == 200:
+                        report["server_ppbase"]["live_process"] = live_server_process(
+                            server.pid, env, root
+                        )
+                        return server, log, base
+                except httpx.ConnectError:
+                    pass
+                await asyncio.sleep(0.1)
+        raise TimeoutError("Isolated PPBase startup")
+    except BaseException:
+        # The caller only stops a server it received: stop this one here.
+        stop_server(server, log)
+        raise
+
+
+def stop_server(server: subprocess.Popen, log) -> None:
+    server.terminate()
+    try:
+        server.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        server.kill()
+        server.wait()
+    log.close()
 
 
 async def exercise(root: Path, url: str, report: dict) -> None:
@@ -381,13 +425,7 @@ async def exercise(root: Path, url: str, report: dict) -> None:
                 key: c9_report[key] for key in ("status", "routes_exercised", "proofs", "cleanup")
             }
         finally:
-            server.terminate()
-            try:
-                server.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait()
-            log.close()
+            stop_server(server, log)
 
         assert_source_state(await index_state(engine), baseline)
         async with engine.connect() as conn:
