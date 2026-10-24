@@ -1,5 +1,7 @@
 """Record.PublicExport behavior for the three rowid views verified on PB 0.22."""
 
+from ppbase.models.field_multiplicity import field_is_multiple
+
 VIEWS = frozenset(
     {
         "buma_article_with_no_stock_list_view",
@@ -16,8 +18,7 @@ def source_view_row(row, schema):
         name, kind = field["name"], field["type"]
         if values.get(name) is not None:
             continue
-        options = field.get("options") or field
-        if kind in {"relation", "select", "file"} and (options.get("maxSelect") or 1) > 1:
+        if field_is_multiple(field):  # shared PPBase rule: maxSelect null is multiple
             values[name] = []
         elif kind == "bool":
             values[name] = False
