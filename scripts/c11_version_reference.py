@@ -415,9 +415,11 @@ STATEMENT = (
     "D-0019 and D-0021 blockers are independent of the version."
 )
 DEFAULT_DEPENDENCY_NOTE = (
-    "AWS SDK modules: imported only by the S3 storage code (NewS3, "
-    "tools/filesystem/filesystem.go:39-78), not by NewLocal, the local storage used while s3 "
-    "is disabled, as in the real settings (filesystem.go:89-97). Other modules of this "
+    "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, "
+    "also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 "
+    "path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 "
+    "is disabled, as in the real settings, opens a fileblob bucket and calls none of it "
+    "(filesystem.go:89-97). Other modules of this "
     "default note: indirect, imported by no non-test PocketBase package "
     "(imported_by_packages is empty); their transitive use and "
     "their upstream changes are " + UNVERIFIED_UPSTREAM + " and covered only by the binary "
