@@ -1,6 +1,19 @@
 # Handoff agent suivant — BUMA Master PPBase
 
-Date de passation : 2026-10-22.
+Date de passation : 2026-10-22, mise à jour le 2026-10-24 pour la session serveur.
+
+## Session serveur du 2026-10-24 — à lire en premier
+
+- Plan d'exécution : **`docs/server-session-plan.md`** (autorisations de
+  l'utilisateur, mise en place, chantiers, orchestration multi-agents).
+- PPBase : les corrections locales auth/dashboard sont commitées et poussées
+  (`c6821aa`, branche `pocketbase-auth-parity-v0404` de `ssakone/ppbase`). Il
+  n'y a plus de changement local à transmettre ; la section « Dépendances »
+  ci-dessous décrit l'état du 22 octobre.
+- Export corrigé : chemin configurable par `BUMA_SCHEMA_EXPORT` (défaut : le
+  chemin du Mac d'origine).
+- Décisions récentes : D-0022 (index d'idempotence de la source) et D-0023
+  (ordre du lookup sur l'historique dupliqué, écart accepté).
 
 ## Livraison Git autorisée le 22 octobre 2026
 
@@ -64,7 +77,7 @@ Date de passation : 2026-10-22.
 ## Blocages qui doivent être conservés
 
 - D-0019 : `buma_customer.pdv`, `buma_pilotage_ticket.tag` et `buma_wallet.managers` sont des relations multiples dans PocketBase mais scalaires dans le DDL PPBase actuel. Ne jamais aplatir les arrays.
-- 877 groupes `(type, author, mobile_message_id)` de type RETURN couvrent 2 391 transactions avec des valeurs métier différentes. Ne pas dédupliquer, changer les clés ni désactiver l’index C4 silencieusement.
+- 877 groupes `(type, author, mobile_message_id)` de type RETURN couvrent 2 391 transactions avec des valeurs métier différentes. **Levé côté cible par D-0022 (2026-10-23)** : l'index unique mobile C4 était propre à PPBase ; la migration `1789236849` rétablit l'index source (`system_id` unique pour les clés `idem:`). Ces transactions s'importent telles quelles et ne doivent jamais être dédupliquées. L'ordre du lookup sur cet historique (34 groupes sur 877) est accepté par D-0023.
 - 195 795 références relationnelles sans cible sont présentes dans le backup source, dont 115 325 ventes vers `buma_customer_old` vide. Ne pas inventer de cibles ni rediriger automatiquement.
 - 2 303 fichiers référencés sont absents de l’archive. Ne pas créer de fichiers de remplacement ni supprimer les références.
 
@@ -81,6 +94,18 @@ préserve les arrays, les transactions dupliquées, les références orphelines,
 les rowids et les fichiers manquants. Toute répétition réaliste doit rester
 isolée et sans production. L’import de production et la bascule exigent une
 autorisation distincte.
+
+## Environnement constaté le 2026-10-23
+
+- macOS refuse au processus de l'agent (lancé par `~/.rac/acp/node/bin/node`)
+  la lecture de `~/Downloads` : l'export corrigé y est visible mais illisible
+  (`Operation not permitted`). Sept tests et tous les scripts qui lisent
+  l'export échouent donc tant que l'accès n'est pas accordé dans Réglages
+  Système → Confidentialité et sécurité.
+- Le PATH de cette session ne contient pas `/usr/local/bin` : préfixer
+  `PATH=/usr/local/bin:$PATH` pour `docker`. Docker Desktop doit être démarré.
+- Suite locale après D-0022 : 167 tests passants, 7 échecs dus uniquement à
+  l'export illisible.
 
 Validation de publication : suite de 157 tests locaux rejouée le 2026-10-22.
 Le runtime avec les données réelles n'est pas rejoué : le diagnostic du

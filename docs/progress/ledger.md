@@ -2382,3 +2382,268 @@ Décision : créer le commit de livraison puis pousser normalement sur
 `origin/features/auth`, sans force push. La référence Git distante sert de
 confirmation finale. C10 reste fermé sous D-0020, C11 ouvert ; l'agent suivant
 reprend la stratégie de conservation D-0019/D-0021, sans import/cutover.
+
+## Reprise par un nouvel agent — analyse de passation — 2026-10-23
+
+L'utilisateur annonce le passage d'un agent GPT à un nouvel agent (Claude) et
+demande d'analyser le projet et de tout lire avant le moindre changement, en
+particulier `docs/next-agent-handoff.md`. Session d'**analyse uniquement** :
+aucun code, script, test, migration, rapport de preuve ou fichier du framework
+modifié ; seuls ce ledger et la tasklist reçoivent cette entrée. Aucun commit,
+stage ou push.
+
+### Procédure de handoff et état constaté
+
+- Lus : note de passation, AGENTS, baseline, plan, tasklist, ledger complet,
+  README des contrats et `source-inventory.json`, décisions D-0001 à D-0021,
+  matrice de tests, structure, `rowid.md`, `transaction-invariants.md`,
+  `c11-preparation.md`, `c11-master-diagnostic.md` et ses rapports JSON,
+  `scripts/c11_import.py`, `c11_snapshot_audit.py`, `c11_rehearsal.py`,
+  `tests/test_c11_import.py`, `app/hooks/register.py`,
+  `app/transactions/idempotency.py`, migrations `1789236845` et `1789236848`.
+- Git : `features/auth...origin/features/auth`, propre, HEAD `3d20322`. Un
+  worktree `.kilo/worktrees/exclusive-aerosteon` (HEAD détaché `46fc6cd`,
+  instantané d'époque C9) existe ; il n'est ni utilisé ni modifié.
+- Source gelée propre sur
+  `fix/uv-paani-sup@530018cd20c2acbe88f38b3639e500b5271e2eb2`, conforme au
+  manifeste ; inventaire non régénéré.
+- PPBase sibling : `5cc3dc0`, `pocketbase-auth-parity-v0404`, 15 fichiers
+  suivis modifiés et 3 non suivis, comme la note. Le venv charge PPBase 0.3.1
+  editable depuis `../ppbase` (Python 3.14.6).
+- ZIP et copie privée `backups/c11-master-20260928/` présents ; ni ouverts,
+  ni hashés, ni interrogés dans cette session.
+
+### Commandes et résultats
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **150 passed, 7 failed**. Les sept échecs (`test_schema_baseline` ×2,
+  `test_view_translation` ×3, `test_view_verifier` ×2) ont la même cause :
+  `PermissionError: [Errno 1] Operation not permitted` à la lecture de
+  `/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json`. `ls` voit
+  le fichier (420 423 octets), mais sa lecture est refusée, y compris hors
+  sandbox : protection de confidentialité macOS sur `~/Downloads` pour ce
+  processus. Ce n'est pas une régression de code, mais le résultat de 157
+  tests du 22 octobre n'est **pas reproduit** dans cet environnement et le
+  SHA-256 de l'export n'a pas pu être vérifié.
+- `.venv/bin/ruff check --no-cache app tests scripts` : passant ;
+  `.venv/bin/ruff format --no-cache --check app tests scripts` : 109 fichiers
+  déjà formatés.
+- Lectures seules de la source gelée (`master.idempotency.ts`,
+  `master.retour.functions.ts:250-400`, `master.stockage.functions.ts:178-300`,
+  `master.utility.ts:72-78`, `migrationsDir/1785599959_updated_buma_transaction.js`)
+  et recherche `maxSelect` dans le framework PPBase. Aucune donnée réelle lue,
+  aucun Docker, serveur, migration ni import lancé.
+
+### Constats d'analyse (aucune décision prise)
+
+1. **Index C4 différent de la source et de la production, non documenté.**
+   La migration source `1785599959` (introduite par `530018c`) crée seulement
+   `UNIQUE (system_id) WHERE system_id LIKE 'idem:%'` et garde un index **non
+   unique** sur `mobile_message_id`. Le schéma de production (export corrigé,
+   baseline `1789236840` lignes 7931-7932, backup sans écart d'index selon
+   D-0021) ne contient que ces deux index non uniques sur `buma_transaction`,
+   sans même l'index unique source. La migration PPBase `1789236845` impose
+   `UNIQUE (type, author, system_id) WHERE system_id <> ''` et
+   `UNIQUE (type, author, mobile_message_id) WHERE mobile_message_id <> ''`.
+   Aucune entrée D-xxxx ne compare ces index à la source ;
+   `transaction-invariants.md` les décrit sans cette comparaison. C'est l'index
+   mobile, propre à PPBase, qui rejette les 877 groupes de D-0021. Dans la
+   source, `newReturn` ne crée qu'une transaction RETURN par appel après lookup ;
+   la conversion écrit OUT/IN avec le même `mobile_message_id`, mais sous deux
+   types. Le blocage des doublons D-0021 provient donc d'une contrainte qui
+   n'existe ni dans la source gelée ni dans le schéma de production.
+2. **Lecture de « 877 groupes aux valeurs différentes ».** La comparaison
+   excluait seulement id/created/updated. Des retries de l'ancien flux créent
+   chacun un `return` distinct et un `old_quantity` différent : elle ne
+   distingue donc pas des retries d'opérations distinctes. Dans les deux cas,
+   chaque ligne porte des effets stock/dette réels ; la conclusion « ne pas
+   dédupliquer » reste valable. Non vérifié sur les données dans cette session.
+3. **Ordre du lookup.** La source renvoie `records?.[0]` de `findRecordsByExpr`
+   sans ORDER BY explicite ; PPBase trie `ORDER BY created ASC LIMIT 1`. Avec
+   l'historique dupliqué importé, un retry d'une ancienne clé pourrait renvoyer
+   un record différent. À comparer si ces anciennes clés peuvent être rejouées.
+4. **Périmètre de D-0019.** Le framework calcule `opts.get("maxSelect", 1) or 1`
+   dans `db/schema_manager.py`, `models/field_types.py`, `api/files.py`,
+   `backup/canonical.py` et `services/filter_parser.py` : `null` y vaut 1,
+   alors que PocketBase 0.22 le traite comme multiple. Une correction fidèle
+   touche le framework sibling (qui a des changements locaux non commités) ou
+   exige une alternative BUMA explicitement documentée.
+5. **Version.** `diagnose()` bloque toute version autre que 0.22.27
+   (`source_pocketbase_version_unvalidated`) : le backup réel 0.22.34 restera
+   bloqué sans référence 0.22.34 validée.
+6. **Volume.** `load_isolated` exécute un INSERT, une archive rowid et une
+   relecture par record (environ 3,6 millions d'instructions pour 1 188 247
+   records) ; la durée d'une répétition complète reste à mesurer.
+7. **Dépendance externe.** L'export est référencé par chemin absolu dans trois
+   modules de test et sept scripts, hors dépôt.
+
+### Décision et prochaine action exacte
+
+Analyse terminée ; **C11 reste ouvert**, aucun statut de checkpoint modifié,
+aucune divergence acceptée. Prochaines actions, dans l'ordre :
+
+1. Rendre l'export lisible par le processus de l'agent (autorisation macOS
+   « Fichiers et dossiers » ou accès complet au disque pour le terminal), puis
+   rejouer pytest (157 attendus) et vérifier le SHA-256 `9d99e7b5…b2313d`.
+2. Obtenir la décision de l'utilisateur sur l'index C4 (constat 1) :
+   réaligner sur l'index source ou conserver l'index strict en le documentant.
+   L'option retenue exige une entrée D-0022, sa migration, ses tests et le
+   rejeu des preuves C4/C7/C9 concernées avant la stratégie d'import des
+   2 391 transactions.
+3. Si l'utilisateur l'autorise, agrégats read-only sur la copie privée :
+   unicité globale de `system_id LIKE 'idem:%'` et dates des 877 groupes par
+   rapport au 31 août 2026, date du commit d'idempotence.
+4. Choisir la voie de correction D-0019 (framework ou BUMA), sans aplatir.
+
+## C11 — D-0022 : idempotence C4 réalignée sur la source — 2026-10-23
+
+Suite de la reprise du même jour. L'utilisateur demande si le ZIP est
+« l'export » : non, le ZIP est le backup de données, l'export est le JSON du
+schéma dans `~/Downloads`. Il retient l'option (a) recommandée (« si tu
+recommandes le a, on part sur cela ») et autorise le démarrage de Docker
+Desktop pour une preuve dans un conteneur jetable, sans toucher la base locale.
+Les agrégats read-only sur la copie privée du backup lui ont été expliqués
+(aucun déploiement ni serveur), puis exécutés.
+
+### Provenance en lecture seule
+
+- Copie privée `backups/c11-master-20260928/data.db` : SHA-256 `3539f3eb…`
+  identique avant et après, `mode=ro&immutable=1`, Python lancé avec `-I`.
+- `scripts/c11_idempotency_source_check.py` →
+  `docs/c11-idempotency-source-check.json` : 325 des 326 migrations source
+  appliquées en production, seule `1785599959_updated_buma_transaction.js`
+  manque ; index physiques `idx_Yo33dyU` et `idx_bEWTmoj` ; 93 220 `system_id`
+  non vides, aucun préfixé `idem:` ; 877 groupes, 2 391 lignes, du 2024-11-18 au
+  2025-01-10 ; première ligne par rowid et par created : 843 identiques,
+  30 égalités de date, 4 inversions.
+
+### Changements
+
+- Nouvelle migration `pb_migrations/1789236849_c11_source_transaction_idempotency.py`.
+- `scripts/verify_schema_baseline.py` : `SOURCE_INDEX_DELTAS`, lu dans la
+  migration ; l'attendu devient l'export plus l'index source.
+- `scripts/c11_import.py` : `idempotency_key_conflicts()` (index source)
+  remplace les deux contrôles C4 de `diagnose()`.
+- `scripts/c9_commerce_runtime.py` : `ROOT`, `TARGET` et `REPORT` au niveau
+  module, valeurs par défaut inchangées, pour rejouer sans écraser
+  `docs/c9-runtime-report.json`.
+- Nouveaux scripts `scripts/c11_idempotency_source_check.py` et
+  `scripts/c11_idempotency_runtime.py`.
+- Tests : `test_idempotency.py` (+15), `test_c11_import.py` (+1),
+  `test_schema_baseline.py` (+1 et deux tests adaptés), `test_view_verifier.py`
+  (adapté).
+- Documentation : D-0022, `transaction-invariants.md`,
+  `c11-master-diagnostic.md`, AGENTS, note de passation, plan, tasklist,
+  matrice de tests, structure et ce ledger ; rapports
+  `docs/c11-idempotency-source-check.json` et
+  `docs/c11-idempotency-runtime-report.json`.
+
+### Commandes et résultats
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` :
+  **167 passed, 7 failed**. Les sept échecs sont les mêmes tests qui lisent
+  l'export (PermissionError macOS). Les deux tests du vérificateur adaptés à
+  D-0022 en font partie et restent donc **non rejoués**.
+- Ruff check et format check sur app, tests, scripts et la nouvelle migration :
+  passants, 112 fichiers formatés ; `git diff --check` passant.
+- Docker Desktop démarré avec l'accord de l'utilisateur ; le démon était
+  arrêté et le PATH de session a été complété par `/usr/local/bin`.
+- `PATH=/usr/local/bin:$PATH .venv/bin/python -m scripts.c11_idempotency_runtime
+  --report /private/tmp/buma-d0022-runtime-attempt{1,2}.json` : **passant deux
+  fois**, résultats identiques hors horodatage. La seconde exécution porte sur
+  la version finale du script (longueur de ligne corrigée sans changement
+  logique) ; sa copie est `docs/c11-idempotency-runtime-report.json`.
+  - 10 migrations sur PostgreSQL 16 vierge : index source unique présent,
+    index C4 absents, `idx_bEWTmoj` non unique, métadonnées égales à la
+    baseline plus l'index source.
+  - Matrice source : mobile identique et clé non `idem:` dupliquée acceptés ;
+    clé `idem:` d'un autre type/auteur et préfixe `IDEM:` rejetés par
+    `idx_transaction_idempotency` ; préfixe non ASCII et valeurs différant par
+    la casse acceptés.
+  - Après `run_migrations_down` : index et métadonnées C4 restaurés, matrice C4
+    inverse (mobile et clé legacy rejetés, clé `idem:` multi-type acceptée) ;
+    `run_migrations_up` rétablit l'état source.
+  - Avec deux lignes au même `mobile_message_id`, le rollback échoue sur
+    `idx_buma_transaction_idempotency_mobile` et s'annule : index source,
+    métadonnées et lignes conservés.
+  - Huit tentatives concurrentes sur une clé mobile seule (verrou et lookup,
+    sans index) : une seule ligne.
+  - `c4_idempotency_runtime` : rollback, concurrence, lookup et nettoyage OK.
+  - Serveur PPBase isolé (port aléatoire, cwd temporaire, jobs désactivés) :
+    `c7_stockage_runtime` passant ; `c9_commerce_runtime` **29 routes**,
+    idempotence et concurrence recharge/retour, nettoyage OK, rapport écrit
+    en temporaire.
+  - Aucune ligne `d0022-%` restante ; conteneur supprimé (0 par label) ; autres
+    conteneurs inchangés ; `docs/c9-runtime-report.json` inchangé.
+
+### Comparaisons et limites
+
+Comparés à la source gelée : la migration `1785599959` (nom, colonne,
+prédicat, absence de type et d'auteur), `master.idempotency.ts` (lookup
+inchangé), `newReturn`, `newRecharge` et la conversion (seules écritures de
+`system_id`, toujours préfixées `idem:` en minuscules), et la sémantique du
+`LIKE` SQLite, testée contre SQLite. Aucune route, payload, enveloppe, statut,
+permission ou hook n'est modifié. Les preuves HTTP C7/C9 sont un rejeu PPBase,
+pas une nouvelle comparaison avec un serveur PocketBase. Non rejoués : la
+répétition C11 synthétique (`c11_rehearsal.py` exige l'export et le binaire
+PocketBase), `make verify-all` et les deux tests du vérificateur qui lisent
+l'export. La base locale `buma_master_ppbase` n'a été ni démarrée ni migrée :
+`make start` y appliquera `1789236849` au prochain démarrage.
+
+### Décision et prochaine action
+
+D-0022 réalisée ; **C11 reste ouvert** (D-0019, références orphelines, fichiers
+absents, import réel non autorisé). En attente de l'utilisateur : (1) accès
+macOS à `~/Downloads` pour rejouer les sept tests, `verify-all` et la
+répétition ; (2) décision sur l'ordre du lookup de l'historique dupliqué
+(34 groupes) ; (3) voie de correction D-0019. Docker Desktop reste démarré.
+Aucun commit.
+
+## Préparation de la session serveur — D-0023, PPBase poussé — 2026-10-24
+
+L'utilisateur veut poursuivre sur son serveur dans une nouvelle session pour
+pouvoir fermer le Mac, avec un objectif : BUMA Master PPBase presque complet
+sous 12 heures, en orchestrant agents et sous-agents. Il accepte l'option 2 sur
+l'ordre du lookup et demande s'il ne reste que D-0019. Réponse : non. Restent
+aussi les orphelins, les fichiers absents, comptes/paramètres/sessions, la
+version 0.22.34, la répétition réelle et le runbook.
+
+### Décisions et autorisations de l'utilisateur
+
+- D-0023 : écart d'ordre du lookup accepté, avec test de non-régression.
+- Commit et push du travail BUMA sur `origin/features/auth`.
+- PPBase : « si la branche actuelle a été créée pour ces changements, commit
+  directement dessus, sinon une branche séparée et push ». Les 15 fichiers
+  modifiés et 3 non suivis traitent des champs système auth et du formulaire
+  du dashboard, suite du commit `8aec061` de `pocketbase-auth-parity-v0404` :
+  commit sur cette branche.
+- Session serveur : orchestration multi-agents ; commits et push au fil de
+  l'eau sur branches dédiées ; correction de D-0019 dans PPBase avec la version
+  actuelle de PocketBase (documentation et code source) comme référence ;
+  backup copié sur le serveur par l'utilisateur, importé seulement dans un
+  PostgreSQL jetable.
+
+### Actions et preuves
+
+- Constats : PPBase ne crée aucune clé étrangère pour les relations, donc les
+  orphelins sont stockables ; relations en `VARCHAR(15)` ou `VARCHAR(15)[]`, où
+  l'élément `managers` de 31 caractères ne passerait pas ; PPBase accepte les
+  jetons `authRecord` signés avec `token_key` plus le secret de collection, donc
+  la continuité des sessions est possible si l'import reprend le secret.
+- PPBase : `git fetch` sans retard ; `tests/test_auth_parity_core.py`
+  16 passants ; `node --test tests/test_admin_ui_record_editor_fields.mjs` 6 sur
+  6 ; recherche de secrets négative ; commit `c6821aa` « fix(auth): keep auth
+  system fields out of the record editor », push `8aec061..c6821aa`. Plus aucun
+  changement local.
+- BUMA : test D-0023 ; `BUMA_SCHEMA_EXPORT` dans 3 tests et 7 scripts, défaut
+  inchangé, vérifié avec un chemin factice ; plan `docs/server-session-plan.md` ;
+  note de passation, AGENTS, README, tasklist, matrice et décisions à jour.
+- `pytest` : 168 passants et les 7 échecs liés à l'export illisible ; Ruff,
+  format (112 fichiers) et `git diff --check` passants.
+
+### Décision et prochaine action
+
+Ce travail est commité et poussé sur `origin/features/auth` dans le commit qui
+contient cette entrée. Prochaine action : session serveur selon
+`docs/server-session-plan.md`, en commençant par sa phase 0. C11 reste ouvert ;
+aucune donnée réelle importée, aucune action sur la production.

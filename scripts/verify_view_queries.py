@@ -24,7 +24,11 @@ try:
 except ImportError:  # pragma: no cover - direct script execution
     from generate_native_baseline import load_schema, view_dependencies
 
-DEFAULT_SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+DEFAULT_SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 DEFAULT_DB = os.getenv(
     "PPBASE_DATABASE_URL",
     "postgresql+asyncpg://ppbase:ppbase@localhost:55434/buma_master_ppbase",

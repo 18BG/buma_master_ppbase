@@ -64,6 +64,17 @@ sérialise les tentatives d’une même clé.
 Cette gate ne porte pas encore les flux métier vente, retour, conversion ou
 wallet ; ils restent les checkpoints métier suivants.
 
+Actualisation D-0022 (2026-10-23) : ces deux index n'existaient ni dans la
+source gelée ni en production ; l'index mobile rejetait 2 391 transactions
+historiques acceptées par PocketBase. La migration
+`1789236849_c11_source_transaction_idempotency.py` les remplace par l'index
+source `idx_transaction_idempotency` : `system_id` unique pour toute la table
+lorsque la valeur correspond au `LIKE 'idem:%'` SQLite (casse ASCII repliée),
+`mobile_message_id` non unique. Le lookup et le verrou advisory ci-dessus sont
+inchangés ; huit tentatives concurrentes sur une clé mobile seule produisent
+une ligne, et les preuves C4, C7 et C9 sont rejouées
+(`docs/c11-idempotency-runtime-report.json`).
+
 ## Gate C7 — stock et stockage
 
 Le service `app/stockage/service.py` porte les mouvements, transferts,

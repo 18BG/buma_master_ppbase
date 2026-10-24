@@ -6,12 +6,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+DEFAULT_SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 DEFAULT_MIGRATIONS = Path(
     "/Users/omarsisss/Documents/wproject/protech/buma_master_hooks/migrationsDir"
 )

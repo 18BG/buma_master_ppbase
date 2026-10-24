@@ -62,6 +62,15 @@ contenu et potentiellement les permissions legacy.
 
 ### Unicité C4 incompatible avec l'historique
 
+**Actualisation du 2026-10-23 (D-0022) : blocage levé côté cible.** L'index
+unique mobile était propre à PPBase ; la production avait appliqué toutes les
+migrations source sauf `1785599959`, dont l'index ne porte que sur les clés
+`idem:` (absentes du backup). La migration `1789236849` rétablit cet index
+source ; les 2 391 transactions s'importent telles quelles, sans
+déduplication. Preuves : `c11-idempotency-source-check.json` et
+`c11-idempotency-runtime-report.json`. Le texte ci-dessous reste le constat du
+28 septembre.
+
 La clé `(type, author, mobile_message_id)` est dupliquée dans **877 groupes**
 de type `RETURN`, soit **2 391 transactions**, jusqu'à 16 par groupe.
 Il faudrait éliminer 1 514 lignes pour obtenir arbitrairement une seule ligne

@@ -1,0 +1,69 @@
+{
+  "timestamp_utc": "2026-10-23T09:26:40.320452+00:00",
+  "scope": "d0022_disposable_postgresql_runtime",
+  "production_data_used": false,
+  "local_buma_database_used": false,
+  "status": "passed",
+  "migrations_applied": [
+    "1789236840_buma_master_schema_baseline.py",
+    "1789236841_users_username_compat.py",
+    "1789236842_buma_master_views.py",
+    "1789236843_agent_users_username_compat.py",
+    "1789236844_auth_compat.py",
+    "1789236845_c4_transaction_idempotency.py",
+    "1789236846_c5_reference_defaults.py",
+    "1789236847_c10_view_alias_case.py",
+    "1789236848_c10_sqlite_rowid.py",
+    "1789236849_c11_source_transaction_idempotency.py"
+  ],
+  "source_index_matrix": {
+    "same_mobile_message_id": "accepted",
+    "same_non_idem_system_id": "accepted",
+    "idem_key_other_type_and_author": "idx_transaction_idempotency",
+    "uppercase_idem_prefix": "idx_transaction_idempotency",
+    "non_ascii_prefix": "accepted",
+    "idem_values_differing_by_case": "accepted"
+  },
+  "c4_index_matrix_after_rollback": {
+    "same_mobile_message_id": "idx_buma_transaction_idempotency_mobile",
+    "same_non_idem_system_id": "idx_buma_transaction_idempotency_system",
+    "idem_key_other_type_and_author": "accepted",
+    "uppercase_idem_prefix": "idx_buma_transaction_idempotency_system",
+    "non_ascii_prefix": "idx_buma_transaction_idempotency_system",
+    "idem_values_differing_by_case": "accepted"
+  },
+  "rollback_replay": "down_restores_c4_metadata_and_indexes_up_restores_source",
+  "rollback_with_duplicate_history": "refused_atomically_rows_and_index_kept",
+  "mobile_only_concurrency": {
+    "attempts": 8,
+    "inserted": 1,
+    "persisted_rows": 1
+  },
+  "c4_runtime": "rollback_concurrency_lookup_cleanup_ok",
+  "c7_runtime": "passed_with_cleanup",
+  "c9_runtime": {
+    "status": "passed",
+    "routes_exercised": 29,
+    "proofs": [
+      "legacy_envelopes",
+      "permissions",
+      "sale_backdating",
+      "sale_payment_concurrency",
+      "recharge_bonus_and_idempotency",
+      "return_concurrency",
+      "unknown_sim_identity",
+      "purchase_payments_and_cancellation",
+      "nafama_stock",
+      "return_updates",
+      "caisse_return_and_grouped_uv",
+      "reports_nonempty",
+      "native_crud_filter_expand",
+      "legacy_partial_failure_persistence",
+      "legacy_identity_preparation_partial_failure",
+      "fixture_cleanup"
+    ],
+    "cleanup": true
+  },
+  "final_state": "source_index_only_no_d0022_rows",
+  "cleanup": "owned_container_and_temporary_files_removed"
+}

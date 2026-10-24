@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -60,7 +61,12 @@ def main():
         check=True,
     )
     schema = json.loads(
-        Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json").read_text()
+        Path(
+            os.environ.get(
+                "BUMA_SCHEMA_EXPORT",
+                "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json",
+            )
+        ).read_text()
     )
     (migrations / "1789236800_reference.js").write_text(
         "migrate((db) => {const dao=new Dao(db);dao.importCollections("

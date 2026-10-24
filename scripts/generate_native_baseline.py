@@ -11,6 +11,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -19,7 +20,11 @@ from typing import Any
 from ppbase.models.collection import CollectionCreate
 from ppbase.services import migration_generator
 
-DEFAULT_SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+DEFAULT_SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 DEFAULT_OUTPUT = Path("pb_migrations/1789236840_buma_master_schema_baseline.py")
 DEFAULT_REPORT = Path("docs/schema-baseline-report.json")
 BASELINE_TIMESTAMP = 1_790_000_003

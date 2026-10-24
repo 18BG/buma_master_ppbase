@@ -1,11 +1,17 @@
 import copy
+import os
 from pathlib import Path
 
 from scripts.generate_native_baseline import load_schema
 from scripts.verify_complete_schema import verify as verify_complete
+from scripts.verify_schema_baseline import SOURCE_INDEX_DELTAS
 from scripts.verify_view_queries import dependency_order
 
-SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 
 
 def test_view_dependency_order_contains_all_views_once() -> None:
@@ -57,6 +63,9 @@ def test_complete_schema_verifier_requires_all_definitions_and_username_compat()
             "options": {"unique": False, "pattern": ""},
         }
     )
+    # Same metadata effect as migration 1789236849 on the installed schema.
+    for name, statements in SOURCE_INDEX_DELTAS.items():
+        next(row for row in rows if row["name"] == name)["indexes"].extend(statements)
 
     report = verify_complete(definitions, rows)
     assert report["expected"] == 114

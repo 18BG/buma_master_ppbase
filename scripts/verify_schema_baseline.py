@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import copy
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,11 @@ try:
 except ImportError:  # pragma: no cover - direct script execution
     from generate_native_baseline import load_schema
 
-DEFAULT_SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+DEFAULT_SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 DEFAULT_DB = os.getenv(
     "PPBASE_DATABASE_URL",
     "postgresql+asyncpg://ppbase:ppbase@localhost:55434/buma_master_ppbase",
@@ -33,6 +38,26 @@ ALLOWED_EXTRAS: set[str] = set()
 IGNORED_NON_SYSTEM_TYPES = {"view"}
 COMPATIBILITY_FIELDS = {"users": {"username"}, "agent_users": {"username"}}
 AUTH_RUNTIME_FIELDS = {"password"}
+D0022_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "pb_migrations/1789236849_c11_source_transaction_idempotency.py"
+)
+
+
+def _source_index_deltas() -> dict[str, list[str]]:
+    """Index of the only frozen source migration production never applied.
+
+    The corrected export mirrors production, whose _migrations table lacks only
+    1785599959_updated_buma_transaction.js. Migration 1789236849 applies its
+    index, so the expected metadata is the export plus that statement (D-0022).
+    """
+    spec = importlib.util.spec_from_file_location("d0022_source_index", D0022_MIGRATION)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {module.COLLECTION: [module.SOURCE_INDEX]}
+
+
+SOURCE_INDEX_DELTAS = _source_index_deltas()
 
 
 def _expected_projection(collection: dict[str, Any]) -> dict[str, Any]:
@@ -42,7 +67,10 @@ def _expected_projection(collection: dict[str, Any]) -> dict[str, Any]:
         "type": collection["type"],
         "system": collection["system"],
         "schema": collection.get("schema") or [],
-        "indexes": collection.get("indexes") or [],
+        "indexes": [
+            *(collection.get("indexes") or []),
+            *SOURCE_INDEX_DELTAS.get(collection["name"], []),
+        ],
         "list_rule": collection.get("listRule"),
         "view_rule": collection.get("viewRule"),
         "create_rule": collection.get("createRule"),

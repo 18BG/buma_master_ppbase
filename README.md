@@ -23,6 +23,10 @@ make test
 make check
 ```
 
+Les tests et scripts de schéma lisent l'export PocketBase corrigé, hors du
+dépôt. Sur une autre machine, indiquer son emplacement avec
+`export BUMA_SCHEMA_EXPORT=/chemin/buma-master-pb_schema-corrected.json`.
+
 Le serveur PPBase applique automatiquement les migrations en attente au
 démarrage (`auto_migrate=True` par défaut) :
 

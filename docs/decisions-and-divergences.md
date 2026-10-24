@@ -433,3 +433,97 @@ Décision : diagnostic terminé, **import bloqué et C11 ouvert**. Aucune perte
 ou divergence acceptée, aucun correctif de données/migration/schéma applicatif.
 Conserver les anomalies source jusqu'à une décision explicite ; ne jamais
 inventer leurs cibles, IDs, rowids ou fichiers.
+
+## D-0022 — C4/C11 : index d'idempotence réaligné sur la source gelée
+
+Décision explicite de l'utilisateur le 2026-10-23 (« si tu recommandes le a, on
+part sur cela »), après le constat que les deux index uniques de `1789236845`
+n'existaient ni dans la source gelée ni dans le schéma de production. Elle
+corrige un écart C4 jamais documenté, sans rouvrir les autres livrables C4.
+
+Faits établis (`docs/c11-idempotency-source-check.json`, lecture
+`ro&immutable` de la copie privée, empreinte inchangée) :
+
+- Source `530018c` : `migrationsDir/1785599959_updated_buma_transaction.js`
+  ajoute le seul index unique `idx_transaction_idempotency`, sur `system_id`,
+  limité aux valeurs `LIKE 'idem:%'`, sans type ni auteur ; `idx_bEWTmoj` sur
+  `mobile_message_id` reste non unique.
+- Production : `_migrations` du backup contient 325 des 326 migrations source,
+  toutes sauf celle-ci. `buma_transaction` n'a que deux index non uniques et
+  aucune valeur `system_id` préfixée `idem:` (0 sur 93 220 non vides). Les 877
+  groupes `(type, author, mobile_message_id)`, soit 2 391 lignes RETURN, datent
+  du 2024-11-18 au 2025-01-10.
+- C4 imposait `UNIQUE (type, author, system_id) WHERE system_id <> ''` et
+  `UNIQUE (type, author, mobile_message_id) WHERE mobile_message_id <> ''`.
+  Aucun n'existe dans la source ; le second rejetait l'historique accepté par
+  PocketBase.
+
+Correction, `pb_migrations/1789236849_c11_source_transaction_idempotency.py` :
+
+- suppression des deux index C4, puis ajout de l'index source aux métadonnées
+  de `buma_transaction` par `update_collection`, comme `saveCollection` dans la
+  source : métadonnées et index physique changent dans la même transaction ;
+- prédicat `translate(substr("system_id", 1, 5), 'IDEM', 'idem') = 'idem:'` :
+  le `LIKE` SQLite ne replie que la casse ASCII, alors que `LIKE` PostgreSQL
+  est sensible à la casse et qu'`ILIKE` dépend de la locale. Un test compare
+  ce prédicat à SQLite sur 14 cas limites ;
+- `down` restaure les deux index C4 et leurs métadonnées ; il échoue et
+  s'annule entièrement si l'historique contient des doublons mobile.
+
+Effets observables, désormais conformes à la source : deux transactions avec le
+même `mobile_message_id`, ou la même clé non `idem:`, sont acceptées par la
+base ; une clé `idem:` (toute casse ASCII) est unique dans toute la table, quels
+que soient type et auteur, y compris via le CRUD natif. Routes, payloads et
+réponses ne changent pas. Recharge, retour et conversion gardent le lookup
+source et le verrou advisory par clé : la source s'appuyait sur ce lookup dans
+une transaction d'écriture sérialisée par SQLite, PPBase s'appuie sur le verrou.
+
+Impact client : aucun appel à modifier. Une écriture CRUD native refusée par
+l'index mobile C4 est acceptée comme dans PocketBase. Les 2 391 transactions
+historiques deviennent importables telles quelles et ne doivent jamais être
+dédupliquées. Le vérificateur de schéma attend l'export plus cet index, lu dans
+la migration. Le diagnostic C11 ne bloque plus que sur les doublons que l'index
+source rejetterait (0 dans le backup).
+
+Régressions : `tests/test_idempotency.py` (index et 14 cas de prédicat),
+`tests/test_c11_import.py`, `tests/test_schema_baseline.py`,
+`tests/test_view_verifier.py`. Runtime `scripts/c11_idempotency_runtime.py` sur
+PostgreSQL 16 jetable : 10 migrations, matrice source/C4 comparée,
+rollback/replay, rollback refusé atomiquement avec historique dupliqué, huit
+tentatives concurrentes sans index mobile pour une seule ligne, puis C4, C7 et
+C9 (29 routes) passants. Rapport : `docs/c11-idempotency-runtime-report.json`.
+
+Reste ouvert, sans décision : l'ordre du lookup sur l'historique dupliqué. La
+source renvoie la première ligne dans l'ordre SQLite (rowid), PPBase trie par
+`created`. Sur les 877 groupes : 843 identiques, 30 égalités sur la première
+date et 4 où le plus petit rowid n'est pas le plus ancien. Seule la relance
+d'un ancien message renverrait alors un autre identifiant, sans nouvelle
+écriture. D-0019, les orphelins et les fichiers absents de D-0021 sont inchangés.
+Cet ordre est tranché par D-0023.
+
+## D-0023 — C11 : ordre du lookup sur l'historique dupliqué, écart accepté
+
+Décision explicite de l'utilisateur le 2026-10-24 (« je suis d'accord pour le 2
+si l'impact est quasi nul »), après présentation des deux options : reproduire
+l'ordre SQLite ou documenter l'écart.
+
+Écart : la source (`master.idempotency.ts`, `findRecordsByExpr` sans tri)
+renvoie la première ligne lue par SQLite, soit le plus petit rowid.
+`app/transactions/idempotency.py` renvoie `ORDER BY "created" ASC LIMIT 1`, et
+PostgreSQL ne garantit aucun ordre entre lignes de même `created`. Sur les
+877 groupes historiques importés tels quels (D-0022) : 843 donnent la même
+ligne, 30 ont plusieurs lignes à la même première date et 4 ont un plus petit
+rowid qui n'est pas le plus ancien (`docs/c11-idempotency-source-check.json`).
+
+Impact client : seulement si un client relance une clé de ces 34 groupes, tous
+de type RETURN et créés entre le 2024-11-18 et le 2025-01-10. Le lookup détecte
+le doublon dans les deux systèmes et n'écrit rien ; seul l'identifiant de
+transaction renvoyé peut différer. Les flux métier ne créent pas de nouveau
+doublon (verrou et lookup) ; l'ordre `created` s'appliquerait aussi aux
+doublons qu'un CRUD natif créerait. Option écartée : conserver le rowid source
+des transactions pour trier dessus, plus lourde et susceptible de ralentir les
+écritures de transactions.
+
+Régression : `tests/test_idempotency.py::test_d0023_lookup_keeps_created_order_and_source_precedence`
+fige ce tri et la précédence source `system_id`, ancienne clé, puis
+`mobile_message_id`.

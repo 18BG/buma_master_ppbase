@@ -14,6 +14,7 @@ from scripts.c11_import import (
     digest,
     field_value,
     file_key,
+    idempotency_key_conflicts,
     inspect_archive,
     mapped_row,
     snapshot,
@@ -98,6 +99,35 @@ def test_original_rowid_required_and_unknown_columns_rejected():
         mapped_row(collection, {**source, "unexpected": "must not disappear"})
     with pytest.raises(KeyError):
         mapped_row(collection, {k: v for k, v in source.items() if k != "__c11_rowid"})
+
+
+def test_only_the_frozen_source_index_blocks_transaction_history(tmp_path):
+    insert = "INSERT INTO buma_transaction VALUES (?,?,?,?,?)"
+    with sqlite3.connect(tmp_path / "data.db") as conn:
+        conn.execute(
+            "CREATE TABLE buma_transaction"
+            "(id TEXT PRIMARY KEY, type TEXT, author TEXT, system_id TEXT, mobile_message_id TEXT)"
+        )
+        # Accepted by PocketBase: duplicate mobile ids and non-idem legacy keys.
+        conn.executemany(
+            insert,
+            [
+                ("mobile1", "RETURN", "a", "", "m1"),
+                ("mobile2", "RETURN", "a", "", "m1"),
+                ("legacy1", "RETURN", "a", "legacy", ""),
+                ("legacy2", "RETURN", "a", "legacy", ""),
+            ],
+        )
+    with snapshot(tmp_path) as db:
+        assert idempotency_key_conflicts(db) == 0
+    with sqlite3.connect(tmp_path / "data.db") as conn:
+        # The source index is global and its LIKE folds ASCII case.
+        conn.executemany(
+            insert,
+            [("idem1", "RETURN", "a", "IDEM:x", ""), ("idem2", "RECHARGE", "b", "IDEM:x", "")],
+        )
+    with snapshot(tmp_path) as db:
+        assert idempotency_key_conflicts(db) == 1
 
 
 def test_private_staging_verifies_bytes_and_never_replaces_existing_files(tmp_path):

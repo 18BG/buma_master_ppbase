@@ -121,7 +121,10 @@ La préparation C11, autorisée le 2026-09-26, est déjà engagée avec diagnost
 ZIP/SQLite et répétition d'import synthétique. C10 est maintenant clôturé
 (2026-09-28, D-0020). C11 reste ouvert : diagnostic du backup Master et blocage
 des relations multiples D-0019 restent à traiter. L'import de production et
-la bascule ne sont pas autorisés par la clôture C10.
+la bascule ne sont pas autorisés par la clôture C10. Le 2026-10-23, D-0022
+réaligne l'idempotence C4 sur la source gelée (migration `1789236849`) : les
+doublons mobile historiques ne bloquent plus l'import ; D-0019, les références
+orphelines et les fichiers absents restent ouverts.
 
 Après validation du schéma et de l'API : diagnostic d'import, import sur cible
 fraîche, conservation des IDs/relations/fichiers, checksums, staging, rollback

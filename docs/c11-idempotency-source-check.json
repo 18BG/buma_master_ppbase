@@ -1,0 +1,28 @@
+{
+  "scope": "d0022_read_only_aggregates",
+  "production_authorized": false,
+  "data_db_sha256": "3539f3eb1c8659421526ede0e47ccc60482aaf0abd2c114282c05719d02b1afd",
+  "source_migrations": 326,
+  "source_migrations_not_applied_in_snapshot": [
+    "1785599959_updated_buma_transaction.js"
+  ],
+  "source_index_migration_applied": false,
+  "buma_transaction_physical_indexes": [
+    "idx_Yo33dyU",
+    "idx_bEWTmoj",
+    "sqlite_autoindex_buma_transaction_1"
+  ],
+  "system_id_nonempty_rows": 93220,
+  "idem_prefixed_rows": 0,
+  "source_index_conflict_groups": 0,
+  "mobile_duplicate_groups": 877,
+  "mobile_duplicate_rows": 2391,
+  "mobile_duplicate_oldest_created": "2024-11-18 08:32:55.577Z",
+  "mobile_duplicate_newest_created": "2025-01-10 15:16:11.054Z",
+  "mobile_duplicate_first_row_by_rowid_vs_created": {
+    "same_untied_row": 843,
+    "tie_on_first_created": 30,
+    "first_rowid_not_earliest_created": 4
+  },
+  "source_unchanged": true
+}

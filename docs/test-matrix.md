@@ -149,3 +149,29 @@ un cas PostgreSQL spécifique, les erreurs sans modification résiduelle de la
 vue, puis la restauration/nettoyage. Aucun résultat nouveau n'est déclaré
 par la décision documentaire. La parité générale SQLite et les essais `/sql`
 du script interrompu sont reportés, pas marqués passants.
+
+## C11 — D-0022, index d'idempotence source — 2026-10-23
+
+- `tests/test_idempotency.py` : migration `1789236849` (index source exact,
+  index C4 supprimés, écart attendu par le vérificateur) et 14 cas comparant le
+  prédicat PostgreSQL au `LIKE 'idem:%'` de SQLite.
+- `tests/test_c11_import.py` : le diagnostic ne bloque que sur les doublons de
+  clé `idem:` (globaux, casse ASCII repliée), pas sur l'historique mobile.
+- `tests/test_schema_baseline.py`, `tests/test_view_verifier.py` : le
+  vérificateur attend l'export plus l'index source ; les tests qui lisent
+  l'export restent bloqués par macOS dans l'environnement du 2026-10-23.
+- `scripts/c11_idempotency_runtime.py` : PostgreSQL 16 jetable, 10 migrations,
+  matrice comparée source/C4, rollback/replay, refus atomique du rollback avec
+  historique dupliqué, concurrence sans index mobile, puis C4, C7 et C9
+  (29 routes). Rapport `docs/c11-idempotency-runtime-report.json`.
+- `scripts/c11_idempotency_source_check.py` : agrégats read-only du backup
+  (migrations non appliquées, index, clés `idem:`, dates et ordre des
+  doublons). Rapport `docs/c11-idempotency-source-check.json`.
+
+Suite locale : 167 tests passants, 7 échecs dus à l'export illisible.
+
+Actualisation du 2026-10-24 : D-0023 est figée par
+`tests/test_idempotency.py::test_d0023_lookup_keeps_created_order_and_source_precedence`
+(tri `created` et précédence des clés). L'export se lit désormais depuis
+`BUMA_SCHEMA_EXPORT` (défaut inchangé). Suite locale : 168 passants, mêmes
+7 échecs liés à l'export illisible sur le Mac.

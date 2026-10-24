@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPORT = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+EXPORT = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 MIGRATION = ROOT.parent / "buma_master_hooks/migrationsDir/1736833029_created_buma_sql_table.js"
 
 

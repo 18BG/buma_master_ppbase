@@ -142,3 +142,17 @@ artefacts locaux ignorés ; ils ne constituent pas du code métier à reprendre.
 - `scripts/c10_legacy_sql_runtime.py`, `c10_stockage_runtime.py`,
   `c10_native_hooks_runtime.py` : preuves isolées avec nettoyage et rapports
   `docs/c10-*-runtime-report.json`.
+
+## Ajouts C11
+
+- `scripts/c11_import.py` : diagnostic hors ligne ZIP/SQLite et primitives
+  d'import réservées à la répétition ; aucune commande d'import de production.
+- `scripts/c11_snapshot_audit.py` : audit read-only de toutes les relations et
+  de tous les fichiers d'un backup.
+- `scripts/c11_fixture.py`, `scripts/c11_rehearsal.py` : répétition
+  synthétique dans un PostgreSQL Docker jetable.
+- `pb_migrations/1789236849_c11_source_transaction_idempotency.py` : index
+  d'idempotence de la source gelée (D-0022).
+- `scripts/c11_idempotency_source_check.py` et
+  `scripts/c11_idempotency_runtime.py` : preuves D-0022, read-only sur le
+  backup et runtime sur PostgreSQL jetable.

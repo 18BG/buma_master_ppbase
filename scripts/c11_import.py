@@ -246,6 +246,18 @@ def source_rows(db, collection):
     )
 
 
+def idempotency_key_conflicts(db) -> int:
+    """Groups that the frozen source unique index would reject (D-0022).
+
+    Only idx_transaction_idempotency exists in the source; SQLite evaluates its
+    LIKE predicate here with the same ASCII case folding as PocketBase.
+    """
+    return db.execute(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM buma_transaction WHERE system_id LIKE 'idem:%' "
+        "GROUP BY system_id HAVING COUNT(*)>1)"
+    ).fetchone()[0]
+
+
 def diagnose(data: Path, schema: Path, *, source_version: str | None = None) -> dict:
     definitions = load_schema(schema)
     report = {
@@ -383,16 +395,13 @@ def diagnose(data: Path, schema: Path, *, source_version: str | None = None) -> 
                     "source_rows_sha256": rows_hash.hexdigest(),
                 }
             )
-        # C4 adds constraints that can reject an otherwise valid PB snapshot.
-        for column in ("system_id", "mobile_message_id"):
-            duplicates = db.execute(
-                f"SELECT COUNT(*) FROM (SELECT 1 FROM buma_transaction WHERE {quote(column)}!='' "
-                f"GROUP BY type,author,{quote(column)} HAVING COUNT(*)>1)"
-            ).fetchone()[0]
-            if duplicates:
-                blockers.append(
-                    {"code": "duplicate_idempotency_key", "field": column, "groups": duplicates}
-                )
+        # Only the frozen source index can reject PocketBase-accepted history;
+        # duplicate mobile_message_id rows are legacy data to keep (D-0022).
+        duplicates = idempotency_key_conflicts(db)
+        if duplicates:
+            blockers.append(
+                {"code": "duplicate_idempotency_key", "field": "system_id", "groups": duplicates}
+            )
         internal = {
             r["name"]: db.execute(f"SELECT COUNT(*) FROM {quote(r['name'])}").fetchone()[0]
             for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")

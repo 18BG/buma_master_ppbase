@@ -1,8 +1,13 @@
+import os
 from pathlib import Path
 
 from scripts.generate_native_baseline import load_schema
 
-SCHEMA = Path("/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json")
+SCHEMA = Path(
+    os.environ.get(
+        "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+    )
+)
 
 
 def translated_views() -> dict[str, str]:

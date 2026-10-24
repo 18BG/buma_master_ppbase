@@ -317,6 +317,18 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   des dépendances locales, rapports agrégés sans backup/secret, 157 tests
   rejoués et Ruff/format globaux passants le 2026-10-22. Les cinq diagnostics
   statiques C10 historiques sont corrigés sans rejouer leur runtime SQL.
+- [x] D-0022 (décision utilisateur du 2026-10-23) : réaligner l'idempotence C4
+  sur la source gelée. Migration `1789236849`, diagnostic et vérificateur
+  réalignés, 17 tests ajoutés, preuve PostgreSQL jetable (rollback/replay,
+  concurrence, C4/C7/C9 rejoués) : `docs/c11-idempotency-runtime-report.json`.
+  Les 2 391 transactions historiques deviennent importables sans
+  déduplication.
+- [x] D-0023 (décision utilisateur du 2026-10-24) : accepter l'ordre `created`
+  du lookup sur cet historique (34 groupes sur 877 diffèrent de l'ordre rowid
+  SQLite, sans écriture) ; régression dans `tests/test_idempotency.py`.
+- [x] Préparer la session serveur : PPBase local commité et poussé (`c6821aa`),
+  export configurable (`BUMA_SCHEMA_EXPORT`), plan d'exécution
+  `docs/server-session-plan.md` avec les autorisations du 2026-10-24.
 - [ ] Résoudre les incompatibilités d'import mesurées sans altérer l'historique,
   dimensionner la répétition complète, puis obtenir
   une répétition représentative sur cible isolée autorisée.
@@ -332,6 +344,15 @@ valide pas un backup complet et ne ferme ni C10 ni C11. Le diagnostic réel des
 listes/doublons historiques (D-0021), documenter les références orphelines et
 rechercher/qualifier les fichiers absents avant toute répétition complète.
 Aucun import PostgreSQL ni bascule effectué.
+
+Reprise du 2026-10-23 (nouvel agent, analyse seule) : handoff relu, aucun code
+modifié, aucune case cochée. Suite locale : 150 tests passants et 7 échecs dus
+uniquement au refus macOS de lire l'export dans `~/Downloads`. Constat à
+arbitrer avant toute stratégie d'import des doublons D-0021 : les index uniques
+C4 (`1789236845`) n'existent ni dans la source gelée, qui n'a que
+`UNIQUE system_id LIKE 'idem:%'`, ni dans le schéma de production. Détails et
+prochaine action exacte : entrée du 2026-10-23 dans le ledger. Arbitrage du
+même jour : l'utilisateur retient l'option (a), réalisée sous D-0022.
 
 Une case ne peut être cochée qu'avec une preuve de test et un artefact associé.
 Les lots métier restent bloqués jusqu'à validation du schéma, de l'auth et de

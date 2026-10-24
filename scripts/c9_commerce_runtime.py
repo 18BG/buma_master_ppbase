@@ -20,8 +20,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.commerce.returns import create  # noqa: E402
 
+ROOT = Path(__file__).resolve().parents[1]
 BASE_URL = "http://127.0.0.1:8090"
 DATABASE_URL = "postgresql+asyncpg://ppbase:ppbase@localhost:55434/buma_master_ppbase"
+# A harness replaying C9 elsewhere overrides these so the record stays exact.
+TARGET = "local isolated PostgreSQL on 55434 and PPBase HTTP on 8090"
+REPORT = ROOT / "docs/c9-runtime-report.json"
 
 
 async def main() -> None:
@@ -31,8 +35,7 @@ async def main() -> None:
     engine = create_async_engine(DATABASE_URL, connect_args={"ssl": "disable"})
     made: list[tuple[str, str]] = []
     covered = set()
-    root = Path(__file__).resolve().parents[1]
-    inventory = json.loads((root / "docs/contracts/source-inventory.json").read_text())
+    inventory = json.loads((ROOT / "docs/contracts/source-inventory.json").read_text())
     route_contracts = [
         r
         for r in inventory["routes"]
@@ -926,7 +929,7 @@ async def main() -> None:
     report = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "source_commit": inventory["source"]["commit"],
-        "target": "local isolated PostgreSQL on 55434 and PPBase HTTP on 8090",
+        "target": TARGET,
         "status": "passed",
         "routes_exercised": len(covered),
         "routes": [{"method": m, "path": p} for m, p in sorted(covered)],
@@ -954,9 +957,7 @@ async def main() -> None:
         ],
         "cleanup": True,
     }
-    (root / "docs/c9-runtime-report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n"
-    )
+    REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(f"C9 runtime PASSED; {len(covered)} distinct called paths", flush=True)
 
 

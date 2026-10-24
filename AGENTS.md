@@ -140,6 +140,18 @@ conversation alone is never the project handoff record.
   877 duplicate mobile-idempotency groups (2,391 distinct transactions),
   195,795 missing relation targets and 2,303 missing referenced files. Never
   deduplicate, invent records/files, or retarget legacy relations silently.
+  On 2026-10-23 the user chose D-0022: migration 1789236849 replaces the two
+  PPBase-only C4 unique indexes with the frozen source index (unique system_id
+  matching SQLite LIKE 'idem:%'; mobile_message_id non-unique). Production had
+  applied every source migration except that one. The 877 groups are now
+  importable as-is and still must never be deduplicated; 10 migrations, runtime
+  proof in docs/c11-idempotency-runtime-report.json. The lookup order on that
+  imported history (34 of 877 groups differ from SQLite rowid order) is an
+  accepted divergence (D-0023, 2026-10-24). The server session follows
+  docs/server-session-plan.md, with the user's 2026-10-24 authorizations:
+  multi-agent orchestration, commits/push on dedicated branches, PPBase
+  changes researched against current PocketBase docs/source, and real-backup
+  import only into a disposable PostgreSQL.
   Production import/cutover has not started. Preserve original SQLite rowids during
   import; never guess them for existing records or claim production cutover is
   authorized. See docs/c10-runtime-report.json and docs/contracts/rowid.md.
