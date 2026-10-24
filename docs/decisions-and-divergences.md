@@ -71,7 +71,12 @@ seront traduites vers `id` dans PPBase et ne nécessitent pas l'ajout d'un champ
   passe maintenant la création/mise à jour 5/4 et 8/7. L'adaptateur BUMA
   accepte désormais le claim standard `type=auth` ainsi que l'ancien
   `type=authRecord`; `authRecord` reste compris comme contexte PocketBase et
-  non comme type JWT.
+  non comme type JWT. **Rectification du 2026-10-24 (session serveur, WS-C) :**
+  dans PocketBase 0.22.34, `authRecord` est bien la valeur du claim JWT `type`
+  des jetons record (`tokens/tokens.go` l.4-7 : `TypeAuthRecord = "authRecord"`) ;
+  la version actuelle émet `type=auth` (v0.40.6 `core/record_tokens.go` l.13).
+  L'adaptateur accepte les deux : c'est ce qui rend valides après l'import les
+  sessions émises par PocketBase 0.22.34 (D-0027).
 
 - comportement exact et protection des routes SQL ;
 - compatibilité des hashes d'authentification ;

@@ -22,9 +22,10 @@ AUTH_RECORD_TYPES = frozenset({"auth", "authRecord"})
 def is_record_auth(auth: dict[str, Any] | None) -> bool:
     """Return whether a token payload represents a record-auth session.
 
-    PocketBase's JWT claim uses ``type=auth``. ``authRecord`` is the
-    request-context concept exposed by PocketBase, and remains accepted here
-    for compatibility with older PPBase/BUMA payloads.
+    PocketBase 0.22 signs record tokens with ``type=authRecord``
+    (v0.22.34 tokens/tokens.go l.4-7); current PocketBase and PPBase sign
+    ``type=auth`` (v0.40.6 core/record_tokens.go l.13). Both are accepted so
+    that sessions issued by PocketBase 0.22.34 stay valid after the import.
     """
     return bool(auth and auth.get("type") in AUTH_RECORD_TYPES)
 

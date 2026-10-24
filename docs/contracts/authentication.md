@@ -61,9 +61,11 @@ passante : `users` accepte 5 et rejette 4 en création et mise à jour ;
 HTTP 200 ; les minima retournent les messages attendus.
 
 L'adaptateur BUMA accepte maintenant les deux représentations : le claim JWT
-standard `type=auth` et l'ancien `type=authRecord`. Dans PocketBase,
-`authRecord` désigne le contexte d'authentification de la requête et ne doit pas
-être confondu avec le type du claim JWT.
+standard `type=auth` et l'ancien `type=authRecord`. Rectification du
+2026-10-24 : dans PocketBase 0.22.34, `authRecord` est la valeur du claim JWT
+`type` des jetons record (`tokens/tokens.go` l.4-7) ; la version actuelle émet
+`type=auth` (v0.40.6 `core/record_tokens.go` l.13). Accepter les deux garde
+valides les sessions émises par PocketBase 0.22.34 avant l'import (D-0027).
 
 Preuve HTTP après correction : login username HTTP 200, `/isConnected` HTTP 200
 `{"message":"true"}`, `/master/user/health` HTTP 200 `true`, refresh HTTP 200,
