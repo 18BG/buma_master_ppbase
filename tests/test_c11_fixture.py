@@ -10,7 +10,9 @@ missing variable skips its binary:
 Assertions read the built ``data.db`` and ``storage/`` themselves, never the
 codes of the importer diagnostic. The last tests run the version-reference
 aggregation of ``scripts/c11_version_reference.py`` on these synthetic files
-and check that it reports shapes and formats, never values.
+and check that it reports shapes and formats, never values. The last section
+checks the version gate, the import call and the comparison rules of
+``scripts/c11_rehearsal.py`` without Docker, PocketBase or PPBase.
 """
 
 import json
@@ -497,3 +499,271 @@ def test_real_format_aggregation_flags_a_foreign_date_layout(real_shape, default
     checks = reference.assess_real(result)["checks"]
     assert checks["dates_pocketbase_layout_or_empty"] is False
     assert result["value_formats"]["created_updated"]["other"] == 1
+
+
+# ---------------------------------------------------------------------------
+# scripts/c11_rehearsal.py: version gate, import call and comparison rules,
+# without Docker, PocketBase or PPBase.
+# ---------------------------------------------------------------------------
+
+
+def num(value) -> tuple[str, str]:
+    """A number literal as typed_json keeps it."""
+    return ("number", str(value))
+
+
+def _rehearsal():
+    from scripts import c11_rehearsal
+
+    return c11_rehearsal
+
+
+def _error(status, message="The requested resource wasn't found.", key="code", data=None):
+    return {key: num(status), "message": message, "data": {} if data is None else data}
+
+
+def test_rehearsal_probe_tables_are_consistent():
+    rehearsal = _rehearsal()
+    labels = [probe.label for probe in rehearsal.PROBES]
+    assert len(labels) == len(set(labels))
+    logins = [row[0] for row in rehearsal.LOGINS]
+    assert len(logins) == len(set(logins)) and not set(logins) & set(labels)
+    assert set(rehearsal.KNOWN_DIVERGENCES) <= set(labels)
+    assert {row[0] for row in rehearsal.RELATION_FILTERS} <= set(labels)
+    by_label = {probe.label: probe for probe in rehearsal.PROBES}
+    # Declared divergences exist only where the real_shape answers are checked.
+    assert all(by_label[label].profiles == rehearsal.REAL for label in rehearsal.KNOWN_DIVERGENCES)
+    credentials = {probe.credential for probe in rehearsal.PROBES} - {None}
+    sessions = {row[0] for row in rehearsal.SESSIONS} | {
+        "admin",
+        "users_tampered",
+        "admin_tampered",
+    }
+    assert credentials <= sessions
+
+
+@pytest.mark.parametrize(
+    ("path", "reference", "mine", "expected"),
+    [
+        (
+            "/code: pocketbase only",
+            _error(404),
+            _error(404, key="status"),
+            "error_envelope_code_vs_status",
+        ),
+        ("/code: pocketbase only", _error(404), _error(400, key="status"), None),
+        (
+            "/message",
+            _error(401, "a"),
+            _error(401, "b", key="status"),
+            "auth_error_message_wording",
+        ),
+        ("/message", _error(404, "a"), _error(404, "b", key="status"), None),
+        (
+            "/data/identity: ppbase only",
+            _error(400, "Failed to authenticate."),
+            _error(400, "Failed to authenticate.", key="status", data={"identity": {}}),
+            "failed_login_identity_detail",
+        ),
+        (
+            "/data/identity: ppbase only",
+            _error(404),
+            _error(404, key="status", data={"identity": {}}),
+            None,
+        ),
+    ],
+)
+def test_error_divergence_classes_are_narrow(path, reference, mine, expected):
+    found = _rehearsal().divergence_class(path, reference, mine, credential="users", field_types={})
+    assert found == expected
+
+
+def test_record_divergence_classes_are_narrow():
+    rehearsal = _rehearsal()
+    types = {("buma_pdv", "start_date"): "date", ("buma_pdv", "name"): "text"}
+
+    def item(**values):
+        return {"items": [{"collectionName": "buma_pdv", **values}]}
+
+    def classify(path, reference, mine, credential="users"):
+        return rehearsal.divergence_class(
+            path, reference, mine, credential=credential, field_types=types
+        )
+
+    empty, null = item(start_date="", name=""), item(start_date=None, name=None)
+    assert classify("/items[0]/start_date", empty, null) == "empty_date_served_null"
+    assert classify("/items[0]/name", empty, null) is None  # not a date field
+    dated = item(start_date="2024-01-15 00:00:00.000Z")
+    assert classify("/items[0]/start_date", dated, null) is None  # a value lost, not empty
+    users = {"items": [{"collectionName": "users", "email": "x"}]}
+    hidden = {"items": [{"collectionName": "users"}]}
+    path = "/items[0]/email: pocketbase only"
+    assert classify(path, users, hidden) == "auth_email_hidden_despite_manage_rule"
+    assert classify(path, users, hidden, credential="denied") is None  # no manage access
+    assert classify(path, item(email="x"), item()) is None  # not an auth collection
+    expanded = {"id": "a", "expand": {}}
+    assert classify("/expand: ppbase only", {"id": "a"}, expanded) == "empty_expand_object"
+    assert classify("/expand: ppbase only", {"id": "a"}, {"expand": {"x": {}}}) is None
+    pages = {"totalItems": num(0), "totalPages": num(0)}
+    assert classify("/totalPages", pages, {"totalItems": num(0), "totalPages": num(1)}) == (
+        "empty_list_total_pages"
+    )
+    assert classify("/totalPages", pages, {"totalItems": num(1), "totalPages": num(1)}) is None
+
+
+def _png(width, height):
+    return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", width, height)
+
+
+def _file(status=200, content=b"x", content_type="application/octet-stream", disposition=None):
+    import hashlib
+
+    return {
+        "status": status,
+        "content": content,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "content_type": content_type,
+        "content_disposition": disposition,
+    }
+
+
+def test_file_divergence_classes_are_narrow():
+    rehearsal = _rehearsal()
+    original = _file(content=_png(4, 4), content_type="image/png")
+    thumb = _file(content=_png(100, 100), content_type="image/png", disposition="inline; x")
+    served_original = _file(content=_png(4, 4), content_type="image/png")
+    assert rehearsal.file_divergences("a:thumb", thumb, served_original, original) == (
+        ["default_thumb_size_serves_original", "file_content_disposition_missing"],
+        [],
+    )
+    other = _file(content=_png(50, 50), content_type="image/png")
+    assert rehearsal.file_divergences("a:thumb", thumb, other, original)[1] == ["thumbnail"]
+    pb_404 = _file(404, json.dumps(_error(404)).encode(), "application/json; charset=UTF-8")
+    pp_404 = _file(404, json.dumps(_error(404, key="status")).encode(), "application/json")
+    assert rehearsal.file_divergences("b", pb_404, pp_404, None) == (
+        ["error_envelope_code_vs_status", "json_error_content_type_charset"],
+        [],
+    )
+    assert rehearsal.file_divergences("c", _file(), _file(content=b"y"), None)[1] == ["bytes"]
+    assert rehearsal.file_divergences("d", _file(), _file(404), None)[1] == ["status 200 != 404"]
+
+
+def _answers(json_answers, logins=None):
+    return {
+        "json": json_answers,
+        "logins": logins or {},
+        "files": {},
+        "realtime": {"results": {"event": True}, "update_body": {"id": "x"}},
+    }
+
+
+def _answer(status, body, token=None):
+    return {"status": status, "body": body, "token": token, "json": None}
+
+
+def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
+    rehearsal = _rehearsal()
+    monkeypatch.setattr(
+        rehearsal,
+        "KNOWN_DIVERGENCES",
+        {"declared": {"pocketbase": 200, "ppbase": 500, "cause": "c"}},
+    )
+    pocketbase = _answers(
+        {
+            "declared": _answer(200, {"items": []}),
+            "classed": _answer(404, _error(404)),
+            "changed": _answer(200, {"name": "a"}),
+        }
+    )
+    ppbase = _answers(
+        {
+            "declared": _answer(500, _error(500, key="status")),
+            "classed": _answer(404, _error(404, key="status")),
+            "changed": _answer(200, {"name": "b"}),
+        }
+    )
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["declared_divergences"]["declared"]["ppbase_status"] == 500
+    assert result["divergence_classes"]["error_envelope_code_vs_status"]["probes"] == ["classed"]
+    assert result["unexpected_differences"] == [{"probe": "changed", "differences": ["/name"]}]
+    # Another PPBase status than the declared one is unexpected; a declared
+    # divergence that disappeared is reported as resolved.
+    ppbase["json"]["declared"] = _answer(403, _error(403, key="status"))
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["unexpected_differences"][0]["probe"] == "declared"
+    ppbase["json"]["declared"] = _answer(200, {"items": []})
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["declared_divergences"]["declared"] == {"resolved": True, "cause": "c"}
+
+
+def test_token_shapes_follow_the_documented_mapping():
+    rehearsal = _rehearsal()
+    record = {"alg": "HS256", "claims": ["collectionId", "exp", "id", "type"], "type": "authRecord"}
+    issued = {
+        "alg": "HS256",
+        "claims": ["collectionId", "exp", "iat", "id", "refreshable", "type"],
+        "type": "auth",
+    }
+    assert rehearsal.token_comparison(record, issued)["expected"] is True
+    assert rehearsal.token_comparison(record, {**issued, "alg": "HS512"})["expected"] is False
+    assert rehearsal.token_comparison(record, {**issued, "type": "admin"})["expected"] is False
+    assert rehearsal.token_comparison(record, None)["expected"] is False
+
+
+def test_import_call_requires_the_failure_parameters_it_uses(monkeypatch):
+    import asyncio
+
+    rehearsal = _rehearsal()
+
+    async def without_auth_stage(engine, data, destination, diagnostic, definitions, *, report):
+        return 7
+
+    async def with_auth_stage(
+        engine, data, destination, diagnostic, definitions, *, report, auth_fail_after=None
+    ):
+        report["auth_fail_after"] = auth_fail_after
+        return 7
+
+    monkeypatch.setattr(rehearsal, "import_snapshot", without_auth_stage)
+    with pytest.raises(AssertionError, match="auth_fail_after"):
+        asyncio.run(rehearsal.import_once(None, None, None, {}, [], auth_fail_after="settings"))
+    monkeypatch.setattr(rehearsal, "import_snapshot", with_auth_stage)
+    rows, evidence = asyncio.run(
+        rehearsal.import_once(None, None, None, {}, [], auth_fail_after="settings")
+    )
+    assert (rows, evidence) == (7, {"auth_fail_after": "settings"})
+
+
+@pytest.mark.parametrize(
+    ("version", "status", "message"),
+    [
+        ("0.22.20", None, "fixture builder accepts 0.22.27 or 0.22.34"),
+        ("0.22.34", "source_pocketbase_version_unvalidated", "does not accept PocketBase 0.22.34"),
+    ],
+)
+def test_rehearsal_refuses_a_version_before_any_work(
+    tmp_path, monkeypatch, capsys, version, status, message
+):
+    rehearsal = _rehearsal()
+    monkeypatch.setattr(rehearsal.fixture, "pocketbase_version", lambda binary: version)
+    monkeypatch.setattr(rehearsal, "source_version_status", lambda found: (status, None))
+    monkeypatch.setattr(rehearsal, "command", lambda *a, **k: pytest.fail("no command may run"))
+    report = tmp_path / "report.json"
+    argv = ["c11_rehearsal", "--pocketbase", "pb", "--schema", "s.json", "--report", str(report)]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exit_info:
+        rehearsal.main()
+    assert exit_info.value.code == 2 and message in capsys.readouterr().err
+    assert not report.exists()
+
+
+def test_isolated_ppbase_servers_keep_the_callers_pythonpath(monkeypatch):
+    from scripts import c11_auth_runtime
+
+    project = str(c11_auth_runtime.PROJECT)
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["/x/ppbase", project, "/y"]))
+    env = c11_auth_runtime.ppbase_server_environment()
+    assert env["PYTHONPATH"] == os.pathsep.join([project, "/x/ppbase", "/y"])
+    assert env["PPBASE_AUTO_MIGRATE"] == "false"
+    monkeypatch.delenv("PYTHONPATH")
+    assert c11_auth_runtime.ppbase_server_environment()["PYTHONPATH"] == project
