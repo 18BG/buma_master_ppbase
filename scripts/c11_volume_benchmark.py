@@ -52,7 +52,9 @@ from scripts import c11_import as importer
 
 PROJECT = Path(__file__).resolve().parents[1]
 PROFILE = PROJECT / "docs" / "c11-master-initial-diagnostic.json"
-# D-0019: these collections stay blocked until the unbounded-relation wave.
+# D-0019: importable since WS-B3, but this generator has no multiple-relation
+# values: their 5 841 real rows (0.5 %) stay out of the synthetic volume; their
+# arrays are loaded and recounted on the PocketBase real_shape fixture instead.
 UNBOUNDED_TABLES = {"buma_customer", "buma_pilotage_ticket", "buma_wallet"}
 DATABASE = "buma_c11_rehearsal"
 ORPHAN_EVERY = 997
@@ -416,7 +418,10 @@ async def run_child(role: str, arguments: list[str]) -> dict:
     batch_size = int(arguments[6])
     diagnostic = json.loads(diagnostic_path.read_text())
     definitions = importer.load_schema(schema)
-    engine = create_async_engine(os.environ["C11_BENCHMARK_URL"], connect_args={"ssl": "disable"})
+    # import_snapshot requires it: no bound value in SQLAlchemy error messages.
+    engine = create_async_engine(
+        os.environ["C11_BENCHMARK_URL"], connect_args={"ssl": "disable"}, hide_parameters=True
+    )
     load: dict = {}
     started = time.monotonic()
     try:
@@ -907,7 +912,7 @@ async def negative_phase(
     generated = require_generated(
         diagnostic["preserved_source_anomalies"], expected, "negative bundle diagnosis"
     )
-    engine = create_async_engine(url, connect_args={"ssl": "disable"})
+    engine = create_async_engine(url, connect_args={"ssl": "disable"}, hide_parameters=True)
     results = []
     try:
         async with engine.connect() as conn:
@@ -1020,7 +1025,7 @@ async def clean_retry(
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    engine = create_async_engine(url, connect_args={"ssl": "disable"})
+    engine = create_async_engine(url, connect_args={"ssl": "disable"}, hide_parameters=True)
     evidence: dict = {}
     staging = staged_root / "negative-clean-retry"
     try:

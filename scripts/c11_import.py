@@ -2,7 +2,9 @@
 
 Only a closed, standalone PB snapshot is accepted. The CLI is read-only apart
 from its explicit new report files and never receives a PostgreSQL URL. The
-rehearsal and the volume benchmark own their own disposable database.
+rehearsal and the volume benchmark own their own disposable database. The one
+import entry point, ``import_snapshot``, loads records, accounts and settings
+(``scripts.c11_auth_import.import_auth``) in a single transaction.
 
 Storage modes: ``directory`` reads and hashes a real ``storage/`` tree;
 ``manifest`` checks references and declared sizes against the private
@@ -52,23 +54,43 @@ ARCHIVE_TABLE = "_buma_c11_rowids"
 ARCHIVE_COLUMNS = ("collection_id", "record_id", "source_rowid", "auth_legacy")
 DEFAULT_BATCH_SIZE = 5000
 
-# Source versions whose SQLite storage was proven by a passing rehearsal built
-# by that exact PocketBase binary. Each entry names its public evidence and the
-# JSON path holding the version it proves. Never add a version without such a
-# report: 0.22.34 waits for the WS-D comparison evidence (wave 3).
+# Source versions whose SQLite storage was proven by passing evidence built by
+# that exact PocketBase binary. Each entry names its public evidence, the JSON
+# path holding the version it proves and, optionally, paths that must hold
+# true; all are read again at every check. Never add a version without such a
+# report. 0.22.34 (D-0024): the official 0.22.27 and 0.22.34 binaries store
+# the same SQLite and storage/ (scripts/c11_version_reference.py); the version
+# path is the version that comparison handed to this importer's diagnosis of
+# the real_shape fixture built by the 0.22.34 binary.
 VALIDATED_SOURCE_VERSIONS = {
     "0.22.27": {
         "evidence": "docs/c11-rehearsal-report.json",
         "version_path": ["diagnostic", "source_version"],
     },
+    "0.22.34": {
+        "evidence": "docs/c11-pb-0.22.34-reference-report.json",
+        "version_path": [
+            "binaries",
+            "profiles",
+            "real_shape",
+            "importer_diagnostic",
+            "0.22.34",
+            "with_source_version",
+            "argument",
+        ],
+        "true_paths": [["conclusion", "importer_can_accept_0_22_34"]],
+    },
 }
 
 # D-0019: PocketBase <=0.22 stores maxSelect null relations as JSON arrays
-# (v0.22.34 models/schema/schema_field.go:716, IsMultiple). Until the PPBase
-# target represents them (WS-A, then the BUMA conversion migration), every such
-# record stays blocked. Enabling this requires that evidence; the array path is
-# the one already used by multi-file fields and never flattens a list.
-UNBOUNDED_RELATION_ARRAYS = False
+# (v0.22.34 models/schema/schema_field.go:715-716 IsMultiple, :159-160
+# JSON DEFAULT '[]'). The corrected PPBase stores them as TEXT[]
+# (ppbase.models.field_multiplicity; BUMA migration 1789236850 converts a
+# database migrated before the correction): each stored list is copied element
+# for element (order, repeated elements, any length) into that array column,
+# through the path already used by multi-file fields; never flattened. A
+# scalar target column stays the explicit blocker unbounded_relation_target_scalar.
+UNBOUNDED_RELATION_ARRAYS = True
 
 STRING_KINDS = {"text", "editor", "url", "email"}
 LIST_KINDS = {"file", "select", "relation"}
@@ -131,9 +153,16 @@ LIST_DEDUPLICATED = "list_served_deduplicated_by_pocketbase"
 SINGLE_LAST_ELEMENT = "single_value_served_as_last_element"
 READ_NORMALIZATION_CODES = (LIST_DEDUPLICATED, SINGLE_LAST_ELEMENT)
 UNBOUNDED_SCALAR = "unbounded_relation_target_scalar"
-# The target already stores arrays (after WS-A/WS-E) but this importer has
-# not been enabled for them yet (UNBOUNDED_RELATION_ARRAYS, wave 3).
+# Array target while UNBOUNDED_RELATION_ARRAYS is off (kept for a deliberate
+# rollback of the flag; never raised while it is on).
 UNBOUNDED_NOT_ENABLED = "unbounded_relation_arrays_not_enabled"
+# Relation definitions whose maxSelect has no agreed meaning, refused whatever
+# the target (``relation_definition_problem``); none in the export.
+RELATION_MAX_SELECT_NOT_POSITIVE = "relation_max_select_not_positive_requires_decision"
+RELATION_MAX_SELECT_ABSENT = "relation_max_select_absent_requires_decision"
+RELATION_DEFINITION_CODES = (RELATION_MAX_SELECT_NOT_POSITIVE, RELATION_MAX_SELECT_ABSENT)
+# Independent recount of array relations after the load (``recount_relation_arrays``).
+RELATION_ARRAY_RECOUNT = "relation_array_recount_mismatch"
 MULTISET_MODULUS = 2**256
 # Rows per round trip of the end-of-load re-read (server-side portal).
 FINAL_PREFETCH = 10000
@@ -333,14 +362,20 @@ def source_version_status(version: str | None) -> tuple[str | None, str | None]:
     entry = VALIDATED_SOURCE_VERSIONS.get(version)
     if entry is None:
         return "source_pocketbase_version_unvalidated", None
+
+    def at(document, path):
+        for key in path:
+            document = document[key]
+        return document
+
     try:
         evidence = json.loads((PROJECT / entry["evidence"]).read_text())
-        stated = evidence
-        for key in entry["version_path"]:
-            stated = stated[key]
-    except (OSError, ValueError, KeyError, TypeError):
+        stated = at(evidence, entry["version_path"])
+        proofs = [at(evidence, path) for path in entry.get("true_paths", ())]
+        status = evidence.get("status")
+    except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
         return "source_version_evidence_invalid", entry["evidence"]
-    if evidence.get("status") != "passed" or stated != version:
+    if status != "passed" or stated != version or any(proof is not True for proof in proofs):
         return "source_version_evidence_invalid", entry["evidence"]
     return None, entry["evidence"]
 
@@ -726,33 +761,74 @@ def unsupported_value(_):
     raise ImportBlocked("unsupported_field_type")
 
 
-def relation_unbounded(field: dict) -> bool:
-    """Relation without a usable maxSelect: null, or 0 by deliberate choice.
+def _multiplicity():
+    """The PPBase rule (D-0019), ``ppbase.models.field_multiplicity``.
 
-    maxSelect null is an unlimited multiple relation in PocketBase 0.22.34
-    (RelationOptions.IsMultiple, models/schema/schema_field.go:715-716).
-    maxSelect 0 is refused by its validation (:709, NilOrNotEmpty) and that
-    IsMultiple would call it single (``*MaxSelect > 1``); the 0.23 upgrade
-    makes it unlimited (v0.23.0 migrations/1717233556_v0.23_migrate.go:
-    844-848). Deliberate divergence from 0.22.34, without effect: 0 is grouped
-    with null and stays blocked (D-0019); the export has no maxSelect 0.
+    Imported on first use: the CLI and the staging cleanup do not need it, and
+    a PPBase without the rule fails here, loudly, instead of reading a
+    maxSelect null relation as single.
     """
-    return field["type"] == "relation" and (field.get("options") or {}).get("maxSelect") in (
-        None,
-        0,
-    )
+    from ppbase.models import field_multiplicity
+
+    return field_multiplicity
+
+
+def relation_definition_problem(field: dict) -> str | None:
+    """Refusal of a relation whose maxSelect has no agreed meaning, else None.
+
+    Options as the PPBase rule reads them (``field_options``).
+    ``relation_max_select_not_positive_requires_decision`` (0 or less):
+    PocketBase 0.22.34 refuses to save it (models/schema/schema_field.go:709,
+    NilOrNotEmpty and Min(minSelect >= 0)), stores it single (:715-716, :163)
+    and then refuses any non-empty value (forms/validators/record_data.go:
+    376-377); its 0.23 upgrade makes it unlimited (v0.23.0
+    migrations/1717233556_v0.23_migrate.go:844-848) and PPBase single with a
+    limit of 1 (``relation_max_select``): three meanings, none chosen here.
+    ``relation_max_select_absent_requires_decision``: without the key,
+    PocketBase 0.22.34 decodes a nil pointer (multiple, :693 and :716), PPBase
+    single (documented difference of its rule). PocketBase 0.22 always writes
+    the key (no omitempty, :693); every relation of the export has it, none
+    is 0 or less (188 are 1, 3 are null).
+    """
+    if field["type"] != "relation":
+        return None
+    options = _multiplicity().field_options(field)
+    if "maxSelect" not in options:
+        return RELATION_MAX_SELECT_ABSENT
+    maximum = options["maxSelect"]
+    if isinstance(maximum, (int, float)) and not isinstance(maximum, bool) and maximum <= 0:
+        return RELATION_MAX_SELECT_NOT_POSITIVE
+    return None
+
+
+def relation_unbounded(field: dict) -> bool:
+    """Unlimited multiple relation: maxSelect null (D-0019).
+
+    The PPBase rule: ``relation_max_select`` is None, i.e. PocketBase 0.22.34
+    RelationOptions.IsMultiple with a nil MaxSelect (models/schema/
+    schema_field.go:693, 715-716), stored as a JSON list. maxSelect 0 or less
+    and an absent key are not unbounded here: ``relation_definition_problem``.
+    """
+    if field["type"] != "relation" or relation_definition_problem(field):
+        return False
+    rule = _multiplicity()
+    return rule.relation_max_select(rule.field_options(field)) is None
 
 
 def source_multiple(field: dict) -> bool:
-    """Whether PB 0.22 stores this field as a JSON list.
+    """Whether PB 0.22 stores this field as a JSON list: the PPBase rule.
 
-    PocketBase 0.22.34 IsMultiple (models/schema/schema_field.go:626-627 select,
-    667-668 file, 715-716 relation: maxSelect > 1, or null for a relation),
-    except the maxSelect 0 relation documented in ``relation_unbounded``.
+    ``field_is_multiple`` of ``ppbase.models.field_multiplicity`` (D-0019):
+    select and file maxSelect > 1, relation maxSelect null or > 1, which is
+    PocketBase 0.22.34 IsMultiple (models/schema/schema_field.go:626-627,
+    667-668, 715-716) for every definition PocketBase 0.22 writes, maxSelect 0
+    or less included (single for both, and refused for import). The one form
+    where they part, a relation without the maxSelect key, is read as 0.22.34
+    stored it (a list) and refused for import (``relation_definition_problem``).
     """
-    if relation_unbounded(field):
+    if relation_definition_problem(field) == RELATION_MAX_SELECT_ABSENT:
         return True
-    return field["type"] in LIST_KINDS and ((field.get("options") or {}).get("maxSelect") or 1) > 1
+    return _multiplicity().field_is_multiple(field)
 
 
 @dataclass(frozen=True)
@@ -763,6 +839,16 @@ class Step:
     types: frozenset
     array: bool = False
     unbounded: bool = False
+    refusal: str | None = None
+
+
+def refused(code: str):
+    """Converter refusing every value of a field with ``code``."""
+
+    def refuse(_):
+        raise ImportBlocked(code)
+
+    return refuse
 
 
 def field_step(field: dict) -> Step:
@@ -778,9 +864,13 @@ def field_step(field: dict) -> Step:
         if options.get("onlyInt"):
             return Step(name, name, integer_value, frozenset({"integer"}))
         return Step(name, name, double_value, frozenset({"double precision"}))
+    problem = relation_definition_problem(field)
+    if problem is not None:
+        array = source_multiple(field)
+        return Step(name, name, refused(problem), STRING_TYPES, array, refusal=problem)
     if relation_unbounded(field):
         return Step(name, name, unbounded_relation_value, STRING_TYPES, True, True)
-    if kind in LIST_KINDS and (options.get("maxSelect") or 1) > 1:
+    if kind in LIST_KINDS and source_multiple(field):
         return Step(name, name, text_array_value, STRING_TYPES, True)
     if kind in STRING_KINDS | LIST_KINDS:
         return Step(name, name, text_value, STRING_TYPES)
@@ -1213,10 +1303,13 @@ def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
     An unbounded relation is a warning while its source table is empty
     (D-0019), a blocker otherwise: ``unbounded_relation_target_scalar`` over a
     scalar column, ``unbounded_relation_arrays_not_enabled`` over an array
-    column while UNBOUNDED_RELATION_ARRAYS is off. Unsupplied NOT NULL columns
-    without default are blockers; other unsupplied columns use their default.
+    column while UNBOUNDED_RELATION_ARRAYS is off. A relation definition
+    refused by ``relation_definition_problem`` follows the same rule with its
+    own code, whatever its column. Unsupplied NOT NULL columns without default
+    are blockers; other unsupplied columns use their default.
     """
     blockers, warnings, defaulted, checked = [], [], [], 0
+    by_rows = (UNBOUNDED_SCALAR, UNBOUNDED_NOT_ENABLED, *RELATION_DEFINITION_CODES)
     for collection in definitions:
         if collection["type"] == "view":
             continue
@@ -1230,7 +1323,9 @@ def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
             checked += 1
             column = columns.get(step.column)
             problem = None
-            if column is None:
+            if step.refusal is not None:
+                problem = step.refusal
+            elif column is None:
                 problem = "target_column_missing"
             elif column.type not in KNOWN_TARGET_TYPES:
                 problem = "unsupported_target_column_type"
@@ -1249,7 +1344,7 @@ def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
                 "expected": _expected(step),
                 "actual": _describe(column) if column else None,
             }
-            if problem in (UNBOUNDED_SCALAR, UNBOUNDED_NOT_ENABLED) and not row_counts.get(name):
+            if problem in by_rows and not row_counts.get(name):
                 warnings.append(entry)
             else:
                 blockers.append(entry)
@@ -1552,6 +1647,20 @@ def _add_blocker(blockers: list, code: str, **context) -> None:
     blockers.append({"code": code, **context})
 
 
+def issue_key(column, code, arrays_not_enabled, scalar_targets) -> tuple:
+    """(column, code) counted for one problem of one diagnosed row.
+
+    An unbounded relation keeps one code per cause: the importer flag over an
+    array column (``arrays_not_enabled``), the scalar target over a scalar
+    column (``scalar_targets``, whose shape refusal is that D-0019 blocker).
+    """
+    if code == UNBOUNDED_SCALAR and column in arrays_not_enabled:
+        return column, UNBOUNDED_NOT_ENABLED
+    if code == "array_value_for_scalar_column" and column in scalar_targets:
+        return column, UNBOUNDED_SCALAR
+    return column, code
+
+
 def _entry_key(entry) -> tuple:
     if isinstance(entry, dict):
         return entry.get("code"), entry.get("collection"), entry.get("field")
@@ -1723,17 +1832,29 @@ def diagnose(
                 and table_spec.get(field["name"])
                 and table_spec[field["name"]].array
             }
-            for field in collection["schema"] if not UNBOUNDED_RELATION_ARRAYS else ():
-                if relation_unbounded(field):
+            # Unbounded relations over a scalar target column (a database not
+            # converted by 1789236850): the shape refusal of each row is the
+            # D-0019 blocker of the preflight, reported once with its rows.
+            scalar_targets = {
+                field["name"]
+                for field in collection["schema"]
+                if relation_unbounded(field)
+                and table_spec
+                and table_spec.get(field["name"])
+                and not table_spec[field["name"]].array
+            }
+            for field in collection["schema"]:
+                code = relation_definition_problem(field)
+                if code is None and relation_unbounded(field) and not UNBOUNDED_RELATION_ARRAYS:
+                    code = (
+                        UNBOUNDED_NOT_ENABLED
+                        if field["name"] in arrays_not_enabled
+                        else UNBOUNDED_SCALAR
+                    )
+                if code is not None:
                     # Kept for empty tables; merged away when a blocker exists.
                     report["warnings"].append(
-                        {
-                            "code": UNBOUNDED_NOT_ENABLED
-                            if field["name"] in arrays_not_enabled
-                            else UNBOUNDED_SCALAR,
-                            "collection": name,
-                            "field": field["name"],
-                        }
+                        {"code": code, "collection": name, "field": field["name"]}
                     )
             plan = RowPlan(collection)
             column_specs = (
@@ -1857,9 +1978,7 @@ def diagnose(
                     blocked_rows += 1
                     issue_counts.update(
                         {
-                            (column, UNBOUNDED_NOT_ENABLED)
-                            if code == UNBOUNDED_SCALAR and column in arrays_not_enabled
-                            else (column, code)
+                            issue_key(column, code, arrays_not_enabled, scalar_targets)
                             for column, code in problems
                         }
                     )
@@ -2826,6 +2945,125 @@ async def load_isolated(
     return state.count
 
 
+def array_relation_fields(definitions: list[dict]):
+    """(collection, field) of every relation stored as a list and imported."""
+    for collection in definitions:
+        if collection["type"] == "view":
+            continue
+        for field in collection["schema"]:
+            if (
+                field["type"] == "relation"
+                and relation_definition_problem(field) is None
+                and source_multiple(field)
+            ):
+                yield collection, field
+
+
+def source_relation_array(db, collection: dict, field: dict) -> dict:
+    """SQLite's own reading of one stored relation list, element by element.
+
+    json_each, SQLite's JSON parser and not this importer's: rows, rows with
+    elements, elements, longest element (characters), and the multiset digest
+    of (record id, position, element), so that order and repeated elements
+    count. A value that is no JSON list, or a non-text element, is ``invalid``
+    (the diagnosis refuses those already).
+    """
+    table, column = quote(collection["name"]), quote(field["name"])
+    # CASE fixes the evaluation order: json_type() fails on malformed JSON.
+    valid = f"CASE WHEN json_valid(t.{column}) THEN json_type(t.{column}) = 'array' ELSE 0 END"
+    rows, invalid = db.execute(
+        f"SELECT count(*), count(*) FILTER (WHERE NOT {valid}) FROM {table} t"
+    ).fetchone()
+    found = Fingerprint()
+    owners, longest = set(), 0
+    for record, position, value, kind in db.execute(
+        f"SELECT t.id, j.key, j.value, j.type FROM {table} t, "
+        f"json_each(CASE WHEN {valid} THEN t.{column} ELSE '[]' END) j"
+    ):
+        if kind != "text":
+            invalid += 1
+        found.add(row_digest(repr((record, position, value))))
+        owners.add(record)
+        longest = max(longest, len(value) if isinstance(value, str) else 0)
+    return {
+        "rows": rows,
+        "rows_with_elements": len(owners),
+        "elements": found.rows,
+        "longest_element": longest,
+        "invalid": invalid,
+        "digest": found.hexdigest(),
+    }
+
+
+async def target_relation_array(driver, collection: dict, field: dict) -> dict:
+    """The same reading of the loaded array column: unnest WITH ORDINALITY."""
+    table, column = quote(collection["name"]), quote(field["name"])
+    rows, invalid = await driver.fetchrow(
+        f"SELECT count(*), count(*) FILTER (WHERE {column} IS NULL) FROM {table}"
+    )
+    found = Fingerprint()
+    owners, longest = set(), 0
+    sql = (
+        f"SELECT s.id, e.position - 1, e.ref FROM {table} s "
+        f"CROSS JOIN LATERAL unnest(s.{column}) WITH ORDINALITY e(ref, position)"
+    )
+    async for record, position, value in driver.cursor(sql, prefetch=FINAL_PREFETCH):
+        if not isinstance(value, str):
+            invalid += 1
+        found.add(row_digest(repr((record, position, value))))
+        owners.add(record)
+        longest = max(longest, len(value) if isinstance(value, str) else 0)
+    return {
+        "rows": rows,
+        "rows_with_elements": len(owners),
+        "elements": found.rows,
+        "longest_element": longest,
+        "invalid": invalid,
+        "digest": found.hexdigest(),
+    }
+
+
+async def recount_relation_arrays(connection, data: Path, definitions: list[dict]) -> list[dict]:
+    """Recount every array relation after the load, independently of its path.
+
+    The load compares the target with this importer's own parsing of each
+    stored list; here SQLite's JSON reader over the staged snapshot and
+    PostgreSQL's unnest over the loaded columns must give the same rows,
+    elements, positions and values (``source_relation_array``,
+    ``target_relation_array``), else ``relation_array_recount_mismatch``. A
+    scalar target column passes the preflight only for an empty table (a
+    warning): its rows are counted, and any source row is the D-0019 blocker
+    ``unbounded_relation_target_scalar``. Returns per-field counts and the
+    target column type, never a value or a digest.
+    """
+    driver = (await connection.get_raw_connection()).driver_connection
+    results, tables = [], {}
+    with snapshot(data) as db:
+        for collection, field in array_relation_fields(definitions):
+            name = collection["name"]
+            if name not in tables:
+                tables[name] = await introspect_table(connection, name)
+            column = tables[name].get(field["name"])
+            source = source_relation_array(db, collection, field)
+            context = {"collection": name, "field": field["name"]}
+            entry = {**context, "target_column": _describe(column) if column else None}
+            if column is not None and column.array:
+                target = await target_relation_array(driver, collection, field)
+                entry["sqlite_json_each_equals_postgresql_unnest"] = True
+            else:
+                if source["rows"]:
+                    raise ImportBlocked(UNBOUNDED_SCALAR, **context)
+                rows = await driver.fetchval(f"SELECT count(*) FROM {quote(name)}")
+                target = {**source, "rows": rows}
+                entry["empty_table_over_scalar_column"] = True
+            if source["invalid"] or source != target:
+                raise ImportBlocked(RELATION_ARRAY_RECOUNT, **context)
+            for key in ("rows", "rows_with_elements", "elements", "longest_element"):
+                entry[key] = source[key]
+            results.append(entry)
+    return results
+
+
 async def import_snapshot(
     engine,
     data: Path,
@@ -2837,22 +3075,59 @@ async def import_snapshot(
     fail_after: int | None = None,
     report: dict | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    auth_fail_after: str | None = None,
 ):
-    """Stage, then load in one transaction; on any failure nothing remains.
+    """Single entry point: records, accounts and settings in one transaction.
 
-    The transaction is rolled back and the fresh staging directory created by
-    this call is removed. On success the staged copy is kept for serving (it
-    holds a private copy of data.db: destroy it after a rehearsal). A process
-    ended without Python unwinding (SIGKILL, the OOM killer, and by default
-    SIGTERM and SIGHUP: a timeout, ``docker stop``, a closed terminal) leaves
-    nothing in PostgreSQL (the server rolls the open transaction back) but
-    cannot remove ``destination``: delete it or use a new path, a retry at the
-    same path fails with FileExistsError. Run the import inside
+    Before anything is written or copied: the engine must hide bound values
+    (``create_async_engine(..., hide_parameters=True)``, else
+    ``engine_hide_parameters_required``) and the diagnosis must be ready
+    (``diagnostic_blockers``, as ``stage_snapshot`` would refuse it), then
+    ``check_ready`` of ``scripts.c11_auth_import`` runs on its own short
+    read-only transaction (rehearsal database, source accounts and settings
+    without blocker, empty ``_superusers``, no ``settings`` parameter, no auth
+    archive, same auth collection IDs), so that an account or settings refusal
+    never comes after the whole load and no lock it takes is held while the
+    import waits.
+    Then the snapshot is staged (``stage_snapshot``) and one transaction
+    (``engine.begin()``) runs ``load_isolated`` (records, which first checks
+    that every record table is empty), ``recount_relation_arrays`` and
+    ``import_auth`` (admins to ``_superusers``, token secrets, settings: they
+    re-check every precondition under their locks). A failure of any of them,
+    ``fail_after`` (records) and ``auth_fail_after`` (``import_auth`` stage)
+    included, rolls everything back: no record, account or setting remains,
+    and the fresh staging directory created by this call is removed.
+
+    Returns the record count. ``report`` (optional dict) receives the load
+    evidence of ``load_isolated``, ``relation_arrays`` (per-field counts),
+    ``auth`` (``import_auth``'s value-free report), ``single_transaction`` and
+    timings: aggregates only, no secret, hash or token value.
+
+    On success the staged copy is kept for serving (it holds a private copy of
+    data.db: destroy it after a rehearsal). A process ended without Python
+    unwinding (SIGKILL, the OOM killer, and by default SIGTERM and SIGHUP: a
+    timeout, ``docker stop``, a closed terminal) leaves nothing in PostgreSQL
+    (the server rolls the open transaction back) but cannot remove
+    ``destination``: delete it or use a new path, a retry at the same path
+    fails with FileExistsError. Run the import inside
     ``cancelled_by_termination()`` to turn SIGTERM and SIGHUP into a
     cancellation that does run this cleanup.
     """
+    from scripts.c11_auth_import import FAIL_STAGES, check_ready, hides_parameters, import_auth
+
+    if auth_fail_after is not None and auth_fail_after not in FAIL_STAGES:
+        raise ValueError("unknown failure stage")
+    if not hides_parameters(engine):
+        # Without it SQLAlchemy repeats bound values (password hashes,
+        # tokenKeys, secrets) in its error messages.
+        raise ImportBlocked("engine_hide_parameters_required")
+    if not diagnostic["ready_for_isolated_rehearsal"]:
+        raise ImportBlocked("diagnostic_blockers")  # before any database access
     evidence = report if report is not None else {}
     started = time.monotonic()
+    async with engine.connect() as probe:
+        await check_ready(probe, data, definitions)
+    checked = time.monotonic()
     stage_snapshot(data, destination, diagnostic, manifest=manifest)
     staged = time.monotonic()
     try:
@@ -2866,12 +3141,29 @@ async def import_snapshot(
                 batch_size=batch_size,
             )
             loaded = time.monotonic()
+            arrays = await recount_relation_arrays(connection, destination, definitions)
+            recounted = time.monotonic()
+            auth = await import_auth(
+                connection, destination, definitions, fail_after=auth_fail_after
+            )
+            imported = time.monotonic()
     except BaseException:
         shutil.rmtree(destination)
         raise
+    evidence["relation_arrays"] = arrays
+    evidence["auth"] = auth
+    evidence["single_transaction"] = {
+        "records": count,
+        "relation_arrays_recounted": len(arrays),
+        "accounts_and_settings": auth["imported"],
+        "committed": True,
+    }
     timings = evidence.setdefault("timings_seconds", {})
-    timings["staging"] = round(staged - started, 3)
-    timings["commit"] = round(time.monotonic() - loaded, 3)
+    timings["readiness_check"] = round(checked - started, 3)
+    timings["staging"] = round(staged - checked, 3)
+    timings["relation_arrays"] = round(recounted - loaded, 3)
+    timings["auth_import"] = round(imported - recounted, 3)
+    timings["commit"] = round(time.monotonic() - imported, 3)
     return count
 
 
