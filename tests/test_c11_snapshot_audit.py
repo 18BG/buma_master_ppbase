@@ -150,3 +150,50 @@ def test_audit_manifest_mode_matches_directory_mode_without_file_bytes(tmp_path)
     assert report["relations"][0]["missing_references"] == 1
     with pytest.raises(ImportBlocked, match="storage_directory_and_manifest_both_supplied"):
         audit(data, source_version="0.22.27", manifest=manifest)
+
+
+def test_audit_reads_field_multiplicity_independently_and_agrees_on_the_export():
+    import json
+    import os
+    from pathlib import Path
+
+    from scripts import c11_import, c11_snapshot_audit
+
+    audit_rule, importer_rule = c11_snapshot_audit.source_multiple, c11_import.source_multiple
+    assert audit_rule is not importer_rule
+    for kind in ("relation", "file", "select"):
+        for maximum in (None, 0, 1, 2, 99):
+            field = {"type": kind, "options": {"maxSelect": maximum}}
+            expected = maximum not in (1,) if kind == "relation" else (maximum or 1) > 1
+            assert audit_rule(field) is expected is importer_rule(field), (kind, maximum)
+    export = Path(
+        os.environ.get(
+            "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+        )
+    )
+    fields = [
+        field
+        for collection in json.loads(export.read_text())
+        if collection["type"] != "view"
+        for field in collection["schema"]
+        if field["type"] in {"relation", "file", "select"}
+    ]
+    assert len(fields) > 100
+    assert [audit_rule(f) for f in fields] == [importer_rule(f) for f in fields]
+
+
+def test_audit_manifest_mode_refuses_a_storage_symlink(tmp_path):
+    import pytest
+
+    from scripts.c11_import import ImportBlocked, directory_manifest, write_json_new
+    from scripts.c11_snapshot_audit import audit
+
+    data = audit_snapshot(tmp_path)
+    manifest = tmp_path / "manifest.json"
+    write_json_new(manifest, directory_manifest(data))
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "data.db").write_bytes((data / "data.db").read_bytes())
+    (bundle / "storage").symlink_to(tmp_path / "absent")  # dangling, still refused
+    with pytest.raises(ImportBlocked, match="storage_directory_and_manifest_both_supplied"):
+        audit(bundle, source_version="0.22.27", manifest=manifest)

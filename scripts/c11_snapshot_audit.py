@@ -1,10 +1,13 @@
 """Read-only relationship/file audit, independent of import conversion failures.
 
-An independent SQL implementation (json_each, LEFT JOIN) of the counts that
-the C11 diagnostic reports as preserved anomalies: every relation and file
-field, including unlimited source arrays. It never makes those arrays
-importable and never rewrites data or schema. Storage comes from a real
-storage/ directory or, without any file byte, from the private manifest.
+An independent SQL implementation (json_each, LEFT JOIN) of the relation
+counts that the C11 diagnostic reports as preserved anomalies, with its own
+reading of the field definitions (``source_multiple`` below, not the
+importer's): every relation and file field, including unlimited source arrays.
+It never makes those arrays importable and never rewrites data or schema.
+Storage comes from a real storage/ directory or, without any file byte, from
+the private manifest. Shared with the importer: the read-only snapshot, the
+storage inventory/manifest readers, the file key rule and the report writer.
 """
 
 from __future__ import annotations
@@ -21,13 +24,25 @@ from scripts.c11_import import (
     digest,
     file_key,
     inventory_fingerprint,
+    path_present,
     quote,
     read_manifest,
     snapshot,
-    source_multiple,
     storage_inventory,
     write_json_new,
 )
+
+
+def source_multiple(field):
+    """JSON list storage, read independently of the importer.
+
+    PocketBase 0.22.34 IsMultiple: maxSelect > 1 for select/file, nil or > 1
+    for a relation (models/schema/schema_field.go:626-627, 667-668, 715-716).
+    A relation maxSelect 0 (refused by PB validation, :709; none in the
+    export) is audited as a list, like the importer's deliberate grouping.
+    """
+    maximum = (field.get("options") or {}).get("maxSelect")
+    return (maximum or 0) != 1 if field["type"] == "relation" else (maximum or 1) > 1
 
 
 def relation_audit(db, collection, field, target):
@@ -196,7 +211,7 @@ def audit(
         inventory = storage_inventory(data / "storage")
         storage = {"storage_mode": "directory", "file_bytes_verified": True}
     else:
-        if (data / "storage").exists():
+        if path_present(data / "storage"):
             raise ImportBlocked("storage_directory_and_manifest_both_supplied")
         inventory = read_manifest(manifest, data / "data.db")["storage"]
         storage = {"storage_mode": "manifest", "file_bytes_verified": False}
@@ -287,7 +302,7 @@ def main():
     parser.add_argument("--manifest", type=Path, help="Private manifest instead of storage/")
     args = parser.parse_args()
     for path in (args.report, args.private_report):
-        if path.exists() or path.is_symlink():
+        if path_present(path):
             parser.error(f"{path} must be a new path")
     last = time.monotonic()
 
@@ -300,7 +315,8 @@ def main():
     report, private = audit(
         args.data, source_version=args.source_version, progress=progress, manifest=args.manifest
     )
-    write_json_new(args.private_report, private)
+    # File keys may carry undecodable bytes: private details are ASCII-escaped.
+    write_json_new(args.private_report, private, ascii=True)
     write_json_new(args.report, report)
     print(json.dumps({"report": str(args.report), "elapsed_seconds": report["elapsed_seconds"]}))
 

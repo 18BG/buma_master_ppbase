@@ -73,16 +73,44 @@ async def check_schema(url, schema):
 def negative_diagnostics(data, root, schema):
     """Each altered snapshot is synthetic; no fixture silently repairs a source.
 
-    Every case is compared with the diagnosis of the unaltered fixture, so the
-    contract holds whatever that fixture already contains. Orphan relations
-    and absent referenced files are preserved anomalies: same blockers and
+    Every case is compared with the diagnosis of the unaltered fixture and
+    alters one chosen record, so the contract holds whatever that fixture
+    already contains (default or real_shape profile). Orphan relations and
+    absent referenced files are preserved anomalies: same blockers and
     readiness as the unaltered fixture, exactly the injected anomaly added,
     nothing invented, removed or redirected. Every other altered case must add
-    its own blocker. Manifest mode is exercised without any storage/ bytes.
+    its own blocker (code, and field when one is named). Manifest mode is
+    exercised without any storage/ bytes.
     """
     from scripts.c11_import import directory_manifest
 
     reference = diagnose(data, schema, source_version="0.22.27")
+    article_collection = next(c["id"] for c in load_schema(schema) if c["name"] == "buma_article")
+
+    def first(table, where="1"):
+        return f"(SELECT min(rowid) FROM {table} WHERE {where})"
+
+    with snapshot(data) as db:
+        # A transaction whose article exists, and an ID that no row uses.
+        transaction = db.execute(
+            "SELECT min(t.rowid) FROM buma_transaction t JOIN buma_article a ON a.id=t.article"
+        ).fetchone()[0]
+        absent = next(
+            candidate
+            for candidate in (f"c11absent{index:06d}" for index in range(1000))
+            if not db.execute(
+                "SELECT 1 FROM buma_article WHERE id=? UNION ALL "
+                "SELECT 1 FROM buma_transaction WHERE article=?",
+                (candidate, candidate),
+            ).fetchone()
+        )
+        # A present single file of buma_article.medias (maxSelect 1).
+        record, filename = db.execute(
+            "SELECT id, medias FROM buma_article WHERE medias<>'' ORDER BY rowid"
+        ).fetchone()
+    removed = f"{article_collection}/{record}/{filename}"
+    if transaction is None or not (data / "storage" / removed).is_file():
+        raise AssertionError("fixture lacks a valid article relation or a present medias file")
 
     def altered(name, sql=None):
         clone = root / name
@@ -102,25 +130,87 @@ def negative_diagnostics(data, root, schema):
             for item in report["preserved_source_anomalies"][kind]["fields"]
         }
 
-    cases = {
-        "duplicate_idempotency_key": "INSERT INTO buma_transaction "
-        "(id,type,author,system_id) SELECT 'duplicate000001',type,author,system_id "
-        "FROM buma_transaction",
-        "unbounded_relation_target_scalar": "INSERT INTO buma_customer (id,pdv) "
-        "VALUES ('multirel0000001','[\"pdv000000000001\",\"pdv000000000002\"]')",
-        "schema_drift": "UPDATE _collections SET listRule='C11 intentional drift' "
-        "WHERE name='users'",
-        "invalid_number": "UPDATE buma_article SET sell_price='broken'",
-        "nul_in_postgresql_text": "UPDATE buma_supplier SET firstname='C11'||char(0)||'nul'",
-        "nul_in_postgresql_jsonb": 'UPDATE buma_article SET specification=\'{"k":"\\u0000"}\'',
-    }
+    cases = (
+        # (result name, expected code, expected field or None, SQL on one copy)
+        (
+            "duplicate_idempotency_key",
+            "duplicate_idempotency_key",
+            None,
+            "INSERT INTO buma_transaction (id,type,author,system_id) SELECT 'duplicate000001',"
+            "type,author,system_id FROM buma_transaction WHERE rowid="
+            + first("buma_transaction", "system_id LIKE 'idem:%'"),
+        ),
+        (
+            "unbounded_relation_target_scalar",
+            "unbounded_relation_target_scalar",
+            "pdv",
+            "INSERT INTO buma_customer (id,pdv) "
+            "VALUES ('multirel0000001','[\"pdv000000000001\",\"pdv000000000002\"]')",
+        ),
+        (
+            "schema_drift",
+            "schema_drift",
+            "listRule",
+            "UPDATE _collections SET listRule='C11 intentional drift' WHERE name='users'",
+        ),
+        (
+            "invalid_number",
+            "invalid_number",
+            "sell_price",
+            "UPDATE buma_article SET sell_price='broken' WHERE rowid=" + first("buma_article"),
+        ),
+        (
+            "nul_in_postgresql_text",
+            "nul_in_postgresql_text",
+            "firstname",
+            "UPDATE buma_supplier SET firstname='C11'||char(0)||'nul' WHERE rowid="
+            + first("buma_supplier"),
+        ),
+        (
+            "nul_in_postgresql_jsonb",
+            "nul_in_postgresql_jsonb",
+            "specification",
+            'UPDATE buma_article SET specification=\'{"k":"\\u0000"}\' WHERE rowid='
+            + first("buma_article"),
+        ),
+        (
+            "jsonb_duplicate_keys_collapsed",
+            "jsonb_duplicate_keys_collapsed",
+            "specification",
+            'UPDATE buma_article SET specification=\'{"k":1,"k":2}\' WHERE rowid='
+            + first("buma_article"),
+        ),
+        (
+            "invalid_unicode_for_postgresql",
+            "invalid_unicode_for_postgresql",
+            "file",
+            'UPDATE buma_ressources SET file=\'["one.bin","\\ud800.bin"]\' WHERE rowid='
+            + first("buma_ressources"),
+        ),
+        (
+            "date_not_pocketbase_layout",
+            "date_not_pocketbase_layout",
+            "created",
+            "UPDATE buma_supplier SET created='2024-02-29T12:34:56.789Z' WHERE rowid="
+            + first("buma_supplier"),
+        ),
+        (
+            "auth_legacy_nul",
+            "nul_in_postgresql_jsonb",
+            "auth_legacy",
+            "UPDATE users SET lastResetSentAt='C11'||char(0) WHERE rowid=" + first("users"),
+        ),
+    )
     results = {}
-    for code, sql in cases.items():
-        report = diagnose(altered(code, sql), schema, source_version="0.22.27")
+    for name, code, field, sql in cases:
+        report = diagnose(altered(name, sql), schema, source_version="0.22.27")
         added = [b for b in report["blockers"] if b not in reference["blockers"]]
-        if code not in {b["code"] for b in added} or report["ready_for_isolated_rehearsal"]:
-            raise AssertionError((code, report["blockers"]))
-        results[code] = "blocked"
+        if (
+            not any(b["code"] == code and field in (None, b.get("field")) for b in added)
+            or report["ready_for_isolated_rehearsal"]
+        ):
+            raise AssertionError((name, report["blockers"]))
+        results[name] = "blocked"
 
     def preserved(report, kind, key, expected):
         if (
@@ -136,7 +226,10 @@ def negative_diagnostics(data, root, schema):
             raise AssertionError((kind, report["preserved_source_anomalies"][kind]))
 
     report = diagnose(
-        altered("dangling_relation", "UPDATE buma_transaction SET article='absent000000001'"),
+        altered(
+            "dangling_relation",
+            f"UPDATE buma_transaction SET article='{absent}' WHERE rowid={transaction}",
+        ),
         schema,
         source_version="0.22.27",
     )
@@ -144,7 +237,7 @@ def negative_diagnostics(data, root, schema):
     preserved(report, "dangling_relations", ("buma_transaction", "article"), (1, 1, 1))
     results["dangling_relation"] = "preserved_anomaly_not_blocking"
     clone = altered("missing_file")
-    next(p for p in (clone / "storage").rglob("proof.bin")).unlink()
+    (clone / "storage" / removed).unlink()
     report = diagnose(clone, schema, source_version="0.22.27")
     preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
     if (report["files"], report["unreferenced_files"]) != (
@@ -170,6 +263,7 @@ def negative_diagnostics(data, root, schema):
         "unreferenced_files",
         "preserved_source_anomalies",
         "blockers",
+        "warnings",
     )
     if (report["storage_mode"], report["file_bytes_copied"], report["file_bytes_verified"]) != (
         "manifest",
@@ -188,7 +282,9 @@ def negative_diagnostics(data, root, schema):
 
     report = manifest_case(
         "manifest_missing_file",
-        lambda m: m["files"].remove(next(f for f in m["files"] if f["path"].endswith("proof.bin"))),
+        lambda m: m["files"].remove(
+            next(f for f in m["files"] if f["path"] == "storage/" + removed)
+        ),
     )
     preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
     results["manifest_missing_file"] = "preserved_anomaly_not_blocking"
