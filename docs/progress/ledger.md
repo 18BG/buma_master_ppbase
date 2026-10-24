@@ -2662,3 +2662,12 @@ phase 0 crée l'environnement Python s'il manque, l'absence du paquet ne bloque
 pas la session, WS-B ajoute un mode sans octets de fichiers fondé sur le
 manifeste, les performances se mesurent sur un jeu synthétique en attendant
 et WS-G attend le paquet. Documentation et paquet local seulement ; poussé.
+
+Le paquet est ensuite déposé par l'utilisateur sur le serveur `vmi3661571`, en
+root, dans `/root/projects`, à côté des trois dépôts clonés, de l'export JSON
+et d'autres projets à ne pas toucher. Il enverra plus tard le ZIP complet pour
+refaire les répétitions avec les fichiers devant lui : le plan garde ce mode
+complet. Le plan reprend ces chemins, précise qu'un seul venv BUMA installe
+aussi PPBase en editable, interdit d'installer des paquets système et de
+modifier les autres projets ou services, et signale le refus possible du mode
+sans validation en root.

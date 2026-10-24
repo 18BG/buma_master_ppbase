@@ -35,15 +35,17 @@ et sa documentation, ou consignée comme ouverte dans le ledger.
   lui-même (migration 0.22 → 0.23). Le comportement visible par les clients
   BUMA reste celui de la source gelée sur PocketBase 0.22.34.
 - Faute de data pour envoyer 1,5 Go, l'utilisateur envoie un **paquet base de
-  données** de 63 Mo au lieu du ZIP :
-  `~/protech/c11-master-20260928-db-bundle.tar.xz`, SHA-256
+  données** de 63 Mo au lieu du ZIP, déposé le 2026-10-24 :
+  `/root/projects/c11-master-20260928-db-bundle.tar.xz`, SHA-256
   `6dae14cd662aebb687d67636eb7d556179ba89f9a3503a99ccd210d254eeef0e`. Il
   contient `data.db` (SHA-256
   `3539f3eb1c8659421526ede0e47ccc60482aaf0abd2c114282c05719d02b1afd`), le
   manifeste privé de l'archive, le relevé privé des fichiers et le README du
   backup ; ni `storage/` (4,6 Go) ni `logs.db` (jamais importé). Son import est
   autorisé **uniquement** dans un PostgreSQL jetable de ce serveur. Tant qu'il
-  est absent, seules les étapes qui en dépendent attendent.
+  est absent, seules les étapes qui en dépendent attendent. Le ZIP complet
+  pourra venir plus tard pour refaire les répétitions avec les fichiers, devant
+  l'utilisateur : les outils gardent ce mode complet à côté du mode paquet.
 - Déjà actés : D-0022 (index source) et D-0023 (ordre du lookup accepté).
 - Choix par défaut, conformes à D-0009 et D-0021 sauf contre-ordre : importer
   telles quelles les références orphelines et les références de fichiers
@@ -53,56 +55,56 @@ Toujours interdit : toute action sur la production ou ses serveurs ;
 dédupliquer, aplatir une liste, inventer une cible, un ID, un rowid ou un
 fichier ; modifier la source TypeScript ; publier des valeurs réelles, des
 secrets ou des hashes (rapports publics agrégés, détails dans `backups/`,
-ignoré par Git) ; supprimer des données de l'utilisateur.
+ignoré par Git) ; supprimer des données de l'utilisateur ; modifier les autres
+projets de `/root/projects` (`bumo-hooks`, `business-mobile`, `buma_pro`,
+`bumo_backoffice`, `buma-extensions`, `PROMPT.md`), installer des paquets
+système ou toucher aux services du serveur.
 
-## 3. Mise en place (par l'utilisateur, avant de lancer la session)
+## 3. Mise en place sur le serveur
 
-Le serveur doit avoir une clé SSH avec accès aux dépôts GitHub `18BG` et
-`ssakone`, Python 3.11 ou plus, Docker, Node 22 ou plus et Git.
+Serveur `vmi3661571`, utilisateur `root`, dossier parent `/root/projects`.
+Fait le 2026-10-24 : `buma-master-ppbase`, `ppbase` et `buma_master_hooks`
+clonés côte à côte ; export JSON et paquet base de données copiés dans
+`/root/projects`.
+
+Prérequis système, vérifiés par l'utilisateur (la session n'installe aucun
+paquet système) : Python 3.11 ou plus, Docker et xz indispensables ; Node 22 ou
+plus seulement pour les tests du dashboard PPBase.
 
 ```sh
-mkdir -p ~/protech && cd ~/protech
-git clone --branch features/auth git@github.com:18BG/buma_master_ppbase.git buma-master-ppbase
-git clone --branch pocketbase-auth-parity-v0404 git@github.com:ssakone/ppbase.git ppbase
-git clone --branch fix/uv-paani-sup git@github.com:ssakone/buma_master_hooks.git buma_master_hooks
+python3 --version; docker --version; xz --version | head -1; node --version
 ```
 
-L'export JSON est copié dans `~/protech/` (fait le 2026-10-24). Le paquet base
-de données, préparé sur le Mac, s'envoie depuis son Terminal :
+Environnement Python : un seul venv, dans le dépôt BUMA. Il installe aussi
+PPBase en editable avec ses outils de test ; PPBase n'a pas besoin du sien.
 
 ```sh
-scp ~/Documents/wproject/protech/buma-master-ppbase/backups/c11-master-20260928-db-bundle.tar.xz SERVEUR:~/protech/
-ssh SERVEUR 'chmod 600 ~/protech/c11-master-20260928-db-bundle.tar.xz'
-```
-
-Environnement Python sur le serveur, par l'utilisateur ou, à défaut, par la
-session en phase 0 :
-
-```sh
-cd ~/protech/buma-master-ppbase
+cd /root/projects/buma-master-ppbase
 git pull
-python3 --version   # 3.11 ou plus
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '../ppbase[dev]' -e '.[dev]'
-echo 'export BUMA_SCHEMA_EXPORT="$HOME/protech/buma-master-pb_schema-corrected.json"' >> ~/.bashrc
+echo 'export BUMA_SCHEMA_EXPORT=/root/projects/buma-master-pb_schema-corrected.json' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Lancer Claude Code dans `~/protech/buma-master-ppbase`, dans un mode qui
+Lancer Claude Code dans `/root/projects/buma-master-ppbase`, dans un mode qui
 n'attend pas de validation manuelle (sinon la session se bloque à la première
-demande pendant la nuit), avec « Dynamic workflow size » relevé dans
-`/config`. Écrire ensuite :
+demande pendant la nuit). En root, Claude Code peut refuser ce mode ; sur un
+serveur dédié, `IS_SANDBOX=1` devant la commande lève généralement ce refus.
+Relever « Dynamic workflow size » dans `/config`, puis écrire :
 
 > Lis AGENTS.md, puis docs/server-session-plan.md, et exécute ce plan jusqu'au
 > bout en orchestrant des workflows et des sous-agents (ultracode).
 
 ## 4. Phase 0 — départ vérifié (orchestrateur seul, 45 minutes environ)
 
-0. Environnement : si `.venv` manque, vérifier Python 3.11 ou plus, créer le
-   venv et installer `-e '../ppbase[dev]' -e '.[dev]'`. Si `BUMA_SCHEMA_EXPORT`
-   n'est pas défini, chercher le JSON dans `~/protech/` et le passer à chaque
-   commande (l'état du shell ne persiste pas entre deux commandes). Une
-   installation qui exige `sudo` est consignée et demandée à l'utilisateur.
+0. Environnement : si `.venv` manque, le créer avec Python 3.11 ou plus et
+   installer `-e '../ppbase[dev]' -e '.[dev]'` (un seul venv, PPBase inclus).
+   Si `BUMA_SCHEMA_EXPORT` n'est pas défini, utiliser
+   `/root/projects/buma-master-pb_schema-corrected.json` et le passer à chaque
+   commande (l'état du shell ne persiste pas entre deux commandes). Paquets
+   Python du venv, images Docker et binaires PocketBase sont autorisés ; un
+   prérequis système manquant est consigné et signalé à l'utilisateur.
 1. Procédure de handoff d'`AGENTS.md`. `git -C ../buma_master_hooks rev-parse
    HEAD` doit valoir `530018cd20c2acbe88f38b3639e500b5271e2eb2` ; sinon,
    `checkout --detach` de ce commit.
@@ -119,8 +121,9 @@ demande pendant la nuit), avec « Dynamic workflow size » relevé dans
    l'architecture du serveur, hors du dépôt, et noter leurs empreintes.
    Rejouer `python -m scripts.c11_rehearsal` avec 0.22.27 avant toute
    modification.
-6. Données réelles, dès que le paquet est présent : vérifier son empreinte,
-   l'extraire dans `backups/c11-master-20260928/` (dossiers 0700, fichiers
+6. Données réelles, dès que le paquet
+   `/root/projects/c11-master-20260928-db-bundle.tar.xz` est présent : vérifier
+   son empreinte, l'extraire dans `backups/c11-master-20260928/` (dossiers 0700, fichiers
    0600) et contrôler que `data.db` vaut
    `3539f3eb1c8659421526ede0e47ccc60482aaf0abd2c114282c05719d02b1afd`. Ne
    jamais lancer d'interpréteur depuis ce dossier.
@@ -183,6 +186,9 @@ et 7 et le chantier WS-G attendent son arrivée, tout le reste avance.
   `storage/`. Les références et tailles sont contrôlées, aucun octet n'est
   copié, et le rapport le dit explicitement. La copie octet pour octet reste
   prouvée sur la fixture synthétique et se fera à la bascule.
+- Mode complet conservé pour la répétition ultérieure avec le ZIP, devant
+  l'utilisateur : script d'extraction vérifiée (CRC et SHA-256 de chaque
+  membre, dossiers 0700, fichiers 0600) versionné et testé, `storage/` réel.
 
 ### WS-C — Comptes, paramètres et sessions
 
