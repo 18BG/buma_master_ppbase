@@ -71,35 +71,293 @@ async def check_schema(url, schema):
 
 
 def negative_diagnostics(data, root, schema):
-    """Each rejected snapshot is synthetic; no fixture silently repairs a source."""
-    cases = {
-        "dangling_relation": "UPDATE buma_transaction SET article='absent000000001'",
-        "duplicate_idempotency_key": "INSERT INTO buma_transaction "
-        "(id,type,author,system_id) SELECT 'duplicate000001',type,author,system_id "
-        "FROM buma_transaction",
-        "unbounded_relation_target_scalar": "INSERT INTO buma_customer (id,pdv) "
-        "VALUES ('multirel0000001','[\"pdv000000000001\",\"pdv000000000002\"]')",
-        "schema_drift": "UPDATE _collections SET listRule='C11 intentional drift' "
-        "WHERE name='users'",
-        "invalid_number": "UPDATE buma_article SET sell_price='broken'",
-    }
-    results = {}
-    for code, sql in cases.items():
-        clone = root / code
+    """Each altered snapshot is synthetic; no fixture silently repairs a source.
+
+    Every case is compared with the diagnosis of the unaltered fixture and
+    alters one chosen record, so the contract holds whatever that fixture
+    already contains (default or real_shape profile). Orphan relations and
+    absent referenced files are preserved anomalies: same blockers and
+    readiness as the unaltered fixture, exactly the injected anomaly added,
+    nothing invented, removed or redirected. Values that PocketBase 0.22.34
+    serves otherwise than PPBase will (jsonb number notation, a single value
+    stored as a JSON array, a list with duplicates) are warnings: same
+    blockers and readiness, one more affected row for that code and field.
+    Every other altered case must add its own blocker (code, and field when
+    one is named), a json text that PocketBase serves as a string included.
+    Manifest mode is exercised without any storage/ bytes.
+    """
+    from scripts.c11_import import directory_manifest
+
+    reference = diagnose(data, schema, source_version="0.22.27")
+    article_collection = next(c["id"] for c in load_schema(schema) if c["name"] == "buma_article")
+
+    def first(table, where="1"):
+        return f"(SELECT min(rowid) FROM {table} WHERE {where})"
+
+    with snapshot(data) as db:
+        # A transaction whose article exists, and an ID that no row uses.
+        transaction = db.execute(
+            "SELECT min(t.rowid) FROM buma_transaction t JOIN buma_article a ON a.id=t.article"
+        ).fetchone()[0]
+        absent = next(
+            candidate
+            for candidate in (f"c11absent{index:06d}" for index in range(1000))
+            if not db.execute(
+                "SELECT 1 FROM buma_article WHERE id=? UNION ALL "
+                "SELECT 1 FROM buma_transaction WHERE article=?",
+                (candidate, candidate),
+            ).fetchone()
+        )
+        # A present single file of buma_article.medias (maxSelect 1).
+        record, filename = db.execute(
+            "SELECT id, medias FROM buma_article WHERE medias<>'' ORDER BY rowid"
+        ).fetchone()
+    removed = f"{article_collection}/{record}/{filename}"
+    if transaction is None or not (data / "storage" / removed).is_file():
+        raise AssertionError("fixture lacks a valid article relation or a present medias file")
+
+    def altered(name, sql=None):
+        clone = root / name
         shutil.copytree(data, clone)
-        with sqlite3.connect(clone / "data.db") as conn:
-            conn.execute(sql)
-        report = diagnose(clone, schema, source_version="0.22.27")
-        if code not in {b["code"] for b in report["blockers"]}:
-            raise AssertionError((code, report["blockers"]))
-        results[code] = "blocked"
-    clone = root / "missing_file"
-    shutil.copytree(data, clone)
-    next(p for p in (clone / "storage").rglob("proof.bin")).unlink()
+        if sql:
+            with sqlite3.connect(clone / "data.db") as conn:
+                conn.execute(sql)
+        return clone
+
+    def codes(report):
+        return {b["code"] for b in report["blockers"]}
+
+    def anomaly_counts(report, kind):
+        width = "distinct_targets" if kind == "dangling_relations" else "distinct_files"
+        return {
+            (item["collection"], item["field"]): (item["references"], item["records"], item[width])
+            for item in report["preserved_source_anomalies"][kind]["fields"]
+        }
+
+    cases = (
+        # (result name, expected code, expected field or None, SQL on one copy)
+        (
+            "duplicate_idempotency_key",
+            "duplicate_idempotency_key",
+            None,
+            "INSERT INTO buma_transaction (id,type,author,system_id) SELECT 'duplicate000001',"
+            "type,author,system_id FROM buma_transaction WHERE rowid="
+            + first("buma_transaction", "system_id LIKE 'idem:%'"),
+        ),
+        (
+            "unbounded_relation_target_scalar",
+            "unbounded_relation_target_scalar",
+            "pdv",
+            "INSERT INTO buma_customer (id,pdv) "
+            "VALUES ('multirel0000001','[\"pdv000000000001\",\"pdv000000000002\"]')",
+        ),
+        (
+            "schema_drift",
+            "schema_drift",
+            "listRule",
+            "UPDATE _collections SET listRule='C11 intentional drift' WHERE name='users'",
+        ),
+        (
+            "invalid_number",
+            "invalid_number",
+            "sell_price",
+            "UPDATE buma_article SET sell_price='broken' WHERE rowid=" + first("buma_article"),
+        ),
+        (
+            "nul_in_postgresql_text",
+            "nul_in_postgresql_text",
+            "firstname",
+            "UPDATE buma_supplier SET firstname='C11'||char(0)||'nul' WHERE rowid="
+            + first("buma_supplier"),
+        ),
+        (
+            "nul_in_postgresql_jsonb",
+            "nul_in_postgresql_jsonb",
+            "specification",
+            'UPDATE buma_article SET specification=\'{"k":"\\u0000"}\' WHERE rowid='
+            + first("buma_article"),
+        ),
+        (
+            "jsonb_duplicate_keys_collapsed",
+            "jsonb_duplicate_keys_collapsed",
+            "specification",
+            'UPDATE buma_article SET specification=\'{"k":1,"k":2}\' WHERE rowid='
+            + first("buma_article"),
+        ),
+        (
+            "invalid_unicode_for_postgresql",
+            "invalid_unicode_for_postgresql",
+            "file",
+            'UPDATE buma_ressources SET file=\'["one.bin","\\ud800.bin"]\' WHERE rowid='
+            + first("buma_ressources"),
+        ),
+        (
+            "date_not_pocketbase_layout",
+            "date_not_pocketbase_layout",
+            "created",
+            "UPDATE buma_supplier SET created='2024-02-29T12:34:56.789Z' WHERE rowid="
+            + first("buma_supplier"),
+        ),
+        (
+            "auth_legacy_nul",
+            "nul_in_postgresql_jsonb",
+            "auth_legacy",
+            "UPDATE users SET lastResetSentAt='C11'||char(0) WHERE rowid=" + first("users"),
+        ),
+        (
+            # Leading whitespace: PocketBase serves this text as a JSON string.
+            "json_text_served_as_string_by_pocketbase",
+            "json_text_served_as_string_by_pocketbase",
+            "specification",
+            "UPDATE buma_article SET specification=' {\"k\":1}' WHERE rowid="
+            + first("buma_article"),
+        ),
+    )
+    results = {}
+    for name, code, field, sql in cases:
+        report = diagnose(altered(name, sql), schema, source_version="0.22.27")
+        added = [b for b in report["blockers"] if b not in reference["blockers"]]
+        if (
+            not any(b["code"] == code and field in (None, b.get("field")) for b in added)
+            or report["ready_for_isolated_rehearsal"]
+        ):
+            raise AssertionError((name, report["blockers"]))
+        results[name] = "blocked"
+
+    def preserved(report, kind, key, expected):
+        if (
+            codes(report) != codes(reference)
+            or report["ready_for_isolated_rehearsal"] != reference["ready_for_isolated_rehearsal"]
+            or report["preserved_source_anomalies"]["blocking"]
+        ):
+            raise AssertionError((kind, report["blockers"]))
+        before, after = anomaly_counts(reference, kind), anomaly_counts(report, kind)
+        old = before.pop(key, (0, 0, 0))
+        new = after.pop(key, (0, 0, 0))
+        if after != before or tuple(n - o for n, o in zip(new, old, strict=True)) != expected:
+            raise AssertionError((kind, report["preserved_source_anomalies"][kind]))
+
+    def warning_counts(report):
+        return {
+            (w["code"], w["collection"], w["field"]): w.get("affected_rows", 0)
+            for w in report["warnings"]
+            if isinstance(w, dict)
+        }
+
+    for name, sql, key in (
+        (
+            "jsonb_number_notation_normalized",
+            "UPDATE buma_article SET specification='{\"k\":1e2}' WHERE rowid="
+            + first("buma_article"),
+            ("jsonb_number_notation_normalized", "buma_article", "specification"),
+        ),
+        (
+            "single_value_served_as_last_element",
+            'UPDATE buma_article SET kind=\'["UV_RS","AUTRE"]\' WHERE rowid='
+            + first("buma_article"),
+            ("single_value_served_as_last_element", "buma_article", "kind"),
+        ),
+        (
+            "list_served_deduplicated_by_pocketbase",
+            'UPDATE buma_ressources SET file=\'["one.bin","one.bin"]\' WHERE rowid='
+            + first("buma_ressources"),
+            ("list_served_deduplicated_by_pocketbase", "buma_ressources", "file"),
+        ),
+    ):
+        report = diagnose(altered(name, sql), schema, source_version="0.22.27")
+        before, after = warning_counts(reference), warning_counts(report)
+        if (
+            codes(report) != codes(reference)
+            or report["ready_for_isolated_rehearsal"] != reference["ready_for_isolated_rehearsal"]
+            or after.get(key, 0) - before.get(key, 0) != 1
+        ):
+            raise AssertionError((name, report["blockers"], report["warnings"]))
+        results[name] = "warning_not_blocking"
+
+    report = diagnose(
+        altered(
+            "dangling_relation",
+            f"UPDATE buma_transaction SET article='{absent}' WHERE rowid={transaction}",
+        ),
+        schema,
+        source_version="0.22.27",
+    )
+    # One reference, one record and one distinct target more on this field.
+    preserved(report, "dangling_relations", ("buma_transaction", "article"), (1, 1, 1))
+    results["dangling_relation"] = "preserved_anomaly_not_blocking"
+    clone = altered("missing_file")
+    (clone / "storage" / removed).unlink()
     report = diagnose(clone, schema, source_version="0.22.27")
-    if "missing_referenced_file" not in {b["code"] for b in report["blockers"]}:
-        raise AssertionError(report["blockers"])
-    results["missing_file"] = "blocked"
+    preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
+    if (report["files"], report["unreferenced_files"]) != (
+        reference["files"] - 1,
+        reference["unreferenced_files"],
+    ):
+        raise AssertionError(report["files"])
+    results["missing_file"] = "preserved_anomaly_not_blocking"
+
+    # Manifest mode: data.db and the private-format manifest, no storage/ tree.
+    manifest = directory_manifest(data)
+    bundle = root / "manifest_bundle"
+    bundle.mkdir()
+    shutil.copyfile(data / "data.db", bundle / "data.db")
+    manifest_path = root / "manifest.json"
+    write_json_new(manifest_path, manifest)
+    report = diagnose(bundle, schema, source_version="0.22.27", manifest=manifest_path)
+    same = (
+        "ready_for_isolated_rehearsal",
+        "file_manifest_sha256",
+        "files",
+        "file_bytes",
+        "unreferenced_files",
+        "preserved_source_anomalies",
+        "blockers",
+        "warnings",
+    )
+    if (report["storage_mode"], report["file_bytes_copied"], report["file_bytes_verified"]) != (
+        "manifest",
+        False,
+        False,
+    ) or any(report[key] != reference[key] for key in same):
+        raise AssertionError(report)
+    results["manifest_mode"] = "same_diagnosis_same_file_fingerprint_no_bytes_copied"
+
+    def manifest_case(name, change):
+        variant = json.loads(json.dumps(manifest))
+        change(variant)
+        path = root / f"{name}.json"
+        write_json_new(path, variant)
+        return diagnose(bundle, schema, source_version="0.22.27", manifest=path)
+
+    report = manifest_case(
+        "manifest_missing_file",
+        lambda m: m["files"].remove(
+            next(f for f in m["files"] if f["path"] == "storage/" + removed)
+        ),
+    )
+    preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
+    results["manifest_missing_file"] = "preserved_anomaly_not_blocking"
+
+    def wal(m):
+        m["files"].append(
+            {"path": "data.db-wal", "bytes": 32, "sha256": "0" * 64, "crc32": "0" * 8}
+        )
+
+    def other_db(m):
+        next(f for f in m["files"] if f["path"] == "data.db")["sha256"] = "0" * 64
+
+    for name, change, code in (
+        ("manifest_wal", wal, "live_or_incomplete_sqlite_snapshot"),
+        ("manifest_data_db", other_db, "data_db_manifest_mismatch"),
+    ):
+        try:
+            manifest_case(name, change)
+        except ImportBlocked as exc:
+            if str(exc) != code:
+                raise
+        else:
+            raise AssertionError(name)
+        results[name] = "blocked"
     return results
 
 
