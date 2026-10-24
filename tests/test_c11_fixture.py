@@ -641,7 +641,7 @@ def test_file_divergence_classes_are_narrow():
     pb_404 = _file(404, json.dumps(_error(404)).encode(), "application/json; charset=UTF-8")
     pp_404 = _file(404, json.dumps(_error(404, key="status")).encode(), "application/json")
     assert rehearsal.file_divergences("b", pb_404, pp_404, None) == (
-        ["error_envelope_code_vs_status", "json_error_content_type_charset"],
+        ["error_envelope_code_vs_status", "json_content_type_charset"],
         [],
     )
     assert rehearsal.file_divergences("c", _file(), _file(content=b"y"), None)[1] == ["bytes"]
@@ -657,16 +657,21 @@ def _answers(json_answers, logins=None):
     }
 
 
-def _answer(status, body, token=None):
-    return {"status": status, "body": body, "token": token, "json": None}
+def _answer(status, body, token=None, content_type="application/json"):
+    return {
+        "status": status,
+        "body": body,
+        "token": token,
+        "json": None,
+        "content_type": content_type,
+    }
 
 
 def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
     rehearsal = _rehearsal()
+    declared = {"pocketbase": 200, "ppbase": 500, "cause": "c", "client_impact": "i"}
     monkeypatch.setattr(
-        rehearsal,
-        "KNOWN_DIVERGENCES",
-        {"declared": {"pocketbase": 200, "ppbase": 500, "cause": "c"}},
+        rehearsal, "KNOWN_DIVERGENCES", {"declared": declared | {"documented_in": "d"}}
     )
     pocketbase = _answers(
         {
@@ -683,17 +688,276 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
         }
     )
     result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
-    assert result["declared_divergences"]["declared"]["ppbase_status"] == 500
+    entry = result["declared_divergences"]["declared"]
+    assert (entry["state"], entry["ppbase_status"], entry["client_impact"]) == ("present", 500, "i")
     assert result["divergence_classes"]["error_envelope_code_vs_status"]["probes"] == ["classed"]
+    assert result["divergence_classes"]["error_envelope_code_vs_status"]["state"] == "open"
     assert result["unexpected_differences"] == [{"probe": "changed", "differences": ["/name"]}]
-    # Another PPBase status than the declared one is unexpected; a declared
-    # divergence that disappeared is reported as resolved.
+    assert (result["probes"], result["identical"], result["with_open_divergences"]) == (4, 1, 3)
+    # Another PPBase status than the declared one is unexpected.
     ppbase["json"]["declared"] = _answer(403, _error(403, key="status"))
     result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
     assert result["unexpected_differences"][0]["probe"] == "declared"
+    assert result["declared_divergences"]["declared"]["state"] == "unexplained"
+    # Once resolved, the probe is compared like any other: classes still apply.
     ppbase["json"]["declared"] = _answer(200, {"items": []})
     result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
-    assert result["declared_divergences"]["declared"] == {"resolved": True, "cause": "c"}
+    assert result["declared_divergences"]["declared"]["state"] == "resolved"
+    pocketbase["json"]["declared"] = _answer(200, {"totalItems": num(0), "totalPages": num(0)})
+    ppbase["json"]["declared"] = _answer(200, {"totalItems": num(0), "totalPages": num(1)})
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["declared_divergences"]["declared"]["state"] == "resolved"
+    assert result["divergence_classes"]["empty_list_total_pages"]["probes"] == ["declared"]
+    assert [u["probe"] for u in result["unexpected_differences"]] == ["changed"]
+
+
+def test_declared_json_path_divergence_is_present_then_resolved(monkeypatch):
+    rehearsal = _rehearsal()
+    paths = ("/items", "/totalItems", "/totalPages")
+    monkeypatch.setattr(
+        rehearsal,
+        "KNOWN_DIVERGENCES",
+        {"every": {"pocketbase": 200, "ppbase": 200, "paths": paths, "cause": "c"}},
+    )
+
+    def listing(*items, pages=None):
+        total = num(len(items))
+        return {"items": list(items), "totalItems": total, "totalPages": pages or total}
+
+    pocketbase = _answers({"every": _answer(200, listing())})
+
+    def compare(body):
+        ppbase = _answers({"every": _answer(200, body)})
+        return rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+
+    result = compare(listing({"id": "a"}))  # any element matched: the defect
+    assert result["declared_divergences"]["every"]["state"] == "present"
+    assert not result["unexpected_differences"]
+    result = compare(listing(pages=num(1)))  # fixed; totalPages 1 is its own class
+    assert result["declared_divergences"]["every"]["state"] == "resolved"
+    assert result["divergence_classes"]["empty_list_total_pages"]["probes"] == ["every"]
+    assert not result["unexpected_differences"]
+    result = compare({**listing({"id": "a"}), "other": 1})  # outside the declared paths
+    assert result["unexpected_differences"][0]["probe"] == "every"
+
+
+def test_json_content_types_are_compared():
+    rehearsal = _rehearsal()
+    charset = "application/json; charset=UTF-8"
+    pocketbase = _answers(
+        {"a": _answer(200, {"id": "x"}, content_type=charset), "b": _answer(200, {"id": "x"})}
+    )
+    ppbase = _answers({"a": _answer(200, {"id": "x"}), "b": _answer(200, {"id": "x"}, None, "x")})
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["divergence_classes"]["json_content_type_charset"]["probes"] == ["a"]
+    assert result["unexpected_differences"] == [{"probe": "b", "differences": ["content_type"]}]
+    assert result["results"]["a"] == {
+        "status": 200,
+        "same_status_and_body": True,
+        "same_as_pocketbase": False,
+    }
+    ppbase["json"].pop("b")
+    result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
+    assert result["unexpected_differences"] == [
+        {"probe": "json", "differences": ["probe_sets_differ"]}
+    ]
+
+
+def _status_results(rehearsal, profile="real_shape"):
+    json_results = {
+        probe.label: {"status": probe.expected}
+        for probe in rehearsal.PROBES
+        if profile in probe.profiles
+    }
+    logins = {
+        label: {"status": status, "token": {"type": "auth"} if status == 200 else None}
+        for label, *_rest, profiles, status in rehearsal.LOGINS
+        if profile in profiles
+    }
+    return {"json": json_results, "logins": logins}
+
+
+def test_statuses_accept_a_declared_divergence_present_or_resolved():
+    rehearsal = _rehearsal()
+    results = _status_results(rehearsal)
+    for server in ("pocketbase", "ppbase"):
+        assert rehearsal.check_statuses(results, "real_shape", server)  # resolved everywhere
+    label = "denied_views_joined_wallet"
+    results["json"][label]["status"] = 500
+    assert rehearsal.check_statuses(results, "real_shape", "ppbase")  # declared, present
+    with pytest.raises(AssertionError):
+        rehearsal.check_statuses(results, "real_shape", "pocketbase")
+    results["json"][label]["status"] = 403
+    with pytest.raises(AssertionError):
+        rehearsal.check_statuses(results, "real_shape", "ppbase")
+
+
+def _listing(*records):
+    return {"json": {"items": [{"id": record} for record in records]}, "status": 200}
+
+
+def _role_answers(prefix=""):
+    customers = sorted(fixture.REAL_SHAPE["unlimited_relations"]["buma_customer.pdv"])
+    return {
+        prefix + "users_lists_customers_by_role": _listing(*customers),
+        prefix + "denied_lists_wallets": _listing("c11wallet000001"),
+        prefix + "denied_views_joined_wallet": {"status": 404, "json": None},
+    }
+
+
+def test_role_rules_run_once_a_declared_divergence_is_resolved():
+    rehearsal = _rehearsal()
+    answers = _role_answers()
+    assert rehearsal.check_role_rules(answers, "ppbase") == (
+        "role_rules_and_the_joined_managers_element"
+    )
+    answers["denied_lists_wallets"] = _listing()  # the joined element no longer matched
+    with pytest.raises(AssertionError):
+        rehearsal.check_role_rules(answers, "ppbase")
+    rehearsal.check_role_rules(answers, "ppbase", skip=("denied_lists_wallets",))
+    prefix = rehearsal.DECLARED_KEYS_PREFIX
+    body = {"items": []}
+    results = {
+        "declared_keys": {
+            key: {**value, "body": body} for key, value in _role_answers(prefix).items()
+        },
+        "json": {key: {**value, "body": body} for key, value in _role_answers().items()},
+    }
+    assert rehearsal.check_declared_keys(results, "pocketbase").endswith("with_declared_keys")
+    # PocketBase never reads buma_apps_roles: another answer with the keys fails.
+    results["json"]["users_lists_customers_by_role"]["body"] = {"items": [1]}
+    with pytest.raises(AssertionError):
+        rehearsal.check_declared_keys(results, "pocketbase")
+    assert rehearsal.check_declared_keys(results, "ppbase").endswith("with_declared_keys")
+
+
+def test_permission_keys_without_default_are_counted():
+    rehearsal = _rehearsal()
+    definitions = [
+        {
+            "name": "a",
+            "listRule": "@request.auth.role.permission.isAdmin = true || "
+            "@request.auth.role.permission.wallet.read = true",
+            "viewRule": "@request.auth.role.permission.role.read = true",
+            "options": {"manageRule": "@request.auth.role.permission.customer.read = true"},
+        },
+        {"name": "b", "listRule": "@request.auth.role.permission.user.update = true"},
+    ]
+    found = rehearsal.permission_keys_without_default(definitions)
+    assert (found["permission_keys"], found["rules"], found["collections"]) == (2, 2, 1)
+    assert found["keys_of_the_probed_rules_included"] is False
+    if SCHEMA.is_file():
+        found = rehearsal.permission_keys_without_default(json.loads(SCHEMA.read_text()))
+        assert (found["permission_keys"], found["rules"], found["collections"]) == (20, 28, 11)
+        assert found["keys_of_the_probed_rules_included"] is True
+
+
+def test_settings_are_compared_path_by_path():
+    rehearsal = _rehearsal()
+    source = {
+        "meta": {"appName": "C11", "appUrl": "http://c11.invalid/", "hideControls": False},
+        "logs": {"maxDays": 7, "minLevel": 4, "logIp": True},
+        "smtp": {"enabled": False, "port": 587, "password": "synthetic"},
+        "backups": {"cron": "0 3 29 2 *"},
+    }
+    imported = {
+        "meta": {"appName": "C11", "appURL": "http://c11.invalid", "hideControls": False},
+        "logs": {"maxDays": 7, "minLevel": 4, "logIP": True},
+        "smtp": {"enabled": False, "port": 587, "password": "other but present"},
+        "backups": {"cron": ""},
+    }
+    found = rehearsal.check_settings(source, imported, "real_shape")
+    assert found["mapped_paths_equal_source"] == 9
+    assert found["fixture_overrides"]["backups.cron"] == "not_imported_as_documented"
+    for path, value in (
+        (("logs", "maxDays"), 7.0),  # same number, another JSON type
+        (("smtp", "password"), ""),  # a secret lost
+        (("meta", "appURL"), "http://c11.invalid/"),  # slash kept
+    ):
+        changed = json.loads(json.dumps(imported))
+        changed[path[0]][path[1]] = value
+        with pytest.raises(AssertionError):
+            rehearsal.check_settings(source, changed, "default")
+
+
+def test_rowid_archive_must_hold_every_imported_record():
+    rehearsal = _rehearsal()
+    definitions = [
+        {"id": "c1", "name": "a", "type": "base"},
+        {"id": "c2", "name": "v", "type": "view"},
+    ]
+    final = {"a": [{"id": "r1"}, {"id": "r2"}]}
+    archived = [
+        {"collection_id": "c1", "record_id": "r1"},
+        {"collection_id": "c1", "record_id": "r2"},
+    ]
+    rehearsal.check_rowid_archive(archived, definitions, final, 2)
+    for rows, entries in ((2, archived[:1]), (3, archived), (2, [archived[0], archived[0]])):
+        with pytest.raises(AssertionError):
+            rehearsal.check_rowid_archive(entries, definitions, final, rows)
+    other = [archived[0], {"collection_id": "c1", "record_id": "r3"}]
+    with pytest.raises(AssertionError):
+        rehearsal.check_rowid_archive(other, definitions, final, 2)
+
+
+def _main(monkeypatch, tmp_path, outcome, logs=None):
+    rehearsal = _rehearsal()
+    monkeypatch.setattr(rehearsal.fixture, "pocketbase_version", lambda binary: "0.22.34")
+    monkeypatch.setattr(rehearsal, "source_version_status", lambda found: (None, {"ok": True}))
+    monkeypatch.setattr(rehearsal, "digest", lambda path: "0" * 64)
+    monkeypatch.setattr(rehearsal, "buma_checkout", lambda: {"git_commit": None})
+    seen = {}
+
+    async def exercise(root, *args):
+        seen["root"] = root
+        (root / "server.log").write_text("synthetic log")
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(rehearsal, "exercise", exercise)
+    report = tmp_path / "report.json"
+    argv = ["c11_rehearsal", "--pocketbase", "pb", "--schema", "s.json", "--report", str(report)]
+    monkeypatch.setattr(sys, "argv", argv + (["--private-logs", str(logs)] if logs else []))
+    return rehearsal, report, seen
+
+
+def test_report_status_is_written_after_logs_and_cleanup(monkeypatch, tmp_path):
+    rehearsal, report, seen = _main(monkeypatch, tmp_path, None, tmp_path / "logs")
+    rehearsal.main()
+    written = json.loads(report.read_text())
+    assert written["status"] == "passed" and "failure_type" not in written
+    assert written["cleanup"] == {"private_logs_copied": True, "temporary_directory_removed": True}
+    assert not seen["root"].exists() and (tmp_path / "logs" / "server.log").is_file()
+    # A log copy that fails after a successful run fails the report.
+    rehearsal, report, seen = _main(monkeypatch, tmp_path / "x", None, tmp_path / "no" / "logs")
+    (tmp_path / "x").mkdir()
+    with pytest.raises(FileNotFoundError):
+        rehearsal.main()
+    written = json.loads(report.read_text())
+    assert (written["status"], written["failure_type"]) == ("failed", "FileNotFoundError")
+    assert not seen["root"].exists()
+    rehearsal, report, _seen = _main(monkeypatch, tmp_path / "y", RuntimeError("synthetic"))
+    (tmp_path / "y").mkdir()
+    with pytest.raises(RuntimeError):
+        rehearsal.main()
+    assert json.loads(report.read_text())["status"] == "failed"
+
+
+def test_container_removal_never_raises(monkeypatch):
+    import subprocess
+
+    rehearsal = _rehearsal()
+    calls = []
+
+    def failing(*args, **kwargs):
+        calls.append(args[:2])
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(rehearsal, "command", failing)
+    monkeypatch.setattr(rehearsal.time, "sleep", lambda seconds: None)
+    outcome = rehearsal.remove_container("buma-c11-test-x")
+    assert outcome == {"container_stop_error": "CalledProcessError", "container_removed": None}
+    assert calls[0] == ("docker", "stop")
 
 
 def test_token_shapes_follow_the_documented_mapping():

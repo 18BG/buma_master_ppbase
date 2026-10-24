@@ -20,8 +20,10 @@ data only:
    (admin, users, agent_users), then the reference probes run (sessions and
    refresh, logins, lists, filters and expand on the multiple relations,
    orphans, custom IDs, undeclared selects, JSON null, user dates, files,
-   refusals) and PocketBase stops cleanly; its realtime probe (a write) runs
-   on a copy, so the snapshot imported is the one the probes read.
+   refusals) and PocketBase stops cleanly; its realtime probe (a write) and
+   the role rules with their permission keys declared (RULE_PROBES,
+   DECLARED_KEYS) run on copies, so the snapshot imported is the one the
+   probes read.
 3. Read-only diagnosis of the stopped snapshot: ready, preserved anomalies
    counted against the fixture documentation, negative cases.
 4. Disposable PostgreSQL 16: migrations, schema and relation columns checked;
@@ -29,18 +31,26 @@ data only:
    complete record load and an accounts precondition refusal, each leaving
    exactly the empty migrated state; two concurrent imports, of which exactly
    one commits the complete ``import_snapshot`` (records, accounts, settings).
-5. Independent checks in PostgreSQL (rowids, values, arrays, orphans, dates,
-   superusers and token secrets), schema check again.
+5. Independent checks in PostgreSQL (one archived rowid per imported record,
+   values, arrays, orphans, dates, superusers, settings path by path and
+   token secrets), schema check again.
 6. An isolated PPBase server (BUMA hooks, jobs disabled) on the PPBase this
    process loads (the caller's PYTHONPATH, read back from the live server
    process): the same probes with the tokens PocketBase issued before the
-   import, then its realtime probe. Answers are compared one by one with
-   PocketBase's (status, body with JSON number literals, token shape, file
-   bytes and headers): a difference fails unless it is a declared probe
-   divergence (KNOWN_DIVERGENCES, status pair) or matches one narrow, cited
+   import, its realtime probe, then the role rules with DECLARED_KEYS present
+   (harness rows, deleted before the writes are checked). Answers are
+   compared one by one with PocketBase's (status, Content-Type, body with
+   JSON number literals, token shape, file bytes and headers): a difference
+   fails unless it is a declared probe divergence (KNOWN_DIVERGENCES, status
+   pair or JSON paths; "resolved" once gone) or matches one narrow, cited
    class (DIVERGENCE_CLASSES) that exists on any PPBase database.
 7. Source unchanged, only the expected writes, schema checked after the HTTP
-   probes, every process stopped, container and files removed.
+   probes, every process stopped, container and files removed; "passed" is
+   written only after the log copy and the cleanup succeeded.
+
+A passed run is import-fidelity evidence, not answer parity: the accepted
+differences are open divergences, each reported with its cause, client
+impact and documentation state (``evidence_scope`` in the report).
 
 The public report holds statuses, booleans, counts and synthetic labels; no
 token, password hash, tokenKey, secret or email.
@@ -55,6 +65,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import secrets
 import shutil
 import sqlite3
@@ -340,29 +351,68 @@ LOGINS = (
     ("admin_wrong_password", ADMINS_LOGIN, "_admin", "email", WRONG_PASSWORD, REAL, 400),
 )
 
+# The role rule probes again with the three permission keys they read declared
+# by synthetic buma_apps_roles rows (the form app/auth/context.py:67-82 reads:
+# name = app, info.actions = ["key:label"], each key defaulting to False). They
+# are written in a copy of the stopped snapshot for PocketBase and, after the
+# other probes, in the imported database for PPBase, then deleted. PocketBase's
+# rules never read buma_apps_roles (its answers must stay those of the
+# undeclared case); on PPBase the rules then run without the C3 defect below,
+# so the joined managers element is checked under the wallet rules as well.
+RULE_PROBES = (
+    "users_lists_customers_by_role",
+    "denied_lists_wallets",
+    "denied_views_joined_wallet",
+)
+DECLARED_KEYS_PREFIX = "declared_keys:"
+DECLARED_KEYS = (
+    ("c11appcustomer1", "customer", ["read:C11 read"]),
+    ("c11appwallet001", "wallet", ["read:C11 read", "list:C11 list"]),
+)
+# Rule paths @request.auth.role.permission.<app>.<key> that get no default
+# from merge_live_auth_context unless declared (isAdmin, role.* and user.* do).
+PERMISSION_PATH = r"@request\.auth\.role\.permission\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)"
+DEFAULTED_PERMISSION_APPS = frozenset({"role", "user"})
+
 # Differences between PocketBase 0.22.34 and PPBase answers that exist on any
-# BUMA/PPBase database, independently of the import: accepted only with their
-# declared pair of statuses; any other difference fails the rehearsal.
+# BUMA/PPBase database, independently of the import. They are OPEN divergences:
+# this rehearsal proves import fidelity, not answer parity, and records each
+# one (cause, client impact, where it is documented) so that the decisions
+# file can carry it. A probe-declared divergence is accepted only with its
+# declared pair of statuses (and JSON paths); once it disappears it is
+# reported "resolved" and the probe is checked like any other.
+TO_RECORD = "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
 UNDECLARED_PERMISSION_KEY = (
     "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 "
-    "(merge_live_auth_context) gives a False default only to the permission keys that "
+    "(merge_live_auth_context) gives a False default only to isAdmin, to the keys that "
     "buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the "
     "rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses "
-    "'' = TRUE (asyncpg DataError, HTTP 500). PocketBase v0.22.34 compares an empty "
-    "operand without error (tools/search/filter.go:290-330, resolveEqualExpr)"
+    "'' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. "
+    "PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without "
+    "error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false"
+)
+UNDECLARED_PERMISSION_IMPACT = (
+    "HTTP 500 instead of 200 or 404 for any record session, admins included, whose role "
+    "and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer "
+    "(customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys "
+    "declared, the same rules answer as PocketBase (see declared_permission_keys). "
+    "Production exposure depends on its roles.permission and buma_apps_roles content "
+    "(aggregates to measure on the real backup). Cutover blocker until fixed in "
+    "app/auth/context.py (False default for every key a rule reads) or accepted"
 )
 KNOWN_DIVERGENCES: dict[str, dict] = {
-    "users_lists_customers_by_role": {
-        "pocketbase": 200,
+    label: {
+        "pocketbase": pocketbase_status,
         "ppbase": 500,
         "cause": UNDECLARED_PERMISSION_KEY,
-    },
-    "denied_lists_wallets": {"pocketbase": 200, "ppbase": 500, "cause": UNDECLARED_PERMISSION_KEY},
-    "denied_views_joined_wallet": {
-        "pocketbase": 404,
-        "ppbase": 500,
-        "cause": UNDECLARED_PERMISSION_KEY,
-    },
+        "client_impact": UNDECLARED_PERMISSION_IMPACT,
+        "documented_in": TO_RECORD,
+    }
+    for label, pocketbase_status in (
+        ("users_lists_customers_by_role", 200),
+        ("denied_lists_wallets", 200),
+        ("denied_views_joined_wallet", 404),
+    )
 }
 KNOWN_DIVERGENCES["customers_pdv_name_every"] = {
     "pocketbase": 200,
@@ -375,57 +425,133 @@ KNOWN_DIVERGENCES["customers_pdv_name_every"] = {
         "requires every element (multi-match, resolvers/record_field_resolve_runner.go:"
         "679-681, tools/search/filter.go:184-210)"
     ),
+    "client_impact": (
+        "a filter or rule on a nested field of buma_customer.pdv, buma_pilotage_ticket.tag "
+        "or buma_wallet.managers without '?' (here pdv.name ~ ...) selects more records "
+        "than PocketBase: a list returns records PocketBase leaves out"
+    ),
+    "documented_in": (
+        "D-0025 (remaining PPBase gaps: multi-match of traversals, handled by D-0030)"
+    ),
 }
 # Answer differences that exist on any PPBase database, independently of the
 # import, by class: each difference path must match one narrow rule of
-# divergence_class(); anything else fails the rehearsal. PPBase lines cited
-# here and above: commit 526397a (branch fix/d0019-relation-maxselect).
+# divergence_class() or file_divergences(); anything else fails the rehearsal.
+# PPBase lines cited here and above: commit 526397a (branch
+# fix/d0019-relation-maxselect).
 DIVERGENCE_CLASSES = {
-    "error_envelope_code_vs_status": (
-        "documented (docs/contracts/c11-auth-import.md section 5): PocketBase v0.22.34 "
-        "{code, message, data} (apis/api_error.go:12-15), PPBase {status, message, data}"
-    ),
-    "auth_error_message_wording": (
-        "documented (docs/contracts/c11-auth-import.md section 5): 401/403 messages, same status"
-    ),
-    "failed_login_identity_detail": (
-        "PPBase adds data.identity validation_invalid_credentials to the 400 of a failed "
-        "login (ppbase/api/record_auth.py:352-357, ppbase/api/admins.py:172); PocketBase "
-        "v0.22.34 answers data {}"
-    ),
-    "empty_date_served_null": (
-        'PocketBase v0.22.34 serves an empty date as "" (tools/types/datetime.go:44-53); '
-        "PPBase stores it as SQL NULL and serves null (ppbase/models/record.py:129-133)"
-    ),
-    "auth_email_hidden_despite_manage_rule": (
-        "PocketBase v0.22.34 shows auth emails to admins, the owner and requesters "
-        "satisfying the collection manageRule (apis/record_helpers.go:216-270; "
-        "users.manageRule is @request.auth.role.permission.isAdmin = true); PPBase only "
-        "to superusers and the owner (ppbase/models/record.py:80-101)"
-    ),
-    "empty_expand_object": (
-        "PocketBase v0.22.34 omits expand when nothing was expanded "
-        "(models/record.go:556-559); PPBase serves expand {} "
-        "(ppbase/services/expand_service.py:240-242)"
-    ),
-    "empty_list_total_pages": (
-        "PocketBase v0.22.34 totalPages = ceil(0 / perPage) = 0 "
-        "(tools/search/provider.go:254); PPBase max(1, ...) (ppbase/models/record.py:196-201)"
-    ),
-    "default_thumb_size_serves_original": (
-        "PocketBase v0.22.34 always serves the 100x100 thumbnail (apis/file.go:27, :163-164; "
-        "here the one it stored, thumbs_<name>/100x100_<name>); PPBase only the sizes the "
-        "field declares (ppbase/api/files.py:280-283; the BUMA file fields declare none) "
-        "and serves the original bytes"
-    ),
-    "file_content_disposition_missing": (
-        "PocketBase v0.22.34 sends Content-Disposition inline/attachment with the file name "
-        "(tools/filesystem/filesystem.go:393-418); PPBase none on its default storage "
-        "stream (ppbase/api/files.py:1056-1110)"
-    ),
-    "json_error_content_type_charset": (
-        "PocketBase answers errors as application/json; charset=UTF-8, PPBase application/json"
-    ),
+    "error_envelope_code_vs_status": {
+        "cause": (
+            "PocketBase v0.22.34 {code, message, data} (apis/api_error.go:12-15), PPBase "
+            "{status, message, data}"
+        ),
+        "client_impact": (
+            "same HTTP status and message: a client reading the body field code of a native "
+            "error (/api/admins, /api/collections/*, /api/files) gets no value"
+        ),
+        "documented_in": (
+            "docs/contracts/c11-auth-import.md section 5 and the D-0025 gap list; " + TO_RECORD
+        ),
+    },
+    "auth_error_message_wording": {
+        "cause": "401/403 messages of PPBase differ from PocketBase v0.22.34, same status",
+        "client_impact": "a client comparing or displaying the 401/403 message text",
+        "documented_in": "docs/contracts/c11-auth-import.md section 5; " + TO_RECORD,
+    },
+    "failed_login_identity_detail": {
+        "cause": (
+            "PPBase adds data.identity validation_invalid_credentials to the 400 of a failed "
+            "login (ppbase/api/record_auth.py:352-357, ppbase/api/admins.py:172); PocketBase "
+            "v0.22.34 answers data {}"
+        ),
+        "client_impact": (
+            "same 400 and message; a client that shows or tests the data keys of a failed "
+            "login (field errors) sees an identity error"
+        ),
+        "documented_in": TO_RECORD,
+    },
+    "empty_date_served_null": {
+        "cause": (
+            'PocketBase v0.22.34 serves an empty date as "" (tools/types/datetime.go:44-53); '
+            "PPBase stores it as SQL NULL and serves null (ppbase/models/record.py:129-133)"
+        ),
+        "client_impact": (
+            'every empty date field of every record is served null instead of "": a client '
+            "typing it as a non-null string (Dart String, TypeScript string) receives null, "
+            'JavaScript new Date(null) gives 1970-01-01 where new Date("") was invalid'
+        ),
+        "documented_in": TO_RECORD,
+    },
+    "auth_email_hidden_despite_manage_rule": {
+        "cause": (
+            "PocketBase v0.22.34 shows auth emails to admins, the owner and requesters "
+            "satisfying the collection manageRule (apis/record_helpers.go:216-270; "
+            "users.manageRule is @request.auth.role.permission.isAdmin = true); PPBase only "
+            "to superusers and the owner (ppbase/models/record.py:80-101)"
+        ),
+        "client_impact": (
+            "a record session whose role satisfies users.manageRule (isAdmin) no longer "
+            "receives the other users' email in lists and views"
+        ),
+        "documented_in": TO_RECORD,
+    },
+    "empty_expand_object": {
+        "cause": (
+            "PocketBase v0.22.34 omits expand when nothing was expanded "
+            "(models/record.go:556-559); PPBase serves expand {} "
+            "(ppbase/services/expand_service.py:240-242)"
+        ),
+        "client_impact": (
+            "a client testing whether expand exists takes the other branch (empty object "
+            "instead of no key), e.g. when every relation of the record is an orphan"
+        ),
+        "documented_in": "D-0025 (remaining PPBase gaps); " + TO_RECORD,
+    },
+    "empty_list_total_pages": {
+        "cause": (
+            "PocketBase v0.22.34 totalPages = ceil(0 / perPage) = 0 "
+            "(tools/search/provider.go:254); PPBase max(1, ...) (ppbase/models/record.py:196-201)"
+        ),
+        "client_impact": "an empty list reports totalPages 1 instead of 0 (pagers, page loops)",
+        "documented_in": TO_RECORD,
+    },
+    "default_thumb_size_serves_original": {
+        "cause": (
+            "PocketBase v0.22.34 always serves the 100x100 thumbnail (apis/file.go:27, "
+            ":163-164; here the one it stored, thumbs_<name>/100x100_<name>); PPBase only the "
+            "sizes the field declares (ppbase/api/files.py:280-283; the BUMA file fields "
+            "declare none) and serves the original bytes"
+        ),
+        "client_impact": (
+            "?thumb=100x100 returns the original image (its size and dimensions) instead of "
+            "a 100x100 thumbnail"
+        ),
+        "documented_in": TO_RECORD,
+    },
+    "file_content_disposition_missing": {
+        "cause": (
+            "PocketBase v0.22.34 sends Content-Disposition inline/attachment with the file "
+            "name (tools/filesystem/filesystem.go:393-418); PPBase none on its default "
+            "storage stream (ppbase/api/files.py:1056-1110)"
+        ),
+        "client_impact": (
+            "a browser or downloader gets no file name and no inline/attachment hint from "
+            "the header (it falls back to the URL name)"
+        ),
+        "documented_in": TO_RECORD,
+    },
+    "json_content_type_charset": {
+        "cause": (
+            "measured: PocketBase v0.22.34 sends JSON answers as application/json; "
+            "charset=UTF-8 (set by its echo v5 dependency, whose source is not on this "
+            "server: not verified offline), PPBase as application/json"
+        ),
+        "client_impact": (
+            "JSON is UTF-8 either way (RFC 8259 section 8.1); only a client that compares the "
+            "exact Content-Type string differs"
+        ),
+        "documented_in": TO_RECORD,
+    },
 }
 # (PocketBase type, PPBase type) -> (PocketBase claims, PPBase claims). Tokens
 # PocketBase 0.22.34 issues: tokens/record.go:13-27 (authRecord) and
@@ -549,6 +675,7 @@ def answer(response) -> dict:
         body = {**body, "token": "<token>"}
     return {
         "status": response.status_code,
+        "content_type": response.headers.get("content-type"),
         "body": body,
         "token": token,
         # Plain JSON for the absolute checks; memory only, never reported.
@@ -556,20 +683,101 @@ def answer(response) -> dict:
     }
 
 
+async def probe_answer(client, probe: Probe, credentials: dict) -> dict:
+    headers = {}
+    if probe.credential:
+        headers["Authorization"] = credentials[probe.credential]
+    response = await client.request(probe.method, probe.path, params=probe.params, headers=headers)
+    return answer(response)
+
+
 async def json_probes(base: str, credentials: dict, profile: str) -> dict:
     results = {}
     async with fresh_client(base) as client:
         for probe in PROBES:
-            if profile not in probe.profiles:
-                continue
-            headers = {}
-            if probe.credential:
-                headers["Authorization"] = credentials[probe.credential]
-            response = await client.request(
-                probe.method, probe.path, params=probe.params, headers=headers
-            )
-            results[probe.label] = answer(response)
+            if profile in probe.profiles:
+                results[probe.label] = await probe_answer(client, probe, credentials)
     return results
+
+
+async def rule_probes(base: str, credentials: dict) -> dict:
+    """RULE_PROBES, made while DECLARED_KEYS are present (real_shape only)."""
+    results = {}
+    async with fresh_client(base) as client:
+        for probe in PROBES:
+            if probe.label in RULE_PROBES:
+                answered = await probe_answer(client, probe, credentials)
+                results[DECLARED_KEYS_PREFIX + probe.label] = answered
+    return results
+
+
+def declare_keys_sqlite(path: Path) -> None:
+    """DECLARED_KEYS in a stopped PocketBase snapshot copy (never the imported one)."""
+    stamp = "2024-01-01 00:00:00.000Z"
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        for record, name, actions in DECLARED_KEYS:
+            db.execute(
+                "INSERT INTO buma_apps_roles (id, created, updated, ref, name, description, info) "
+                "VALUES (?, ?, ?, 'c11', ?, '', ?)",
+                (record, stamp, stamp, name, json.dumps({"actions": actions})),
+            )
+
+
+@contextlib.asynccontextmanager
+async def declared_keys_postgres(engine):
+    """DECLARED_KEYS in the imported database while the PPBase server runs, then removed."""
+    async with engine.begin() as conn:
+        for record, name, actions in DECLARED_KEYS:
+            await conn.execute(
+                text(
+                    'INSERT INTO "buma_apps_roles" ("id", "ref", "name", "info") '
+                    "VALUES (:id, 'c11', :name, CAST(:info AS jsonb))"
+                ),
+                {"id": record, "name": name, "info": json.dumps({"actions": actions})},
+            )
+    try:
+        yield
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text('DELETE FROM "buma_apps_roles" WHERE "id" = ANY(:ids)'),
+                {"ids": [record for record, _name, _actions in DECLARED_KEYS]},
+            )
+
+
+def permission_keys_without_default(definitions: list[dict]) -> dict:
+    """Schema aggregate: rules reading a permission key no default covers.
+
+    merge_live_auth_context defaults isAdmin, role.* and user.*; any other
+    @request.auth.role.permission.<app>.<key> needs a declaration, else PPBase
+    answers 500 (KNOWN_DIVERGENCES, UNDECLARED_PERMISSION_KEY).
+    """
+    keys, collections, rules = set(), set(), 0
+    for c in definitions:
+        texts = [c.get(k) or "" for k in ("listRule", "viewRule", "createRule")]
+        texts += [c.get(k) or "" for k in ("updateRule", "deleteRule")]
+        texts.append((c.get("options") or {}).get("manageRule") or "")
+        for rule in texts:
+            found = {
+                path
+                for path in re.findall(PERMISSION_PATH, rule)
+                if path.split(".")[0] not in DEFAULTED_PERMISSION_APPS
+            }
+            if found:
+                rules += 1
+                collections.add(c["name"])
+                keys |= found
+    return {
+        "permission_keys": len(keys),
+        "rules": rules,
+        "collections": len(collections),
+        "keys_of_the_probed_rules_included": {
+            "customer.read",
+            "wallet.read",
+            "wallet.list",
+        }
+        <= keys,
+    }
 
 
 async def login_probes(base: str, profile: str) -> dict:
@@ -784,69 +992,110 @@ def file_divergences(label: str, reference: dict, mine: dict, original: dict | N
             classes.append("file_content_disposition_missing")
         else:
             unexplained.append("content_disposition")
-    if reference["content_type"] != mine["content_type"]:
-        if (reference["content_type"], mine["content_type"]) == (
-            "application/json; charset=UTF-8",
-            "application/json",
-        ):
-            classes.append("json_error_content_type_charset")
-        else:
-            unexplained.append("content_type")
+    name, problem = content_type_divergence(reference, mine)
+    classes += [name] if name else []
+    unexplained += [problem] if problem else []
     return classes, unexplained
+
+
+def content_type_divergence(reference: dict, mine: dict) -> tuple[str | None, str | None]:
+    """(class, unexplained) for the Content-Type headers of one answer."""
+    pair = (reference["content_type"], mine["content_type"])
+    if pair[0] == pair[1]:
+        return None, None
+    if pair == ("application/json; charset=UTF-8", "application/json"):
+        return "json_content_type_charset", None
+    return None, "content_type"
+
+
+def declared_state(declared: dict, pair: tuple, unclassified: list[str]) -> str | None:
+    """'present', 'resolved' or None (unexplained) for a KNOWN_DIVERGENCES probe.
+
+    A status divergence is present with exactly its declared pair of statuses
+    and resolved once PPBase answers PocketBase's status; a divergence of JSON
+    paths (same statuses) is present while the differences no class explains
+    all lie within its paths, and resolved once none is left.
+    """
+    declared_pair = (declared["pocketbase"], declared["ppbase"])
+    if declared_pair[0] != declared_pair[1]:
+        if pair == declared_pair:
+            return "present"
+        return "resolved" if pair[0] == pair[1] == declared_pair[0] else None
+    if pair != declared_pair:
+        return None
+    if not unclassified:
+        return "resolved"
+    paths = declared["paths"]
+    return "present" if all(p.startswith(paths) for p in unclassified) else None
 
 
 def compare_servers(pocketbase: dict, ppbase: dict, profile: str, field_types: dict) -> dict:
     """Answer by answer; the public comparison holds labels, statuses and JSON paths.
 
     A probe-declared divergence (KNOWN_DIVERGENCES) is accepted only with its
-    pair of statuses and, when given, within its JSON paths; every other
-    difference must satisfy a DIVERGENCE_CLASSES rule; a token is compared by
-    its algorithm, claim names and type (TOKEN_SHAPES).
+    pair of statuses and, when given, within its JSON paths; once resolved, its
+    probe is compared like any other. Every other difference (status, body,
+    Content-Type) must satisfy a DIVERGENCE_CLASSES rule; a token is compared
+    by its algorithm, claim names and type (TOKEN_SHAPES).
     """
     credentials = {probe.label: probe.credential for probe in PROBES}
+    credentials |= {DECLARED_KEYS_PREFIX + label: credentials[label] for label in RULE_PROBES}
     compared, unexpected, declared_found, classes, tokens = {}, [], {}, {}, {}
 
     def classified(name: str, label: str) -> None:
         classes.setdefault(name, set()).add(label)
 
-    for group in ("json", "logins"):
+    groups = [g for g in ("json", "logins", "declared_keys") if g in pocketbase]
+    for group in groups:
+        if set(pocketbase[group]) != set(ppbase.get(group, {})):
+            unexpected.append({"probe": group, "differences": ["probe_sets_differ"]})
+            continue
         for label, reference in pocketbase[group].items():
             mine = ppbase[group][label]
             found = differences(reference["body"], mine["body"])
             pair = (reference["status"], mine["status"])
-            declared = KNOWN_DIVERGENCES.get(label)
-            unexplained = []
-            if declared:
-                within = all(
-                    any(path.startswith(prefix) for prefix in declared.get("paths", ("",)))
-                    for path in found
+            named, unclassified = [], []
+            for path in found:
+                name = divergence_class(
+                    path,
+                    reference["body"],
+                    mine["body"],
+                    credential=credentials.get(label),
+                    field_types=field_types,
                 )
-                if pair == (declared["pocketbase"], declared["ppbase"]) and found and within:
-                    declared_found[label] = {
-                        "pocketbase_status": pair[0],
-                        "ppbase_status": pair[1],
-                        "paths": found if "paths" in declared else len(found),
-                        "cause": declared["cause"],
-                    }
-                elif pair[0] == pair[1] and not found:
-                    declared_found[label] = {"resolved": True, "cause": declared["cause"]}
+                if name:
+                    named.append(name)
                 else:
-                    unexplained = [f"status {pair[0]} != {pair[1]}", *found]
+                    unclassified.append(path)
+            content_class, content_problem = content_type_divergence(reference, mine)
+            declared = KNOWN_DIVERGENCES.get(label) if group == "json" else None
+            state = declared_state(declared, pair, unclassified) if declared else None
+            unexplained = []
+            if state == "present":
+                declared_found[label] = {
+                    "state": "present",
+                    "pocketbase_status": pair[0],
+                    "ppbase_status": pair[1],
+                    "paths": unclassified if "paths" in declared else len(found),
+                }
+                if declared["pocketbase"] != declared["ppbase"]:
+                    named = []  # an error body instead of the answer: nothing to classify
             else:
+                if declared:
+                    declared_found[label] = {"state": "resolved" if state else "unexplained"}
                 if pair[0] != pair[1]:
                     unexplained.append(f"status {pair[0]} != {pair[1]}")
-                for path in found:
-                    name = divergence_class(
-                        path,
-                        reference["body"],
-                        mine["body"],
-                        credential=credentials.get(label),
-                        field_types=field_types,
-                    )
-                    if name:
-                        classified(name, label)
-                    else:
-                        unexplained.append(path)
+                unexplained += unclassified
+            for name in named + ([content_class] if content_class else []):
+                classified(name, label)
+            if content_problem:
+                unexplained.append(content_problem)
+            if declared:
+                declared_found[label] |= {
+                    key: declared[key]
+                    for key in ("cause", "client_impact", "documented_in")
+                    if key in declared
+                }
             if unexplained:
                 unexpected.append({"probe": label, "differences": unexplained})
             if reference["token"] or mine["token"]:
@@ -855,25 +1104,30 @@ def compare_servers(pocketbase: dict, ppbase: dict, profile: str, field_types: d
                     unexpected.append({"probe": label, "differences": ["token_shape"]})
             compared[label] = {
                 "status": mine["status"],
-                "same_as_pocketbase": not found and pair[0] == pair[1],
+                "same_status_and_body": not found and pair[0] == pair[1],
+                "same_as_pocketbase": not found and pair[0] == pair[1] and not content_class,
             }
     for label, reference in pocketbase["files"].items():
         original = None
         if label.endswith(THUMB_SUFFIX):
             original = ppbase["files"][label.removesuffix(THUMB_SUFFIX)]
-        names, unexplained = file_divergences(label, reference, ppbase["files"][label], original)
+        mine = ppbase["files"][label]
+        names, unexplained = file_divergences(label, reference, mine, original)
         for name in names:
             classified(name, "file:" + label)
         if unexplained:
             unexpected.append({"probe": "file:" + label, "differences": unexplained})
+        same_body = reference["status"] == mine["status"] and reference["sha256"] == mine["sha256"]
         compared["file:" + label] = {
-            "status": ppbase["files"][label]["status"],
+            "status": mine["status"],
+            "same_status_and_body": same_body,
             "same_as_pocketbase": not names and not unexplained,
         }
     realtime_found = differences(pocketbase["realtime"]["results"], ppbase["realtime"]["results"])
     realtime_found += differences(
         pocketbase["realtime"]["update_body"], ppbase["realtime"]["update_body"]
     )
+    same_realtime = not realtime_found
     for path in list(realtime_found):
         name = divergence_class(
             path,
@@ -885,19 +1139,26 @@ def compare_servers(pocketbase: dict, ppbase: dict, profile: str, field_types: d
         if name:
             classified(name, "realtime")
             realtime_found.remove(path)
-    compared["realtime"] = {"same_as_pocketbase": not realtime_found}
+    compared["realtime"] = {
+        "same_status_and_body": same_realtime,
+        "same_as_pocketbase": same_realtime,
+    }
     if realtime_found:
         unexpected.append({"probe": "realtime", "differences": realtime_found})
+    differing = sum(1 for e in compared.values() if not e["same_as_pocketbase"])
     return {
         "profile": profile,
         "probes": len(compared),
-        "identical": sum(1 for e in compared.values() if e["same_as_pocketbase"]),
+        "identical": len(compared) - differing,
+        "identical_status_and_body": sum(1 for e in compared.values() if e["same_status_and_body"]),
+        "with_open_divergences": differing,
         "declared_divergences": declared_found,
         "divergence_classes": {
             name: {
+                "state": "open",
                 "probes": sorted(labels),
                 "count": len(labels),
-                "cause": DIVERGENCE_CLASSES[name],
+                **DIVERGENCE_CLASSES[name],
             }
             for name, labels in sorted(classes.items())
         },
@@ -923,23 +1184,32 @@ def token_comparison(reference: dict | None, mine: dict | None) -> dict:
     }
 
 
-def check_absolute(results: dict, profile: str, data: Path, files: dict, server: str) -> list:
-    """Expected answers from the fixture documentation, on one server."""
-    checked = []
+def check_statuses(results: dict, profile: str, server: str) -> str:
+    """Expected statuses of the probes and logins on one server.
+
+    A declared divergence may answer its PPBase status while present, or the
+    PocketBase status once resolved (compare_servers tells which).
+    """
     json_results, logins = results["json"], results["logins"]
     for probe in PROBES:
         if profile in probe.profiles and probe.expected is not None:
             status = json_results[probe.label]["status"]
-            expected = probe.expected
+            allowed = {probe.expected}
             if server == "ppbase" and probe.label in KNOWN_DIVERGENCES:
-                expected = KNOWN_DIVERGENCES[probe.label]["ppbase"]
-            assert status == expected, (server, probe.label, status)
+                allowed.add(KNOWN_DIVERGENCES[probe.label]["ppbase"])
+            assert status in allowed, (server, probe.label, status)
     for label, *_rest, profiles, status in LOGINS:
         if profile in profiles:
             assert logins[label]["status"] == status, (server, label, logins[label]["status"])
             if status == 200:
                 assert logins[label]["token"]["type"], (server, label)
-    checked.append("expected_statuses_and_logins")
+    return "expected_statuses_and_logins"
+
+
+def check_absolute(results: dict, profile: str, data: Path, files: dict, server: str) -> list:
+    """Expected answers from the fixture documentation, on one server."""
+    checked = [check_statuses(results, profile, server)]
+    json_results = results["json"]
     article = json_results["anonymous_public_article"]["json"]
     assert article["sell_price"] == 12.75 and "rowid" not in article, server
     listed = json_results["users_filtered_transactions_expand"]["json"]
@@ -963,6 +1233,7 @@ def check_absolute(results: dict, profile: str, data: Path, files: dict, server:
     checked.append("realtime_pocketbase_token_subscriber_only")
     if profile == "real_shape":
         checked += check_real_shape_answers(json_results, server)
+        checked.append(check_declared_keys(results, server))
     return checked
 
 
@@ -986,12 +1257,17 @@ def check_real_shape_answers(results: dict, server: str) -> list:
         assert wallets[record]["managers"] == expected, (server, record)  # never split
         assert not wallets[record].get("expand", {}).get("managers"), (server, record)
     checked = ["multiple_relations_values_and_expand_in_stored_order"]
+    declared_now = []
     for label, _collection, _credential, _expression, expected in RELATION_FILTERS:
         found = ids(results[label]["json"])
-        if label in KNOWN_DIVERGENCES and server == "ppbase":
-            continue  # its declared PPBase answer is checked by compare_servers
+        if found != list(expected) and server == "ppbase" and label in KNOWN_DIVERGENCES:
+            declared_now.append(label)  # compare_servers checks its declared paths
+            continue
         assert found == list(expected), (server, label, found)  # synthetic IDs only
-    checked.append("multiple_relation_filters_as_pocketbase_0_22")
+    checked.append(
+        "multiple_relation_filters_as_pocketbase_0_22"
+        + (f"_except_declared:{','.join(declared_now)}" if declared_now else "")
+    )
     sales = {i["id"]: i for i in results["sales_expand_orphan_customer"]["json"]["items"]}
     for record, value in shapes["orphan_relations"]["buma_sale.customer"].items():
         assert sales[record]["customer"] == value, (server, record)
@@ -1023,14 +1299,54 @@ def check_real_shape_answers(results: dict, server: str) -> list:
     ressources = {i["id"]: i for i in results["ressources_file_lists"]["json"]["items"]}
     assert ressources["c11file00000004"]["file"] == [], server
     checked.append("empty_multi_file_list")
-    rules = ("users_lists_customers_by_role", "denied_lists_wallets", "denied_views_joined_wallet")
-    if server == "pocketbase" or not KNOWN_DIVERGENCES.keys() & set(rules):
-        customers = ids(results["users_lists_customers_by_role"]["json"])
-        assert customers == sorted(shapes["unlimited_relations"]["buma_customer.pdv"]), server
-        assert ids(results["denied_lists_wallets"]["json"]) == ["c11wallet000001"], server
-        assert results["denied_views_joined_wallet"]["status"] == 404, server
-        checked.append("role_rules_and_the_joined_managers_element")
+    present = [
+        label
+        for label in RULE_PROBES
+        if server == "ppbase"
+        and label in KNOWN_DIVERGENCES
+        and results[label]["status"] == KNOWN_DIVERGENCES[label]["ppbase"]
+    ]
+    checked.append(
+        check_role_rules(results, server, skip=present)
+        + (f"_except_declared:{','.join(present)}" if present else "")
+    )
     return checked
+
+
+def check_role_rules(results: dict, server: str, *, prefix: str = "", skip=()) -> str:
+    """RULE_PROBES as PocketBase 0.22.34 answers them on the fixture.
+
+    The isAdmin user lists every customer; the denied user (no role) lists
+    the wallet whose joined managers element contains its ID ("managers ~
+    @request.auth.id", a LIKE on the stored element) and cannot view it ("?=":
+    no element equals its ID), the element never split.
+    """
+    customers = sorted(fixture.REAL_SHAPE["unlimited_relations"]["buma_customer.pdv"])
+    if "users_lists_customers_by_role" not in skip:
+        found = ids(results[prefix + "users_lists_customers_by_role"]["json"])
+        assert found == customers, (server, prefix, found)
+    if "denied_lists_wallets" not in skip:
+        found = ids(results[prefix + "denied_lists_wallets"]["json"])
+        assert found == ["c11wallet000001"], (server, prefix, found)
+    if "denied_views_joined_wallet" not in skip:
+        status = results[prefix + "denied_views_joined_wallet"]["status"]
+        assert status == 404, (server, prefix, status)
+    return "role_rules_and_the_joined_managers_element"
+
+
+def check_declared_keys(results: dict, server: str) -> str:
+    """RULE_PROBES with DECLARED_KEYS: PocketBase's answers, on both servers."""
+    check_role_rules(results["declared_keys"], server, prefix=DECLARED_KEYS_PREFIX)
+    if server == "pocketbase":
+        # Its rules never read buma_apps_roles: same answers as without them.
+        for label in RULE_PROBES:
+            with_keys = results["declared_keys"][DECLARED_KEYS_PREFIX + label]
+            without = results["json"][label]
+            assert (with_keys["status"], with_keys["body"]) == (
+                without["status"],
+                without["body"],
+            ), (server, label)
+    return "role_rules_and_the_joined_managers_element_with_declared_keys"
 
 
 # ---------------------------------------------------------------------------
@@ -1076,6 +1392,14 @@ async def pocketbase_phase(binary, data, migrations, root, profile, report) -> d
     async with PocketBaseServer(binary, copy, root=root, migrations=migrations) as server:
         answers["realtime"] = await realtime_probe(server.base_url, credentials)
     shutil.rmtree(copy)
+    if profile == "real_shape":
+        # The role rules with their permission keys declared, on another copy.
+        copy = root / "pocketbase-declared-keys-copy"
+        shutil.copytree(data, copy)
+        declare_keys_sqlite(copy / "data.db")
+        async with PocketBaseServer(binary, copy, root=root, migrations=migrations) as server:
+            answers["declared_keys"] = await rule_probes(server.base_url, credentials)
+        shutil.rmtree(copy)
     report["pocketbase_before_import"] = {
         "sessions_issued": {
             label: claims_shape(item["token"])["type"] for label, item in sorted(tokens.items())
@@ -1083,7 +1407,8 @@ async def pocketbase_phase(binary, data, migrations, root, profile, report) -> d
         "token_claims": {
             label: claims_shape(item["token"])["claims"] for label, item in sorted(tokens.items())
         },
-        "probes": sum(len(answers[g]) for g in ("json", "logins", "files")) + 1,
+        "probes": sum(len(answers.get(g, ())) for g in ("json", "logins", "files", "declared_keys"))
+        + 1,
         "file_references": {
             "present": sum(1 for r in references if r["present"]),
             "absent": sum(1 for r in references if not r["present"]),
@@ -1092,6 +1417,7 @@ async def pocketbase_phase(binary, data, migrations, root, profile, report) -> d
         "stopped_cleanly": True,
         "sqlite_sidecars_after_stop": sidecars,
         "realtime_probe_on_a_copy": True,
+        "declared_keys_probes_on_a_copy": profile == "real_shape",
     }
     return {"tokens": tokens, "answers": answers, "files": files}
 
@@ -1726,17 +2052,80 @@ def jsonish(value):
     return json.loads(value) if isinstance(value, str) else value
 
 
-async def check_imported(engine, data, definitions, final, profile) -> dict:
+def _setting(mapping, path):
+    for key in path:
+        if not isinstance(mapping, dict) or key not in mapping:
+            return False, None
+        mapping = mapping[key]
+    return True, mapping
+
+
+def check_settings(source: dict, imported: dict, profile: str) -> dict:
+    """The imported _params.settings against the source, path by path (booleans).
+
+    Paths of scripts.c11_auth_import.SETTINGS_MAP (v0.23.0 migrate.go:192-209):
+    the same value and JSON type, appURL without one trailing slash
+    (migrate.go:193), smtp.password compared by presence only. backups.cron is
+    not imported (docs/contracts/c11-auth-import.md section 3): PPBase's empty
+    default stays.
+    """
+    from scripts.c11_auth_import import SECRET_SETTINGS, SETTINGS_MAP
+
+    compared = {}
+    for path, target, _kind in SETTINGS_MAP:
+        present, value = _setting(source, path)
+        found, got = _setting(imported, target)
+        if not present:
+            continue  # nothing to carry: PPBase's default stays
+        if target == ("meta", "appURL") and isinstance(value, str) and value.endswith("/"):
+            value = value[:-1]
+        if path in SECRET_SETTINGS:
+            same = found and bool(value) == bool(got)
+        else:
+            same = found and type(value) is type(got) and value == got
+        compared[".".join(path)] = same
+    assert compared and all(compared.values()), compared
+    result = {"mapped_paths_equal_source": len(compared), "smtp_password_presence_only": True}
+    if profile == "real_shape":
+        overrides = fixture.REAL_SHAPE["settings_overrides"]
+        for name in ("logs.maxDays", "logs.minLevel"):
+            assert _setting(imported, tuple(name.split("."))) == (True, overrides[name]), name
+        assert _setting(source, ("backups", "cron")) == (True, overrides["backups.cron"])
+        assert _setting(imported, ("backups", "cron")) == (True, "")
+        result["fixture_overrides"] = {
+            "logs.maxDays": "imported",
+            "logs.minLevel": "imported",
+            "backups.cron": "not_imported_as_documented",
+        }
+    return result
+
+
+def check_rowid_archive(archived, definitions, final, rows: int) -> None:
+    """One archived source rowid per imported record, none missing, none extra."""
+    pairs = {(row["collection_id"], row["record_id"]) for row in archived}
+    imported = {
+        (c["id"], record["id"])
+        for c in definitions
+        if c["type"] != "view"
+        for record in final[c["name"]]
+    }
+    assert len(archived) == len(pairs) == rows, (len(archived), len(pairs), rows)
+    assert pairs == imported, "rowid archive and imported records differ"
+
+
+async def check_imported(engine, data, definitions, final, profile, rows: int) -> dict:
     """Independent reads of the imported database (booleans and counts only)."""
+    by_id = {c["id"]: c for c in definitions}
     with snapshot(data) as db:
         async with engine.connect() as conn:
             archived = (await conn.execute(text("SELECT * FROM _buma_c11_rowids"))).mappings().all()
             for row in archived:
-                c = next(c for c in definitions if c["id"] == row["collection_id"])
+                c = by_id[row["collection_id"]]
                 source = db.execute(
                     f"SELECT _rowid_ FROM {quote(c['name'])} WHERE id=?", (row["record_id"],)
                 ).fetchone()
                 assert source[0] == row["source_rowid"]
+    check_rowid_archive(archived, definitions, final, rows)
     users = {r["id"]: r["rowid"] for r in final["users"]}
     articles = {r["id"]: r["rowid"] for r in final["buma_article"]}
     expected_users = {USER: 41, DENIED: 93}
@@ -1769,10 +2158,10 @@ async def check_imported(engine, data, definitions, final, profile) -> dict:
                 await conn.execute(text("SELECT name, options FROM _collections WHERE type='auth'"))
             ).mappings()
         }
-    by_id = {r["id"]: r for r in superusers}
+    superusers_by_id = {r["id"]: r for r in superusers}
     assert len(superusers) == len(admins), (len(superusers), len(admins))
     for admin in admins:
-        target = by_id[admin["id"]]
+        target = superusers_by_id[admin["id"]]
         assert (target["email"], target["password_hash"], target["token_key"]) == (
             admin["email"],
             admin["passwordHash"],
@@ -1792,6 +2181,7 @@ async def check_imported(engine, data, definitions, final, profile) -> dict:
         "superusers_equal_source_admins": True,
         "settings_rows": len(params),
         "auth_token_secrets_equal_source": secrets_kept,
+        "settings": check_settings(settings, jsonish(params[0]), profile),
     }
     if profile == "real_shape":
         shapes = fixture.REAL_SHAPE
@@ -1940,6 +2330,7 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
 
     report["schema_path"] = str(schema)
     definitions = load_schema_cached(report)
+    report["permission_keys_without_default"] = permission_keys_without_default(definitions)
     data = fixture.create_fixture(root / "fixture", binary, schema, profile=profile)
     migrations = root / "fixture" / "migrations"
     pocketbase = await pocketbase_phase(binary, data, migrations, root, profile, report)
@@ -2038,7 +2429,9 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
         assert isinstance(auth, dict) and auth.get("imported") is True, "accounts not imported"
         final = await table_state(engine, definitions)
         assert sum(len(rows) for rows in final.values()) == diagnostic["rows"]
-        report["preservation"] = await check_imported(engine, data, definitions, final, profile)
+        report["preservation"] = await check_imported(
+            engine, data, definitions, final, profile, diagnostic["rows"]
+        )
         report["preservation"]["file_count"] = len(storage_inventory(published / "storage"))
         report["schema_after"] = await check_schema(url, schema)
 
@@ -2048,11 +2441,16 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
         async with ppbase_server(root, url, published, server_report) as base:
             answers = await read_probes(base, credentials, profile, pocketbase["files"])
             answers["realtime"] = await realtime_probe(base, credentials)  # the only write
+            if profile == "real_shape":
+                # Harness rows, deleted before the writes are checked below.
+                async with declared_keys_postgres(engine):
+                    answers["declared_keys"] = await rule_probes(base, credentials)
         report["server_ppbase"] = server_report.pop("server_ppbase")
         # The comparison is recorded first: a failed absolute check keeps it.
         field_types = {(c["name"], f["name"]): f["type"] for c in definitions for f in c["schema"]}
         comparison = compare_servers(pocketbase["answers"], answers, profile, field_types)
         report["comparison_with_pocketbase"] = comparison
+        report["evidence_scope"] = evidence_scope(comparison)
         report["absolute_checks"] = {
             "pocketbase": check_absolute(
                 pocketbase["answers"], profile, data, pocketbase["files"], "pocketbase"
@@ -2091,6 +2489,34 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
             raise AssertionError("PPBase answers differ from PocketBase's (see report)")
     finally:
         await engine.dispose()
+
+
+def evidence_scope(comparison: dict) -> dict:
+    """What a passed run proves, and what it does not: import fidelity, not parity."""
+    declared = comparison["declared_divergences"]
+    return {
+        "kind": "import_fidelity",
+        "answer_parity_with_pocketbase": False,
+        "statement": (
+            "Proves that the synthetic snapshot built by PocketBase is imported faithfully "
+            "(records, rowids, arrays, preserved anomalies, accounts, settings, token "
+            "secrets, files) and served by PPBase with the sessions PocketBase issued before "
+            "the import. Does not prove answer parity with PocketBase 0.22.34: every "
+            "accepted difference of comparison_with_pocketbase is an open divergence, "
+            "pre-existing and independent of the import, with its cause, client impact and "
+            "documentation state."
+        ),
+        "answers_compared": comparison["probes"],
+        "answers_identical": comparison["identical"],
+        "answers_with_open_divergences": comparison["with_open_divergences"],
+        "open_declared_divergences": sorted(
+            label for label, entry in declared.items() if entry["state"] == "present"
+        ),
+        "resolved_declared_divergences": sorted(
+            label for label, entry in declared.items() if entry["state"] == "resolved"
+        ),
+        "open_divergence_classes": sorted(comparison["divergence_classes"]),
+    }
 
 
 def buma_checkout() -> dict:
@@ -2163,6 +2589,7 @@ def main():
 
     def start_postgres():
         nonlocal created
+        created = True  # from here on the finally block owns its removal
         command(
             "docker",
             "run",
@@ -2182,7 +2609,6 @@ def main():
             f"POSTGRES_DB={DATABASE}",
             "postgres:16-alpine",
         )
-        created = True
         port = command("docker", "port", name, "5432/tcp").rsplit(":", 1)[1]
         for _ in range(150):
             try:
@@ -2193,50 +2619,83 @@ def main():
         return f"postgresql+asyncpg://c11:{password}@127.0.0.1:{port}/{DATABASE}"
 
     started = time.monotonic()
+    cleanup: dict = {}
+    failure: BaseException | None = None
+    root = Path(tempfile.mkdtemp(prefix="buma-c11-rehearsal-"))
     try:
-        with tempfile.TemporaryDirectory(prefix="buma-c11-rehearsal-") as folder:
-            root = Path(folder)
-            try:
-                asyncio.run(
-                    exercise(
-                        root,
-                        args.pocketbase.resolve(),
-                        args.schema.resolve(),
-                        version,
-                        args.profile,
-                        report,
-                        start_postgres,
-                    )
+        try:
+            asyncio.run(
+                exercise(
+                    root,
+                    args.pocketbase.resolve(),
+                    args.schema.resolve(),
+                    version,
+                    args.profile,
+                    report,
+                    start_postgres,
                 )
-                report["status"] = "passed"
-            finally:
-                if args.private_logs is not None:
-                    args.private_logs.mkdir(mode=0o700)
-                    for log in root.rglob("*.log"):
-                        # One file per log, whatever directory each one lives in.
-                        target = args.private_logs / "_".join(log.relative_to(root).parts)
-                        shutil.copyfile(log, target)
-                        target.chmod(0o600)
+            )
+        finally:
+            if args.private_logs is not None:
+                copy_private_logs(root, args.private_logs)
+                cleanup["private_logs_copied"] = True
     except BaseException as exc:
         # Never leak tokens, secrets, hashes or bind parameters into the report.
         report["failure_type"] = type(exc).__name__
-        raise
+        failure = exc
     finally:
         report.pop("schema_path", None)
-        cleanup = {"temporary_directory_removed": True}
+        shutil.rmtree(root, ignore_errors=True)
+        cleanup["temporary_directory_removed"] = not root.exists()
         if created:
-            command("docker", "stop", "--time", "5", name)
-            for _ in range(50):
-                if not command("docker", "ps", "-a", "--filter", f"name=^/{name}$", "-q"):
-                    break
-                time.sleep(0.2)
-            cleanup["container_removed"] = not command(
-                "docker", "ps", "-a", "--filter", f"name=^/{name}$", "-q"
-            )
+            cleanup |= remove_container(name)
         report["cleanup"] = cleanup
+        clean = cleanup["temporary_directory_removed"] and (
+            not created or cleanup.get("container_removed") is True
+        )
+        # "passed" only once the run, the log copy and the cleanup all succeeded.
+        report["status"] = "passed" if failure is None and clean else "failed"
+        if failure is None and not clean:
+            report["failure_type"] = "CleanupFailed"
         report["elapsed_seconds"] = round(time.monotonic() - started, 1)
         write_json_new(args.report, report)
         print(json.dumps({"status": report["status"], "report": str(args.report)}))
+    if failure is not None:
+        raise failure
+    if report["status"] != "passed":
+        raise SystemExit("cleanup failed: see the report")
+
+
+def copy_private_logs(root: Path, destination: Path) -> None:
+    destination.mkdir(mode=0o700)
+    for log in root.rglob("*.log"):
+        # One file per log, whatever directory each one lives in.
+        target = destination / "_".join(log.relative_to(root).parts)
+        shutil.copyfile(log, target)
+        target.chmod(0o600)
+
+
+def container_absent(name: str) -> bool | None:
+    try:
+        return not command("docker", "ps", "-a", "--filter", f"name=^/{name}$", "-q")
+    except (OSError, subprocess.CalledProcessError):
+        return None  # unknown: never reported as removed
+
+
+def remove_container(name: str) -> dict:
+    """Stop the owned container (started with --rm); never raises."""
+    outcome: dict = {}
+    try:
+        command("docker", "stop", "--time", "5", name)
+        outcome["container_stopped"] = True
+    except (OSError, subprocess.CalledProcessError) as exc:
+        outcome["container_stop_error"] = type(exc).__name__
+    for _ in range(50):
+        if container_absent(name):
+            break
+        time.sleep(0.2)
+    outcome["container_removed"] = container_absent(name)
+    return outcome
 
 
 if __name__ == "__main__":
