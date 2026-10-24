@@ -217,6 +217,11 @@ def png_size(path: Path) -> tuple[int, int]:
 
 
 def test_files_uploaded_through_the_pocketbase_api(real_shape):
+    assert fixture.REAL_SHAPE["api_uploads"] == {
+        "c11file00000003": "buma_ressources.file",
+        "C11_CONFIG_REC1": "buma_config.logo",
+        "c11deleted00001": "buma_ressources.file",
+    }
     collection, fields, field, files, _ = fixture.UPLOADS[0]
     stored = json.loads(
         real_shape.value(f'SELECT "{field}" FROM "{collection}" WHERE id=?', fields["id"])

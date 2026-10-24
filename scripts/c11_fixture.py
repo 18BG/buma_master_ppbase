@@ -315,7 +315,7 @@ REAL_SHAPE = {
     "undeclared_select_values": {"buma_sale.kind": {"c11sale00000002": "C11_UNDECLARED"}},
     "json_null_text": {"users.more": "c11user00000003"},
     "api_uploads": {
-        f"{collection}.{field}": fields["id"] for collection, fields, field, *_ in UPLOADS
+        fields["id"]: f"{collection}.{field}" for collection, fields, field, *_ in UPLOADS
     },
     "deleted_record_files": dict(DELETED_RECORDS),
     "settings_overrides": SETTINGS_OVERRIDES,
