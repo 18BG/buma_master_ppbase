@@ -78,9 +78,13 @@ def negative_diagnostics(data, root, schema):
     already contains (default or real_shape profile). Orphan relations and
     absent referenced files are preserved anomalies: same blockers and
     readiness as the unaltered fixture, exactly the injected anomaly added,
-    nothing invented, removed or redirected. Every other altered case must add
-    its own blocker (code, and field when one is named). Manifest mode is
-    exercised without any storage/ bytes.
+    nothing invented, removed or redirected. Values that PocketBase 0.22.34
+    serves otherwise than PPBase will (jsonb number notation, a single value
+    stored as a JSON array, a list with duplicates) are warnings: same
+    blockers and readiness, one more affected row for that code and field.
+    Every other altered case must add its own blocker (code, and field when
+    one is named), a json text that PocketBase serves as a string included.
+    Manifest mode is exercised without any storage/ bytes.
     """
     from scripts.c11_import import directory_manifest
 
@@ -200,6 +204,14 @@ def negative_diagnostics(data, root, schema):
             "auth_legacy",
             "UPDATE users SET lastResetSentAt='C11'||char(0) WHERE rowid=" + first("users"),
         ),
+        (
+            # Leading whitespace: PocketBase serves this text as a JSON string.
+            "json_text_served_as_string_by_pocketbase",
+            "json_text_served_as_string_by_pocketbase",
+            "specification",
+            "UPDATE buma_article SET specification=' {\"k\":1}' WHERE rowid="
+            + first("buma_article"),
+        ),
     )
     results = {}
     for name, code, field, sql in cases:
@@ -224,6 +236,43 @@ def negative_diagnostics(data, root, schema):
         new = after.pop(key, (0, 0, 0))
         if after != before or tuple(n - o for n, o in zip(new, old, strict=True)) != expected:
             raise AssertionError((kind, report["preserved_source_anomalies"][kind]))
+
+    def warning_counts(report):
+        return {
+            (w["code"], w["collection"], w["field"]): w.get("affected_rows", 0)
+            for w in report["warnings"]
+            if isinstance(w, dict)
+        }
+
+    for name, sql, key in (
+        (
+            "jsonb_number_notation_normalized",
+            "UPDATE buma_article SET specification='{\"k\":1e2}' WHERE rowid="
+            + first("buma_article"),
+            ("jsonb_number_notation_normalized", "buma_article", "specification"),
+        ),
+        (
+            "single_value_served_as_last_element",
+            'UPDATE buma_article SET kind=\'["UV_RS","AUTRE"]\' WHERE rowid='
+            + first("buma_article"),
+            ("single_value_served_as_last_element", "buma_article", "kind"),
+        ),
+        (
+            "list_served_deduplicated_by_pocketbase",
+            'UPDATE buma_ressources SET file=\'["one.bin","one.bin"]\' WHERE rowid='
+            + first("buma_ressources"),
+            ("list_served_deduplicated_by_pocketbase", "buma_ressources", "file"),
+        ),
+    ):
+        report = diagnose(altered(name, sql), schema, source_version="0.22.27")
+        before, after = warning_counts(reference), warning_counts(report)
+        if (
+            codes(report) != codes(reference)
+            or report["ready_for_isolated_rehearsal"] != reference["ready_for_isolated_rehearsal"]
+            or after.get(key, 0) - before.get(key, 0) != 1
+        ):
+            raise AssertionError((name, report["blockers"], report["warnings"]))
+        results[name] = "warning_not_blocking"
 
     report = diagnose(
         altered(

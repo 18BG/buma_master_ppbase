@@ -23,13 +23,14 @@ import os
 import re
 import resource
 import shutil
+import signal
 import sqlite3
 import stat
 import time
 import zipfile
 import zlib
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -97,6 +98,9 @@ NUMERIC_MAX_SCALE = 16383
 JSON_MAX_DEPTH = 256
 HEX64 = re.compile(r"[0-9a-f]{64}")
 HEX8 = re.compile(r"[0-9a-f]{8}")
+# Digests of a 0-byte object, the only ones a 0-byte manifest entry may carry.
+EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+EMPTY_CRC32 = "00000000"
 # The only date text PocketBase 0.22 writes: DateTime.Value/String format UTC
 # with DefaultDateLayout (v0.22.34 tools/types/datetime.go:12, 47-53, 69-72).
 # ASCII digits only: \d would also accept other Unicode digits.
@@ -106,20 +110,68 @@ ANOMALY_POLICY = "imported_as_is_no_target_or_file_invented_no_reference_removed
 # the stored JSON bytes (tools/types/json_raw.go:26-32); jsonb keeps the value
 # but not its text. Duplicate keys would lose the earlier values: blocked.
 JSONB_KEY_ORDER = "jsonb_key_order_normalized"
+# jsonb rewrites a number written with an exponent (1e2 -> 100, 1.5E-1 ->
+# 0.15): same value, but a typed decoder (Dart jsonDecode) reads 1e2 as a
+# double and 100 as an int. The only number text jsonb changes; -0 is refused.
+JSONB_NUMBER_NOTATION = "jsonb_number_notation_normalized"
 JSONB_DUPLICATE_KEYS = "jsonb_duplicate_keys_collapsed"
 SQL_NULL_JSON = "sql_null_json_stored_as_jsonb_null"
-JSON_WARNING_CODES = (JSONB_KEY_ORDER, SQL_NULL_JSON)
+JSON_WARNING_CODES = (JSONB_KEY_ORDER, JSONB_NUMBER_NOTATION, SQL_NULL_JSON)
+# PocketBase 0.22.34 serves a stored json text that PrepareValue would quote
+# as a JSON string (models/schema/schema_field.go:312-343): blocked, since the
+# jsonb target would hold another value and type.
+JSON_SERVED_AS_STRING = "json_text_served_as_string_by_pocketbase"
+# First bytes PrepareValue keeps raw when the text is valid JSON (:328-336).
+PB_JSON_RAW_FIRST = frozenset('0123456789-"[{')
+# Stored list forms that PocketBase 0.22.34 normalizes at every read
+# (PrepareValue :351-386 through list.ToUniqueStringSlice, tools/list/
+# list.go:89-140) while PPBase serves the stored value. Warnings only: the
+# stored value is imported as is.
+LIST_DEDUPLICATED = "list_served_deduplicated_by_pocketbase"
+SINGLE_LAST_ELEMENT = "single_value_served_as_last_element"
+READ_NORMALIZATION_CODES = (LIST_DEDUPLICATED, SINGLE_LAST_ELEMENT)
+UNBOUNDED_SCALAR = "unbounded_relation_target_scalar"
+# The target already stores arrays (after WS-A/WS-E) but this importer has
+# not been enabled for them yet (UNBOUNDED_RELATION_ARRAYS, wave 3).
+UNBOUNDED_NOT_ENABLED = "unbounded_relation_arrays_not_enabled"
 MULTISET_MODULUS = 2**256
 # Rows per round trip of the end-of-load re-read (server-side portal).
 FINAL_PREFETCH = 10000
 _FAILED = object()
+# The only non-internal triggers of the migrated target, and their exact
+# definition (pb_migrations/1789236848_c10_sqlite_rowid.py): BEFORE INSERT FOR
+# EACH ROW (tgtype ROW|BEFORE|INSERT = 7), enabled ('O'), calling the
+# argument-less public.buma_allocate_sqlite_rowid(), not a constraint trigger,
+# not deferrable, no WHEN clause, no column list, no trigger argument. Any
+# other trigger, and any enabled event trigger, is refused before the first
+# write. The function body is not compared: whatever it changes is caught by
+# the readback layers (proved at runtime by the volume benchmark).
+ROWID_TRIGGER = "buma_sqlite_rowid"
+ROWID_TRIGGER_DEFINITION = {
+    "type": 7,
+    "enabled": "O",
+    "function": "public.buma_allocate_sqlite_rowid",
+    "function_arguments": 0,
+    "is_constraint": False,
+    "deferrable": False,
+    "initially_deferred": False,
+    "arguments": 0,
+    "has_when": False,
+    "has_columns": False,
+}
 
 
 class ImportBlocked(ValueError):
     """An unresolved condition, never a request to repair source records.
 
     ``str(exc)`` is the stable blocking code; ``details`` only carries schema
-    names and counts, never record values.
+    names, SQLSTATE codes and counts, never record values. It is never chained
+    to the error that revealed it: a driver or decoder error can carry record
+    values (PostgreSQL DETAIL "Failing row contains (...)" or "Key (...)=(...)",
+    JSONDecodeError.doc, UnicodeEncodeError.object). Every ImportBlocked is
+    therefore raised after the ``except`` block that detected the condition, so
+    that ``__cause__`` and ``__context__`` stay None and a rendered traceback
+    shows no source value.
     """
 
     def __init__(self, code: str, **details):
@@ -260,6 +312,16 @@ def load_schema(path: Path) -> list[dict]:
     return json.loads(path.read_text())
 
 
+def definitions_fingerprint(definitions: list[dict]) -> str:
+    """SHA-256 of the parsed definitions (canonical JSON), whatever their file.
+
+    Recorded by the diagnosis and required again by the load: the
+    definitions handed to ``load_isolated`` must be exactly the diagnosed ones.
+    """
+    canonical = json.dumps(definitions, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def source_version_status(version: str | None) -> tuple[str | None, str | None]:
     """Return (blocking code or None, public evidence path) for a source version.
 
@@ -330,11 +392,15 @@ def _check_pg_string(value: str, nul_code: str) -> None:
     if "\x00" in value:
         raise ImportBlocked(nul_code)
     if not value.isascii():  # O(1) in CPython: most values skip the encoding
+        encodable = True
         try:
             value.encode("utf-8")
         except UnicodeEncodeError:
             # Lone surrogates (e.g. a JSON \ud800 escape) have no UTF-8 encoding.
-            raise ImportBlocked("invalid_unicode_for_postgresql") from None
+            # The error holds the whole value (.object): never chained.
+            encodable = False
+        if not encodable:
+            raise ImportBlocked("invalid_unicode_for_postgresql")
 
 
 def _check_json_number(number: Decimal) -> None:
@@ -350,40 +416,74 @@ def _check_json_number(number: Decimal) -> None:
         raise ImportBlocked("json_number_outside_target_range")
 
 
-def _parse_exact_json(text: str, **hooks):
+class _InvalidJsonConstant(ValueError):
+    """NaN or Infinity: not JSON for Go's decoder, hence for PocketBase."""
+
+
+def _invalid_constant(_):
+    raise _InvalidJsonConstant
+
+
+def _parse_exact_json(text: str, invalid_code: str = "invalid_json", **hooks):
+    """Parse JSON with exact Decimal numbers; never chained to the decoder error.
+
+    Any text that is not JSON (NaN and Infinity included) raises
+    ``invalid_code``; nesting beyond the parser recursion limit raises
+    ``json_nesting_too_deep`` (refused anyway beyond JSON_MAX_DEPTH). A hook
+    may raise its own ImportBlocked. The decoder error (whose ``doc`` is the
+    whole text) is never attached to the raised code.
+    """
+    options = {
+        "parse_float": Decimal,
+        "parse_int": Decimal,
+        "parse_constant": _invalid_constant,
+        **hooks,
+    }
+    failure = None
     try:
-        return json.loads(
-            text,
-            parse_float=Decimal,
-            parse_int=Decimal,
-            parse_constant=_reject_constant,
-            **hooks,
-        )
-    except ImportBlocked:
-        raise
-    except (ValueError, RecursionError):
-        raise ImportBlocked("invalid_json") from None
-
-
-def _unique_pairs(pairs):
-    """object_pairs_hook: jsonb keeps only the last value of a duplicate key."""
-    result = dict(pairs)
-    if len(result) != len(pairs):
-        raise ImportBlocked(JSONB_DUPLICATE_KEYS)
-    return result
+        parsed = json.loads(text, **options)
+    except ImportBlocked as exc:
+        failure = exc.code
+    except RecursionError:
+        failure = "json_nesting_too_deep"
+    except ValueError:
+        failure = invalid_code
+    if failure is not None:
+        raise ImportBlocked(failure)
+    return parsed
 
 
 def check_json_text(text: str) -> None:
-    """Reject JSON that PostgreSQL jsonb cannot store exactly; never repair it.
+    """Refuse a stored json text unless PocketBase serves it raw and jsonb can
+    store exactly its value; never repair it.
 
-    A duplicate object key is refused (``jsonb_duplicate_keys_collapsed``):
-    jsonb would keep only its last value, while PocketBase serves the stored
-    text with every occurrence. Nesting deeper than JSON_MAX_DEPTH is refused
-    explicitly: PostgreSQL's parser depth depends on its stack setting and the
-    exact comparison of the readback is recursive. Real BUMA json values are
-    shallow configurations.
+    PocketBase 0.22.34 PrepareValue (models/schema/schema_field.go:312-343)
+    keeps a text raw only when it is exactly null, true or false, or starts
+    with 0-9, '-', '"', '[' or '{' and is valid JSON (is.JSON, Go's decoder).
+    Any other text (empty, leading whitespace, 'true ', invalid JSON, NaN) is
+    served as a JSON string: ``json_text_served_as_string_by_pocketbase``. A
+    duplicate object key is refused (``jsonb_duplicate_keys_collapsed``):
+    jsonb would keep only its last value, while PocketBase serves every
+    occurrence. Nesting deeper than JSON_MAX_DEPTH is refused explicitly:
+    PostgreSQL's parser depth depends on its stack setting and the exact
+    comparison of the readback is recursive. Real BUMA json values are shallow
+    configurations.
     """
-    stack = [(_parse_exact_json(text, object_pairs_hook=_unique_pairs), 1)]
+    if text not in ("null", "true", "false") and (not text or text[0] not in PB_JSON_RAW_FIRST):
+        raise ImportBlocked(JSON_SERVED_AS_STRING)
+    duplicate = False
+
+    def pairs_hook(pairs):
+        nonlocal duplicate
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            duplicate = True  # judged once the whole text is known to be JSON
+        return result
+
+    parsed = _parse_exact_json(text, JSON_SERVED_AS_STRING, object_pairs_hook=pairs_hook)
+    if duplicate:
+        raise ImportBlocked(JSONB_DUPLICATE_KEYS)
+    stack = [(parsed, 1)]
     while stack:
         item, depth = stack.pop()
         if isinstance(item, str):
@@ -401,18 +501,55 @@ def check_json_text(text: str) -> None:
                     stack.append((value, depth + 1))
 
 
-def json_text(value) -> str:
-    """Exact JSON text to store for a PB 0.22 json column value.
+def go_float_text(value: float) -> str:
+    """strconv.FormatFloat(value, 'g', -1, 64) of a finite float.
 
-    PB declares ``JSON DEFAULT NULL`` (v0.22.34 models/schema/schema_field.go:
-    156-157; NUMERIC affinity in SQLite). A text value is kept verbatim (and
-    stored in jsonb, which keeps its value, not its text: see
-    ``jsonb_key_order_changes``). A numeric storage class is what JsonRaw.Scan
-    serves after json.Marshal (tools/types/json_raw.go:74-79). SQL NULL scans
-    to an empty JsonRaw that MarshalJSON serves as ``null`` (json_raw.go:26-29,
-    60-61): the NOT NULL jsonb target of PPBase can only store JSON null, which
-    the diagnosis reports as ``sql_null_json_stored_as_jsonb_null`` (same value
-    in responses, not the same SQL value for filters).
+    The text Go's database/sql gives PocketBase for a SQLite REAL read into a
+    string (convertAssign/asString, through dbx.NullStringMap). Shortest
+    round-trip digits (those of repr()); exponent form when the decimal
+    exponent is below -4 or at least 6 (Go uses precision 6 for that choice in
+    the shortest mode), with at least two exponent digits.
+    """
+    sign, digits, exponent = Decimal(repr(value)).as_tuple()
+    digits = list(digits)
+    while len(digits) > 1 and digits[-1] == 0:
+        digits.pop()
+        exponent += 1
+    prefix = "-" if sign else ""
+    if digits == [0]:
+        return prefix + "0"
+    text = "".join(map(str, digits))
+    point = len(digits) + exponent  # digits before the decimal point
+    power = point - 1
+    if power < -4 or power >= 6:
+        mantissa = text[0] + ("." + text[1:] if len(text) > 1 else "")
+        return f"{prefix}{mantissa}e{'-' if power < 0 else '+'}{abs(power):02d}"
+    if point > 0:
+        whole, fraction = text[:point] + "0" * max(point - len(text), 0), text[point:]
+    else:
+        whole, fraction = "0", "0" * -point + text
+    return prefix + whole + ("." + fraction if fraction else "")
+
+
+def json_text(value) -> str:
+    """Exact JSON text PocketBase 0.22.34 reads and serves for a stored json
+    value, checked for the jsonb target (``check_json_text``).
+
+    PB reads every column as a string through dbx.NullStringMap (daos/
+    record.go:75-80; models/record.go:48-58, 65-91) and normalizes it with
+    PrepareValue (models/record.go:292-306; models/schema/schema_field.go:
+    312-343). The column is ``JSON DEFAULT NULL`` (schema_field.go:156-157), of
+    NUMERIC affinity in SQLite: a top-level number is stored as INTEGER or
+    REAL. database/sql formats an INTEGER with strconv.FormatInt and a REAL
+    with strconv.FormatFloat(v, 'g', -1, 64) (``go_float_text``); that text is
+    what PB serves (e.g. 1.2345675e+06 for 1234567.5), the stored value is
+    kept. A text value is kept verbatim when PB serves it raw (jsonb keeps its
+    value, not its text: see ``jsonb_text_changes``). SQL NULL
+    (nullStringMapValue gives nil) scans to an empty JsonRaw served as
+    ``null`` (tools/types/json_raw.go:26-29, 56-61): the NOT NULL jsonb target
+    of PPBase can only store JSON null, which the diagnosis reports as
+    ``sql_null_json_stored_as_jsonb_null`` (same value in responses, not the
+    same SQL value for filters).
     """
     if value is None:
         return "null"
@@ -422,10 +559,11 @@ def json_text(value) -> str:
         return str(value)
     if isinstance(value, float):
         if not math.isfinite(value):
+            # Go would give +Inf/-Inf, texts that PrepareValue serves as strings.
             raise ImportBlocked("non_finite_json")
         if value == 0 and math.copysign(1.0, value) < 0:
             raise ImportBlocked("json_number_not_representable")
-        return repr(value)
+        return go_float_text(value)
     if not isinstance(value, str):
         raise ImportBlocked("invalid_json")
     check_json_text(value)
@@ -438,33 +576,45 @@ def _jsonb_key(key: str) -> tuple[int, bytes]:
     return len(encoded), encoded
 
 
-def jsonb_key_order_changes(text: str) -> bool:
-    """True when jsonb would serve an object of this JSON with its keys reordered.
+def jsonb_text_changes(text: str) -> frozenset:
+    """Client-visible rewrites by jsonb of a JSON text PocketBase serves raw.
 
-    PocketBase 0.22.34 serves the stored bytes, so clients iterate the keys in
-    their stored order; PPBase serves the jsonb order. Values are unchanged.
-    Duplicate keys are refused by ``check_json_text`` before this is asked.
+    ``jsonb_key_order_normalized``: an object would be served with its keys in
+    jsonb order (UTF-8 length, then bytes) instead of their stored order;
+    ``jsonb_number_notation_normalized``: a number written with an exponent
+    (1e2, 1.5E-1), which jsonb renders positionally (100, 0.15); every other
+    number text is kept (the scale of 1.50 included). Values are unchanged.
+    PocketBase 0.22.34 serves the stored bytes (tools/types/json_raw.go:
+    26-32). Duplicate keys are refused by ``check_json_text`` beforehand.
     """
-    changed = False
+    changes = set()
 
     def pairs_hook(pairs):
-        nonlocal changed
-        keys = list(dict.fromkeys(key for key, _ in pairs))
-        if not changed and keys != sorted(keys, key=_jsonb_key):
-            changed = True
+        if JSONB_KEY_ORDER not in changes:
+            keys = list(dict.fromkeys(key for key, _ in pairs))
+            if keys != sorted(keys, key=_jsonb_key):
+                changes.add(JSONB_KEY_ORDER)
         return dict(pairs)
 
-    _parse_exact_json(text, object_pairs_hook=pairs_hook)
-    return changed
+    def number_hook(token):
+        if "e" in token or "E" in token:
+            changes.add(JSONB_NUMBER_NOTATION)
+        return Decimal(token)
+
+    _parse_exact_json(text, object_pairs_hook=pairs_hook, parse_float=number_hook)
+    return frozenset(changes)
 
 
 def array_value(value) -> list[str]:
+    failure = None
     try:
         parsed = strict_json(value) if isinstance(value, str) else value
-    except ImportBlocked:
-        raise
-    except (ValueError, RecursionError):
-        raise ImportBlocked("invalid_array") from None
+    except ImportBlocked as exc:
+        failure = exc.code
+    except (ValueError, RecursionError):  # the decoder error holds the value
+        failure = "invalid_array"
+    if failure is not None:
+        raise ImportBlocked(failure)
     if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
         raise ImportBlocked("invalid_array")
     return parsed
@@ -487,11 +637,15 @@ def date_value(value, *, required=False):
         raise ImportBlocked("invalid_date")
     if not PB_DATE_LAYOUT.fullmatch(value):
         raise ImportBlocked("date_not_pocketbase_layout")
+    instant = None
     try:
         # The layout is fixed: exactly three fraction digits, UTC.
-        return datetime.fromisoformat(value[:-1] + "+00:00")
+        instant = datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError:
-        raise ImportBlocked("invalid_date") from None  # e.g. 2024-02-30, 24:00
+        pass  # e.g. 2024-02-30 or 24:00; the message may quote the value
+    if instant is None:
+        raise ImportBlocked("invalid_date")
+    return instant
 
 
 def required_date_value(value):
@@ -532,7 +686,7 @@ def text_array_value(value) -> list[str]:
 def unbounded_relation_value(value) -> list[str]:
     if not UNBOUNDED_RELATION_ARRAYS:
         # Never flatten, pick one ID or copy the JSON text into a scalar.
-        raise ImportBlocked("unbounded_relation_target_scalar")
+        raise ImportBlocked(UNBOUNDED_SCALAR)
     return text_array_value(value)
 
 
@@ -677,18 +831,20 @@ class RowPlan:
         values = []
         for step in self.steps:
             value = row[step.source]  # a missing source column is a KeyError
+            code = None
             try:
-                try:
-                    values.append(step.convert(value))
-                except ImportBlocked:
-                    raise
-                except (ValueError, TypeError, OverflowError, RecursionError):
-                    raise ImportBlocked("unmappable_value") from None
+                converted = step.convert(value)
             except ImportBlocked as exc:
-                if problems is None:
-                    raise
-                problems.append((step.column, exc.code))
-                values.append(_FAILED)
+                code = exc.code
+            except (ValueError, TypeError, OverflowError, RecursionError):
+                code = "unmappable_value"  # the error may quote the value: not chained
+            if code is None:
+                values.append(converted)
+                continue
+            if problems is None:
+                raise ImportBlocked(code)
+            problems.append((step.column, code))
+            values.append(_FAILED)
         archive = {key: row[key] for key in AUTH_ARCHIVE_ORDER if key in row}
         return values, archive
 
@@ -702,10 +858,13 @@ def auth_legacy_text(archive: dict) -> str:
     """
     if not archive:
         return "{}"
+    text = None
     try:
         text = json.dumps(archive, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
-        raise ImportBlocked("invalid_auth_field") from None
+        pass  # the message may quote the value: never chained
+    if text is None:
+        raise ImportBlocked("invalid_auth_field")
     check_json_text(text)
     return text
 
@@ -736,6 +895,41 @@ def stored_references(value, multiple: bool) -> list[str]:
         except ImportBlocked:
             return []  # the conversion of this value already reports the code
     return [value] if isinstance(value, str) and value else []
+
+
+def nonzero_uniques(items) -> list[str]:
+    """list.NonzeroUniques (tools/list/list.go:89-108): no "", first occurrences."""
+    return [item for item in dict.fromkeys(items) if item != ""]
+
+
+def pocketbase_list_changed(items: list[str]) -> bool:
+    """PocketBase 0.22.34 serves a stored list without "" and duplicates."""
+    return "" in items or len(set(items)) != len(items)
+
+
+def pocketbase_single_value(value):
+    """Value PocketBase 0.22.34 serves for a single select, file or relation.
+
+    PrepareValue (models/schema/schema_field.go:351-386) serves the last
+    element of list.ToUniqueStringSlice (tools/list/list.go:110-140): a stored
+    text containing '[' that Go unmarshals as an array of strings (a JSON null
+    element being "") is served as its last non-empty unique element, or "";
+    any other text as stored (after a failed unmarshal the text itself is
+    appended, hence last). Used to warn only: the stored text is imported.
+    """
+    if not isinstance(value, str) or "[" not in value:
+        return value
+    parsed = None
+    try:
+        parsed = json.loads(value, parse_constant=_invalid_constant)
+    except (ValueError, RecursionError):
+        pass
+    if not isinstance(parsed, list) or any(
+        item is not None and not isinstance(item, str) for item in parsed
+    ):
+        return value
+    uniques = nonzero_uniques("" if item is None else item for item in parsed)
+    return uniques[-1] if uniques else ""
 
 
 # ---------------------------------------------------------------------------
@@ -776,15 +970,18 @@ def read_manifest(path: Path, data_db: Path) -> dict:
     """Validate the private manifest and the data.db it describes; no file bytes.
 
     Returns the storage inventory in the ``storage_inventory`` format (keys
-    relative to storage/) and a summary without any path or record value.
+    relative to storage/) and a summary without any path or record value. A
+    0-byte entry must carry the SHA-256 and CRC-32 of empty content; a root
+    SQLite sidecar (-wal, -journal) must be empty.
     """
     if not path.is_file() or path.is_symlink():
         raise ImportBlocked("manifest_file_required")
     raw = path.read_bytes()
+    manifest = None
     try:
         manifest = json.loads(raw)
     except ValueError:
-        raise ImportBlocked("manifest_invalid") from None
+        pass  # JSONDecodeError.doc is the private manifest: never chained
     if not isinstance(manifest, dict) or set(manifest) != {"archive_sha256", "files"}:
         raise ImportBlocked("manifest_invalid")
     if not isinstance(manifest["archive_sha256"], str) or not HEX64.fullmatch(
@@ -803,6 +1000,9 @@ def read_manifest(path: Path, data_db: Path) -> dict:
         if not isinstance(sha, str) or not HEX64.fullmatch(sha):
             raise ImportBlocked("manifest_invalid")
         if not isinstance(crc, str) or not HEX8.fullmatch(crc):
+            raise ImportBlocked("manifest_invalid")
+        if size == 0 and (sha, crc) != (EMPTY_SHA256, EMPTY_CRC32):
+            # An empty object has exactly one SHA-256 and one CRC-32.
             raise ImportBlocked("manifest_invalid")
         parts = _safe_manifest_path(entry["path"])
         if entry["path"] in seen:
@@ -985,13 +1185,17 @@ def target_spec_json(spec: dict) -> dict:
 
 
 def target_spec_from_json(value: dict) -> dict:
+    spec = None
     try:
-        return {
+        spec = {
             table: {column["name"]: TargetColumn(**column) for column in columns}
             for table, columns in value["tables"].items()
         }
     except (KeyError, TypeError, AttributeError):
-        raise ImportBlocked("target_spec_invalid") from None
+        pass
+    if spec is None:
+        raise ImportBlocked("target_spec_invalid")
+    return spec
 
 
 def _describe(column: TargetColumn) -> str:
@@ -1006,8 +1210,10 @@ def _expected(step: Step) -> str:
 def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
     """Every exported field needs a target column of its expected type and shape.
 
-    An unbounded relation over a scalar column is a warning while its source
-    table is empty (D-0019), a blocker otherwise. Unsupplied NOT NULL columns
+    An unbounded relation is a warning while its source table is empty
+    (D-0019), a blocker otherwise: ``unbounded_relation_target_scalar`` over a
+    scalar column, ``unbounded_relation_arrays_not_enabled`` over an array
+    column while UNBOUNDED_RELATION_ARRAYS is off. Unsupplied NOT NULL columns
     without default are blockers; other unsupplied columns use their default.
     """
     blockers, warnings, defaulted, checked = [], [], [], 0
@@ -1029,13 +1235,11 @@ def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
             elif column.type not in KNOWN_TARGET_TYPES:
                 problem = "unsupported_target_column_type"
             elif column.array != step.array:
-                problem = (
-                    "unbounded_relation_target_scalar"
-                    if step.unbounded
-                    else "target_column_shape_mismatch"
-                )
+                problem = UNBOUNDED_SCALAR if step.unbounded else "target_column_shape_mismatch"
             elif column.type not in step.types:
                 problem = "target_column_type_mismatch"
+            elif step.unbounded and not UNBOUNDED_RELATION_ARRAYS:
+                problem = UNBOUNDED_NOT_ENABLED
             if problem is None:
                 continue
             entry = {
@@ -1045,7 +1249,7 @@ def preflight(definitions: list[dict], spec: dict, row_counts: dict) -> dict:
                 "expected": _expected(step),
                 "actual": _describe(column) if column else None,
             }
-            if problem == "unbounded_relation_target_scalar" and not row_counts.get(name):
+            if problem in (UNBOUNDED_SCALAR, UNBOUNDED_NOT_ENABLED) and not row_counts.get(name):
                 warnings.append(entry)
             else:
                 blockers.append(entry)
@@ -1169,8 +1373,17 @@ def check_value(column: TargetColumn, value) -> None:
 
 
 def decimal_key(number: Decimal) -> str:
-    """Exact, context-free key: 1e2, 100 and 100.0 are the same JSON number."""
+    """Exact, context-free key of a JSON number as jsonb stores it.
+
+    The value, normalized, plus its display scale: PostgreSQL numeric_in keeps
+    dscale = max(0, fraction digits - exponent), which is max(0, -exponent) of
+    the parsed Decimal, and numeric_out prints exactly that many decimals. So
+    1e2 and 100 (dscale 0) are the same jsonb number, as are 1.5E-1 and 0.15
+    (dscale 2), but 1.0 (1) is not 1 (0) and 2.50 (2) is not 2.5 (1): PPBase
+    serves 1.0 as a float and 1 as an int to a typed client.
+    """
     sign, digits, exponent = number.as_tuple()
+    scale = max(-exponent, 0)
     digits = list(digits)
     while len(digits) > 1 and digits[-1] == 0:
         digits.pop()
@@ -1178,8 +1391,8 @@ def decimal_key(number: Decimal) -> str:
     while len(digits) > 1 and digits[0] == 0:
         digits.pop(0)
     if digits == [0]:
-        return "0"
-    return ("-" if sign else "") + "".join(map(str, digits)) + "e" + str(exponent)
+        return f"0/{scale}"
+    return ("-" if sign else "") + "".join(map(str, digits)) + f"e{exponent}/{scale}"
 
 
 def _canonical_json_value(value) -> str:
@@ -1209,7 +1422,11 @@ _CANONICAL_JSON_CACHE = {"{}": "{}", "null": "null"}
 
 
 def canonical_json(text: str) -> str:
-    """Exact JSON value identity: jsonb's key order, spacing or 1e2/100 aside."""
+    """Exact jsonb value identity: key order, spacing and 1e2/100 aside.
+
+    Every string, key, literal and number (value and scale, ``decimal_key``)
+    counts; only what jsonb itself does not store is ignored.
+    """
     cached = _CANONICAL_JSON_CACHE.get(text)
     if cached is not None:
         return cached
@@ -1371,13 +1588,21 @@ def diagnose(
 
     Orphan relations and absent referenced files are preserved anomalies, not
     blockers. With ``target_columns`` (see ``target_spec_from_json``) every
-    value is also checked against its PostgreSQL column. jsonb changes that a
-    client can observe are explicit warnings with affected rows per field:
-    ``jsonb_key_order_normalized`` (keys served in jsonb order) and
-    ``sql_null_json_stored_as_jsonb_null`` (PB SQL NULL stored as JSON null);
-    a duplicate JSON key, whose earlier values jsonb would drop, blocks
-    (``jsonb_duplicate_keys_collapsed``). ``private`` receives record-level
-    details (IDs, references, file keys) for a private report.
+    value is also checked against its PostgreSQL column. Differences that a
+    client can observe between what PocketBase 0.22.34 serves and what the
+    imported value will be served as are explicit warnings with affected rows
+    per field, the stored value being imported as is:
+    ``jsonb_key_order_normalized`` (keys served in jsonb order),
+    ``jsonb_number_notation_normalized`` (1e2 served as 100),
+    ``sql_null_json_stored_as_jsonb_null`` (PB SQL NULL stored as JSON null),
+    ``list_served_deduplicated_by_pocketbase`` (PB drops "" and duplicates of
+    a stored list) and ``single_value_served_as_last_element`` (PB serves a
+    single value stored as a JSON array by its last element). A duplicate JSON
+    key, whose earlier values jsonb would drop, blocks
+    (``jsonb_duplicate_keys_collapsed``), as does a json text that PocketBase
+    serves as a string (``json_text_served_as_string_by_pocketbase``).
+    ``private`` receives record-level details (IDs, references, file keys)
+    for a private report.
     """
     started = time.monotonic()
     definitions = load_schema(schema)
@@ -1386,6 +1611,7 @@ def diagnose(
         "source_version": source_version,
         "production_authorized": False,
         "schema_sha256": digest(schema),
+        "definitions_sha256": definitions_fingerprint(definitions),
         "blockers": [],
         "collections": [],
         "warnings": [],
@@ -1485,18 +1711,31 @@ def diagnose(
             if "WITHOUT ROWID" in table[0].upper() or columns & {"rowid", "_rowid_", "oid"}:
                 _add_blocker(blockers, "ambiguous_sqlite_rowid", collection=name)
                 continue
+            table_spec = spec.get(name) if spec is not None else None
+            # Unbounded relations whose target column already is an array: the
+            # cause of the refusal is this importer's flag, not the target.
+            arrays_not_enabled = {
+                field["name"]
+                for field in collection["schema"]
+                if relation_unbounded(field)
+                and not UNBOUNDED_RELATION_ARRAYS
+                and table_spec
+                and table_spec.get(field["name"])
+                and table_spec[field["name"]].array
+            }
             for field in collection["schema"] if not UNBOUNDED_RELATION_ARRAYS else ():
                 if relation_unbounded(field):
                     # Kept for empty tables; merged away when a blocker exists.
                     report["warnings"].append(
                         {
-                            "code": "unbounded_relation_target_scalar",
+                            "code": UNBOUNDED_NOT_ENABLED
+                            if field["name"] in arrays_not_enabled
+                            else UNBOUNDED_SCALAR,
                             "collection": name,
                             "field": field["name"],
                         }
                     )
             plan = RowPlan(collection)
-            table_spec = spec.get(name) if spec is not None else None
             column_specs = (
                 [table_spec.get(column) for column in plan.columns] if table_spec else None
             )
@@ -1524,10 +1763,15 @@ def diagnose(
                 for position, step in enumerate(plan.steps)
                 if step.convert is json_text
             ]
+            list_positions = [
+                (plan.columns.index(field["name"]), field["name"], source_multiple(field))
+                for field in collection["schema"]
+                if field["type"] in LIST_KINDS
+            ]
             count, low, high = 0, None, None
             ids_hash, rows_hash = hashlib.sha256(), hashlib.sha256()
             issue_counts = Counter()
-            json_counts = Counter()
+            served_counts = Counter()
             for raw in source_rows(db, collection):
                 row = dict(raw)
                 count += 1
@@ -1563,9 +1807,19 @@ def diagnose(
                             # PB 0.22 serves SQL NULL as null and matches it with
                             # `field = null`; the NOT NULL jsonb target can only
                             # store JSON null, which PPBase's filter does not match.
-                            json_counts[(column, SQL_NULL_JSON)] += 1
-                        elif jsonb_key_order_changes(values[position]):
-                            json_counts[(column, JSONB_KEY_ORDER)] += 1
+                            served_counts[(column, SQL_NULL_JSON)] += 1
+                        else:
+                            for change in jsonb_text_changes(values[position]):
+                                served_counts[(column, change)] += 1
+                    for position, column, multiple in list_positions:
+                        value = values[position]
+                        if value is _FAILED:
+                            continue
+                        if multiple:
+                            if pocketbase_list_changed(value):
+                                served_counts[(column, LIST_DEDUPLICATED)] += 1
+                        elif pocketbase_single_value(value) != value:
+                            served_counts[(column, SINGLE_LAST_ELEMENT)] += 1
                 record = row.get("id")
                 record_ok = isinstance(record, str) and bool(record)
                 dangling_row = False
@@ -1601,7 +1855,14 @@ def diagnose(
                 anomalies.file_records += missing_row
                 if problems:
                     blocked_rows += 1
-                    issue_counts.update(set(problems))
+                    issue_counts.update(
+                        {
+                            (column, UNBOUNDED_NOT_ENABLED)
+                            if code == UNBOUNDED_SCALAR and column in arrays_not_enabled
+                            else (column, code)
+                            for column, code in problems
+                        }
+                    )
             for (column, code), issues in sorted(
                 issue_counts.items(), key=lambda item: (item[0][1], str(item[0][0]))
             ):
@@ -1610,7 +1871,7 @@ def diagnose(
                     entry["field"] = column
                 entry["affected_rows"] = issues
                 blockers.append(entry)
-            for (column, code), affected in sorted(json_counts.items()):
+            for (column, code), affected in sorted(served_counts.items()):
                 report["warnings"].append(
                     {"code": code, "collection": name, "field": column, "affected_rows": affected}
                 )
@@ -1690,9 +1951,12 @@ def stage_snapshot(data: Path, destination: Path, report: dict, *, manifest: Pat
     (every directory 0700, every file 0600). Manifest mode copies data.db
     only, checked against the manifest, and records that no file byte was
     copied. Returns the storage inventory. Any failure raised here removes the
-    destination. A killed process (SIGKILL, OOM) cannot clean up: the private
-    copy of data.db (and storage/) stays at ``destination``, and a retry with
-    the same path fails with FileExistsError. Remove it, or use a new path.
+    destination. A process ended without Python unwinding cannot clean up:
+    SIGKILL, the OOM killer, and by default SIGTERM and SIGHUP (a timeout,
+    ``docker stop``, a closed terminal), which Python does not turn into an
+    exception (see ``cancelled_by_termination``). The private copy of data.db
+    (and storage/) then stays at ``destination``, and a retry with the same
+    path fails with FileExistsError. Remove it, or use a new path.
     """
     if not report["ready_for_isolated_rehearsal"]:
         raise ImportBlocked("diagnostic_blockers")
@@ -1811,32 +2075,63 @@ def _select_list(columns) -> str:
     )
 
 
+def _database_refusal(exc, collection, other="target_copy_failed") -> ImportBlocked:
+    """Coded refusal of a PostgreSQL error: SQLSTATE and constraint name only.
+
+    Class 23 is an integrity constraint (CHECK, UNIQUE, NOT NULL, FK...);
+    anything else (trigger error, disk, cancel) keeps the ``other`` code. The
+    driver error itself is dropped: its text carries the DETAIL of the row.
+    """
+    sqlstate = getattr(exc, "sqlstate", None)
+    code = "target_constraint_violation" if str(sqlstate).startswith("23") else other
+    return ImportBlocked(
+        code,
+        collection=collection,
+        sqlstate=sqlstate,
+        constraint=getattr(exc, "constraint_name", None),
+    )
+
+
 async def _copy(state, table, columns, records, collection):
     import asyncpg
 
+    failure = None
     try:
         await state.driver.copy_records_to_table(
             table, records=records, columns=list(columns), schema_name="public"
         )
     except asyncpg.PostgresError as exc:
-        sqlstate = getattr(exc, "sqlstate", None)
-        # Class 23 is an integrity constraint (CHECK, UNIQUE, NOT NULL, FK...);
-        # anything else (trigger error, disk, cancel) keeps its own code.
-        code = (
-            "target_constraint_violation"
-            if str(sqlstate).startswith("23")
-            else "target_copy_failed"
-        )
-        raise ImportBlocked(
-            code,
-            collection=collection,
-            sqlstate=sqlstate,
-            constraint=getattr(exc, "constraint_name", None),
-        ) from exc
-    except UnicodeEncodeError as exc:
+        failure = _database_refusal(exc, collection)
+    except UnicodeEncodeError:
         # Unreachable after the value checks; still a code, never a crash.
-        raise ImportBlocked("invalid_unicode_for_postgresql", collection=collection) from exc
+        failure = ImportBlocked("invalid_unicode_for_postgresql", collection=collection)
+    # Raised outside the handlers: neither __cause__ nor __context__ keeps the
+    # driver error ("Failing row contains (...)" may hold password hashes).
+    if failure is not None:
+        raise failure
     state.statements["copy"] += 1
+
+
+async def _immediate_constraints(state) -> None:
+    """SET CONSTRAINTS ALL IMMEDIATE before the end-of-load verification.
+
+    Deferred constraint checks and deferred constraint triggers would
+    otherwise run at COMMIT, after every verification. Here they run now, in
+    the verified window: a violation is a coded refusal (no DETAIL kept), and
+    any row a deferred trigger could change is re-read afterwards.
+    """
+    import asyncpg
+
+    failure = None
+    try:
+        await state.driver.execute("SET CONSTRAINTS ALL IMMEDIATE")
+    except asyncpg.PostgresError as exc:
+        failure = _database_refusal(
+            exc, getattr(exc, "table_name", None), "target_deferred_check_failed"
+        )
+    if failure is not None:
+        raise failure
+    state.statements["other"] += 1
 
 
 def _first_difference(source, values, json_positions, names):
@@ -1936,10 +2231,9 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
     position = {column: index for index, column in enumerate(source_names)}
     if set(source_names) - plan.known:
         raise ImportBlocked("unmapped_source_columns", collection=name)
-    try:
-        steps = [(step.convert, position[step.source]) for step in plan.steps]
-    except KeyError:
-        raise ImportBlocked("missing_source_column", collection=name) from None
+    if any(step.source not in position for step in plan.steps):
+        raise ImportBlocked("missing_source_column", collection=name)
+    steps = [(step.convert, position[step.source]) for step in plan.steps]
     rowid_at = position["__c11_rowid"]
     archive_at = [(key, position[key]) for key in AUTH_ARCHIVE_ORDER if key in position]
     checkers = [(value_checker(column), column.name) for column in specs]
@@ -1968,23 +2262,32 @@ async def _load_table(state, db, collection, plan, specs, check, report_table):
         if state.fail_after is not None:
             limit = max(min(limit, state.fail_after - state.prepared), 1)
         for raw in rows:
+            # Every refusal below is raised outside its handler (ImportBlocked).
+            values = failure = None
             try:
                 values = [convert(raw[index]) for convert, index in steps]
             except (ImportBlocked, ValueError, TypeError, OverflowError, RecursionError):
+                pass
+            if values is None:
                 # Locate the first failing column with the diagnosis code path.
                 problems = []
                 plan.convert(dict(zip(source_names, raw, strict=True)), problems)
                 column, code = problems[0] if problems else (None, "unmappable_value")
-                raise ImportBlocked(code, collection=name, field=column) from None
+                raise ImportBlocked(code, collection=name, field=column)
             for (checker, column), value in zip(checkers, values, strict=True):
                 try:
                     checker(value)
                 except ImportBlocked as exc:
-                    raise ImportBlocked(exc.code, collection=name, field=column) from None
+                    failure = ImportBlocked(exc.code, collection=name, field=column)
+                if failure is not None:
+                    raise failure
+            legacy = None
             try:
                 legacy = auth_legacy_text({key: raw[index] for key, index in archive_at})
             except ImportBlocked as exc:
-                raise ImportBlocked(exc.code, collection=name, field="auth_legacy") from None
+                failure = ImportBlocked(exc.code, collection=name, field="auth_legacy")
+            if failure is not None:
+                raise failure
             record, rowid = values[0], raw[rowid_at]
             source_key = row_key(values, json_positions)
             archived = (record, rowid, legacy, collection["id"])
@@ -2152,7 +2455,7 @@ async def target_anomalies(connection, definitions, spec, inventory, row_counts=
                 continue
             column, value = columns[field["name"]], "s." + quote(field["name"])
             if column.array:
-                sql = f"SELECT s.id, unnest({value}) FROM {source}"
+                sql = f"SELECT s.id, e.ref FROM {source} CROSS JOIN LATERAL unnest({value}) e(ref)"
             else:
                 sql = f"SELECT s.id, {value} FROM {source} WHERE {value} <> ''"
             keys, owners, count = set(), set(), 0
@@ -2222,6 +2525,99 @@ def check_conservation(recount: dict, diagnostic: dict) -> None:
         raise ImportBlocked("anomaly_conservation_mismatch")
 
 
+TRIGGERS_SQL = """
+SELECT c.relname AS table_name, t.tgname AS trigger_name, t.tgtype::int AS type,
+       t.tgenabled::text AS enabled, pn.nspname || '.' || p.proname AS function,
+       p.pronargs::int AS function_arguments, t.tgconstraint <> 0 AS is_constraint,
+       t.tgdeferrable AS deferrable, t.tginitdeferred AS initially_deferred,
+       t.tgnargs::int AS arguments, t.tgqual IS NOT NULL AS has_when,
+       cardinality(t.tgattr::int2[]) > 0 AS has_columns
+FROM pg_catalog.pg_trigger t
+JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
+JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace
+WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
+ORDER BY 1, 2
+"""
+EVENT_TRIGGERS_SQL = "SELECT count(*) FROM pg_catalog.pg_event_trigger WHERE evtenabled <> 'D'"
+
+
+def check_target_triggers(found, event_triggers: int, tables) -> list[str]:
+    """Refuse every trigger but the migrated rowid allocators, exactly defined.
+
+    ``found`` holds the rows of TRIGGERS_SQL (every non-internal trigger of a
+    public relation), ``event_triggers`` the number of enabled event triggers
+    (database-wide: they would run inside this transaction on its DDL),
+    ``tables`` the loaded table names. A trigger could rewrite rows at any
+    time, a deferred constraint trigger even at COMMIT, after every check:
+    ``unexpected_target_trigger``. An expected allocator that is absent is
+    ``target_trigger_missing``. Returns the sorted 'table.trigger' names.
+    """
+    if event_triggers:
+        raise ImportBlocked("unexpected_target_trigger", kind="event", triggers=event_triggers)
+    expected = {(table, ROWID_TRIGGER) for table in ROWID_TABLES if table in tables}
+    seen = set()
+    for row in found:
+        key = (row["table_name"], row["trigger_name"])
+        definition = {name: row[name] for name in ROWID_TRIGGER_DEFINITION}
+        if key not in expected or definition != ROWID_TRIGGER_DEFINITION:
+            raise ImportBlocked(
+                "unexpected_target_trigger", kind="table", collection=key[0], trigger=key[1]
+            )
+        seen.add(key)
+    missing = sorted(expected - seen)
+    if missing:
+        raise ImportBlocked(
+            "target_trigger_missing", collection=missing[0][0], trigger=ROWID_TRIGGER
+        )
+    return [f"{table}.{name}" for table, name in sorted(seen)]
+
+
+async def target_triggers(connection, tables) -> list[str]:
+    """Two catalog reads, then ``check_target_triggers``."""
+    from sqlalchemy import text
+
+    found = (await connection.execute(text(TRIGGERS_SQL))).mappings().all()
+    events = (await connection.execute(text(EVENT_TRIGGERS_SQL))).scalar_one()
+    return check_target_triggers(found, events, tables)
+
+
+async def _final_verification(state, loaded, row_counts, total_rows) -> None:
+    """Layer 2 of ``load_isolated``, once every batch is in.
+
+    Deferred constraint work runs first (``_immediate_constraints``), so that
+    nothing it changes escapes the re-read. Then each table, in load order,
+    and the rowid archive are re-read in full and judged by ``check_final``;
+    the loaded total and the archive must both equal the diagnosed total.
+    """
+    await _immediate_constraints(state)
+    for entry, specs, check in loaded:
+        name = entry["name"]
+        await _reread(state, name, specs, json_columns(specs), check)
+        check_final(name, check, row_counts.get(name))
+        entry["source_fingerprint"] = check.source.hexdigest()
+        entry["target_fingerprint"] = check.target.hexdigest()
+    if state.count != total_rows:
+        raise ImportBlocked("source_row_count_mismatch", scope="all_tables")
+    await _reread(state, ARCHIVE_TABLE, ARCHIVE_READ, ARCHIVE_JSON, state.archive)
+    check_final(ARCHIVE_TABLE, state.archive, total_rows)
+
+
+def diagnosed_collections_match(definitions: list[dict], diagnostic: dict) -> bool:
+    """The definitions handed to the load are exactly the diagnosed ones."""
+    return definitions_fingerprint(definitions) == diagnostic.get("definitions_sha256") and [
+        (c["name"], c["id"]) for c in definitions if c["type"] != "view"
+    ] == [(c["name"], c["id"]) for c in diagnostic.get("collections", [])]
+
+
+def stated_warnings(diagnostic: dict, codes) -> list[dict]:
+    return [
+        entry
+        for entry in diagnostic.get("warnings", [])
+        if isinstance(entry, dict) and entry.get("code") in codes
+    ]
+
+
 async def load_isolated(
     connection,
     data: Path,
@@ -2236,22 +2632,31 @@ async def load_isolated(
     No hooks/repositories/HTTP writes: historical balances, authors, numbers and
     timestamps must not be recomputed. The caller owns the transaction
     (``engine.begin()``): checked before any SQL, then on the driver connection
-    (an AUTOCOMMIT connection is refused). Rows go through COPY batches on the
-    caller's own connection, each value checked against its introspected
-    column first. Verification layers, all exact:
+    (an AUTOCOMMIT connection is refused). ``definitions`` must be exactly the
+    diagnosed ones (``definitions_do_not_match_diagnosis``, before any SQL).
+    The target may hold no trigger but the migrated rowid allocators, exactly
+    defined, and no enabled event trigger (``check_target_triggers``: after the
+    lock, after the rowid archive is created and at the end). Rows go through
+    COPY batches on the caller's own connection, each value checked against
+    its introspected column first. Verification layers, all exact:
 
     1. each batch is read back by key right after its COPY and compared value
        by value with the converted source (``target_readback_mismatch``);
-    2. once everything is in, each table and the rowid archive are re-read in
+    2. once everything is in, deferred constraints and deferred constraint
+       triggers are made to run (SET CONSTRAINTS ALL IMMEDIATE: nothing is
+       left for COMMIT), then each table and the rowid archive are re-read in
        full: the row count, the multiset digest of the re-read rows against
        the digest of the converted source rows taken at preparation, and the
        sum of PostgreSQL's hash of every stored row (all columns) against the
-       sum seen at readback (``check_final``);
+       sum seen at readback (``check_final``); the loaded total and the
+       archive must equal the diagnosed total;
     3. orphan relations and absent files are recounted by SQL in the target
        and must equal the diagnosis (``check_conservation``).
 
     Returns the row count; ``report`` (optional dict) receives the aggregated
-    evidence, including the jsonb normalizations stated by the diagnosis.
+    evidence, including the served-value differences stated by the diagnosis.
+    The caller's transaction is left with every deferrable constraint
+    IMMEDIATE.
     """
     from sqlalchemy import text
 
@@ -2274,6 +2679,10 @@ async def load_isolated(
             raise ImportBlocked("staged_storage_changed")
     else:
         raise ImportBlocked("storage_mode_mismatch")
+    if not diagnosed_collections_match(definitions, diagnostic):
+        # A collection left out of ``definitions`` would otherwise be skipped
+        # silently while every verification of the other tables passes.
+        raise ImportBlocked("definitions_do_not_match_diagnosis")
     # Before any statement: SQLAlchemy would otherwise autobegin a transaction
     # that nobody owns (and that is rolled back when the connection closes).
     if not connection.in_transaction():
@@ -2286,61 +2695,52 @@ async def load_isolated(
         raise ImportBlocked("caller_transaction_required")
     if current_db != "buma_c11_rehearsal":
         raise ImportBlocked("isolated_rehearsal_database_required")
+    state = _LoadState(driver, batch_size, fail_after)
+    state.statements["other"] += 1  # current_database()
+
+    async def run(sql: str):
+        state.statements["other"] += 1
+        return await connection.execute(text(sql))
+
     tables = [c for c in definitions if c["type"] != "view"]
+    names = {c["name"] for c in tables}
     # Lock the complete set before checking emptiness, so a concurrent importer
     # cannot pass the same precondition. PostgreSQL constraints remain enabled.
-    await connection.execute(
-        text(
-            "LOCK TABLE " + ",".join(quote(c["name"]) for c in tables) + " IN ACCESS EXCLUSIVE MODE"
-        )
+    await run(
+        "LOCK TABLE " + ",".join(quote(c["name"]) for c in tables) + " IN ACCESS EXCLUSIVE MODE"
     )
     for c in tables:
-        if (
-            await connection.execute(text(f"SELECT EXISTS (SELECT 1 FROM {quote(c['name'])})"))
-        ).scalar_one():
+        if (await run(f"SELECT EXISTS (SELECT 1 FROM {quote(c['name'])})")).scalar_one():
             raise ImportBlocked("target_not_empty")
-    if (await connection.execute(text(f"SELECT to_regclass('{ARCHIVE_TABLE}')"))).scalar_one():
+    if (await run(f"SELECT to_regclass('{ARCHIVE_TABLE}')")).scalar_one():
         raise ImportBlocked("rowid_archive_exists")
     # The keyed readbacks are prepared once per table and their tables grow
     # from empty: a cached generic plan chosen on a small table would scan the
     # whole table at every batch. Plan each execution for its real arguments;
     # SET LOCAL ends with this transaction.
-    await connection.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
+    await run("SET LOCAL plan_cache_mode = force_custom_plan")
     # Parallel plans allocate dynamic shared memory: in a Docker PostgreSQL with
     # the default 64 MB /dev/shm, the 16-join recount of a 317 066-row table
     # failed ("could not resize shared memory segment"). One serial session.
-    await connection.execute(text("SET LOCAL max_parallel_workers_per_gather = 0"))
+    await run("SET LOCAL max_parallel_workers_per_gather = 0")
     checks_started = time.monotonic()
     spec = await introspect_target(connection, definitions)
+    state.statements["other"] += len(spec)
     row_counts = {c["name"]: c["rows"] for c in diagnostic["collections"]}
     checked = preflight(definitions, spec, row_counts)
-    triggers = (
-        await connection.execute(
-            text(
-                "SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
-                "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                "WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY 1, 2"
-            )
-        )
-    ).all()
-    json_normalizations = [
-        entry
-        for entry in diagnostic.get("warnings", [])
-        if isinstance(entry, dict) and entry.get("code") in JSON_WARNING_CODES
-    ]
     evidence.update(
         {
             "storage_mode": mode,
             "file_bytes_copied": mode == "directory",
             "batch_size": batch_size,
-            "json_normalizations": json_normalizations,
+            "json_normalizations": stated_warnings(diagnostic, JSON_WARNING_CODES),
+            "pocketbase_read_normalizations": stated_warnings(diagnostic, READ_NORMALIZATION_CODES),
             "preflight": {
                 "tables": len(spec),
                 "columns_checked": checked["columns_checked"],
                 "blockers": checked["blockers"],
                 "warnings": checked["warnings"],
                 "defaulted_target_columns": checked["defaulted_target_columns"],
-                "target_triggers": [f"{table}.{name}" for table, name in triggers],
             },
         }
     )
@@ -2349,18 +2749,19 @@ async def load_isolated(
         raise ImportBlocked(
             first["code"], collection=first.get("collection"), field=first.get("field")
         )
-    await connection.execute(
-        text(
-            f"CREATE TABLE {ARCHIVE_TABLE} ("
-            "collection_id text NOT NULL, record_id text NOT NULL, source_rowid bigint NOT NULL, "
-            "auth_legacy jsonb NOT NULL, PRIMARY KEY(collection_id,record_id), "
-            "UNIQUE(collection_id,source_rowid))"
-        )
+    triggers = await target_triggers(connection, names)
+    state.statements["other"] += 2
+    evidence["preflight"]["target_triggers"] = triggers
+    await run(
+        f"CREATE TABLE {ARCHIVE_TABLE} ("
+        "collection_id text NOT NULL, record_id text NOT NULL, source_rowid bigint NOT NULL, "
+        "auth_legacy jsonb NOT NULL, PRIMARY KEY(collection_id,record_id), "
+        "UNIQUE(collection_id,source_rowid))"
     )
-    state = _LoadState(driver, batch_size, fail_after)
-    # current_database, LOCK, emptiness per table, to_regclass, two SET LOCAL,
-    # introspection per table, triggers and CREATE TABLE of the rowid archive.
-    state.statements["other"] += 7 + len(tables) + len(spec)
+    # An event trigger could have attached a trigger to the new archive.
+    if await target_triggers(connection, names) != triggers:
+        raise ImportBlocked("unexpected_target_trigger", kind="changed")
+    state.statements["other"] += 2
     tables_report, loaded = [], []
     evidence["tables"] = tables_report
     load_started = time.monotonic()
@@ -2375,17 +2776,8 @@ async def load_isolated(
             await _load_table(state, db, c, plan, specs, check, entry)
     load_seconds = time.monotonic() - load_started
     final_started = time.monotonic()
-    archive_expected = 0
-    for entry, specs, check in loaded:
-        name = entry["name"]
-        await _reread(state, name, specs, json_columns(specs), check)
-        check_final(name, check, row_counts.get(name))
-        archive_expected += row_counts.get(name)
-        entry["source_fingerprint"] = check.source.hexdigest()
-        entry["target_fingerprint"] = check.target.hexdigest()
+    await _final_verification(state, loaded, row_counts, diagnostic["rows"])
     archive = state.archive
-    await _reread(state, ARCHIVE_TABLE, ARCHIVE_READ, ARCHIVE_JSON, archive)
-    check_final(ARCHIVE_TABLE, archive, archive_expected)
     final_seconds = time.monotonic() - final_started
     conservation_started = time.monotonic()
     recount = await target_anomalies(
@@ -2393,15 +2785,22 @@ async def load_isolated(
     )
     state.statements["conservation"] += recount["statements"]
     check_conservation(recount, diagnostic)
+    # Nothing may have added, changed or removed a trigger during the load.
+    if await target_triggers(connection, names) != triggers:
+        raise ImportBlocked("unexpected_target_trigger", kind="changed")
+    state.statements["other"] += 2
     evidence.update(
         {
             "rows": state.count,
             "archive_rows": archive.target.rows,
             "archive_fingerprint": archive.target.hexdigest(),
             "typed_batch_readback": True,
+            "deferred_constraints_run_before_final_reread": True,
             "final_typed_reread": True,
             "fingerprints_match": True,
             "server_row_hashes_unchanged_since_readback": True,
+            "rows_equal_diagnosed_total": True,
+            "triggers_unchanged_during_load": True,
             "conservation": {
                 "dangling_relations": recount["dangling_relations"],
                 "missing_files": recount["missing_files"],
@@ -2443,10 +2842,14 @@ async def import_snapshot(
 
     The transaction is rolled back and the fresh staging directory created by
     this call is removed. On success the staged copy is kept for serving (it
-    holds a private copy of data.db: destroy it after a rehearsal). A killed
-    process (SIGKILL, OOM) leaves nothing in PostgreSQL (the open transaction
-    is rolled back by the server) but cannot remove ``destination``: delete it
-    or use a new path, a retry at the same path fails with FileExistsError.
+    holds a private copy of data.db: destroy it after a rehearsal). A process
+    ended without Python unwinding (SIGKILL, the OOM killer, and by default
+    SIGTERM and SIGHUP: a timeout, ``docker stop``, a closed terminal) leaves
+    nothing in PostgreSQL (the server rolls the open transaction back) but
+    cannot remove ``destination``: delete it or use a new path, a retry at the
+    same path fails with FileExistsError. Run the import inside
+    ``cancelled_by_termination()`` to turn SIGTERM and SIGHUP into a
+    cancellation that does run this cleanup.
     """
     evidence = report if report is not None else {}
     started = time.monotonic()
@@ -2470,6 +2873,27 @@ async def import_snapshot(
     timings["staging"] = round(staged - started, 3)
     timings["commit"] = round(time.monotonic() - loaded, 3)
     return count
+
+
+@asynccontextmanager
+async def cancelled_by_termination(signals=(signal.SIGTERM, signal.SIGHUP)):
+    """Turn SIGTERM and SIGHUP into the cancellation of the current task.
+
+    By default these signals end the Python process without unwinding: no
+    rollback request and no removal of the private staging copy. Inside this
+    context they cancel the running task instead, so that ``import_snapshot``
+    rolls back and removes its staging directory, then the CancelledError
+    propagates. SIGKILL and the OOM killer cannot be intercepted.
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    for number in signals:
+        loop.add_signal_handler(number, task.cancel)
+    try:
+        yield
+    finally:
+        for number in signals:
+            loop.remove_signal_handler(number)
 
 
 def main():

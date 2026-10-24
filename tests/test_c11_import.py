@@ -1,13 +1,21 @@
 """Fail-closed boundaries for the offline import preparation."""
 
+import ast
 import asyncio
 import hashlib
+import inspect
 import json
+import os
 import re
+import signal
 import sqlite3
+import subprocess
+import sys
+import traceback
 import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import asyncpg
 import pytest
@@ -47,8 +55,11 @@ def test_lossy_numeric_conversions_are_blocked(value):
 def test_integer_range_and_non_finite_json_are_checked():
     with pytest.raises(ImportBlocked, match="integer_outside_target_range"):
         field_value({"type": "number", "options": {"onlyInt": True}}, 2**31)
-    with pytest.raises(ImportBlocked, match="non_finite_json"):
+    # NaN is not JSON for Go: PocketBase serves that text as a JSON string.
+    with pytest.raises(ImportBlocked, match="json_text_served_as_string_by_pocketbase"):
         field_value({"type": "json"}, '{"value":NaN}')
+    with pytest.raises(ImportBlocked, match="non_finite_json"):
+        field_value({"type": "json"}, float("inf"))  # a SQLite REAL Inf
     assert field_value({"type": "json"}, '{"nested":[false,0,"é"]}') == {"nested": [False, 0, "é"]}
 
 
@@ -761,12 +772,25 @@ def test_accepted_values_and_nullable_columns():
         ('{"v":-0.0e5}', "json_number_not_representable"),
         ('{"v":1e-20000}', "json_number_outside_target_range"),
         ("[1e200000]", "json_number_outside_target_range"),
-        ('{"v":NaN}', "non_finite_json"),
         ('{"v":1,"v":1}', "jsonb_duplicate_keys_collapsed"),
-        ("not json", "invalid_json"),
-        ("", "invalid_json"),
+        # PocketBase serves these stored texts as JSON strings (PrepareValue).
+        ('{"v":NaN}', "json_text_served_as_string_by_pocketbase"),
+        ("not json", "json_text_served_as_string_by_pocketbase"),
+        ("", "json_text_served_as_string_by_pocketbase"),
+        (' {"b":1}', "json_text_served_as_string_by_pocketbase"),
+        ("\n[1]", "json_text_served_as_string_by_pocketbase"),
+        ("true ", "json_text_served_as_string_by_pocketbase"),
+        ("True", "json_text_served_as_string_by_pocketbase"),
+        ("NULL", "json_text_served_as_string_by_pocketbase"),
+        ("+1", "json_text_served_as_string_by_pocketbase"),
+        (".5", "json_text_served_as_string_by_pocketbase"),
+        ("'a'", "json_text_served_as_string_by_pocketbase"),
+        ("01", "json_text_served_as_string_by_pocketbase"),
+        ("[1,2", "json_text_served_as_string_by_pocketbase"),
+        # Invalid as a whole: served as a string, whatever its duplicate keys.
+        ('{"a":1,"a":2} x', "json_text_served_as_string_by_pocketbase"),
         pytest.param("[" * 257 + "]" * 257, "json_nesting_too_deep", id="deep"),
-        pytest.param("[" * 200000 + "]" * 200000, "invalid_json", id="parser_recursion"),
+        pytest.param("[" * 200000 + "]" * 200000, "json_nesting_too_deep", id="parser_recursion"),
     ],
 )
 def test_json_must_be_exactly_representable_in_jsonb(text, code):
@@ -778,22 +802,32 @@ def test_json_source_text_is_kept_verbatim_and_key_order_changes_are_detected():
     exact = '{"b": 0.12345678901234567890123, "a": 1e400, "n": [1.50, true]}'
     assert c11.json_text(exact) == exact  # no float round-trip, no re-serialization
     assert (c11.json_text(None), c11.json_text(5), c11.json_text(1.5)) == ("null", "5", "1.5")
+    # Texts PocketBase keeps raw, trailing whitespace included (valid JSON).
+    for raw in ("null", "true", "false", '"text"', "-1", '{"b":1} ', "[]"):
+        assert c11.json_text(raw) == raw
     with pytest.raises(ImportBlocked, match="json_number_not_representable"):
         c11.json_text(-0.0)
+    key_order, notation = c11.JSONB_KEY_ORDER, c11.JSONB_NUMBER_NOTATION
     # jsonb orders keys by UTF-8 length, then bytes, at every depth.
-    assert c11.jsonb_key_order_changes('{"aa":1,"b":2}')
-    assert c11.jsonb_key_order_changes('[{"ok":1},{"x":{"zz":1,"y":2}}]')
-    assert c11.jsonb_key_order_changes('{"é":1,"z":2}')  # é is two bytes
-    assert not c11.jsonb_key_order_changes('{"b":1,"aa":[{"a":1}]}')
-    assert not c11.jsonb_key_order_changes('{"z":1,"é":2}')
-    assert not c11.jsonb_key_order_changes("null")
-    assert not c11.jsonb_key_order_changes("[3,[]]")
+    assert c11.jsonb_text_changes('{"aa":1,"b":2}') == {key_order}
+    assert c11.jsonb_text_changes('[{"ok":1},{"x":{"zz":1,"y":2}}]') == {key_order}
+    assert c11.jsonb_text_changes('{"é":1,"z":2}') == {key_order}  # é is two bytes
+    assert not c11.jsonb_text_changes('{"b":1,"aa":[{"a":1}]}')
+    assert not c11.jsonb_text_changes('{"z":1,"é":2}')
+    assert not c11.jsonb_text_changes("null")
+    assert not c11.jsonb_text_changes("[3,[]]")
+    # Exponent notation is the only number text jsonb rewrites.
+    for text in ("1e2", '{"x":1E+2}', "[1.5e-1]", '{"a":[0e0]}'):
+        assert c11.jsonb_text_changes(text) == {notation}, text
+    for text in ("100", "[1.50, 0.15, -2, 0.0, 123456789012345678901234567890]"):
+        assert not c11.jsonb_text_changes(text), text
+    assert c11.jsonb_text_changes('{"z":1e2,"a":1}') == {key_order, notation}
 
 
 def test_row_keys_compare_exact_typed_values():
     # jsonb renders 1e2 as 100, keeps 1.50, sorts keys: the same JSON value.
     assert c11.canonical_json('{"b":[1.50,"x"],"a":1e2}') == c11.canonical_json(
-        '{"a": 100, "b": [1.5, "x"]}'
+        '{"a": 100, "b": [1.50, "x"]}'
     )
     assert c11.canonical_json('{"a":true}') != c11.canonical_json('{"a":1}')
     assert c11.decimal_key(Decimal("1E+400")) == c11.decimal_key(Decimal("1" + "0" * 400))
@@ -886,7 +920,7 @@ def test_preflight_requires_each_exported_field_with_expected_type():
     )["blockers"]
 
 
-def test_preflight_unbounded_relation_is_a_warning_only_when_the_table_is_empty():
+def test_preflight_unbounded_relation_is_a_warning_only_when_the_table_is_empty(monkeypatch):
     unbounded = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
     parent = {**PARENT, "schema": [*PARENT["schema"], unbounded]}
     spec = spec_for([CHILD, parent])
@@ -900,6 +934,16 @@ def test_preflight_unbounded_relation_is_a_warning_only_when_the_table_is_empty(
     assert full["blockers"][0]["expected"] == "character varying[]|text[]"
     assert full["blockers"][0]["actual"] == "character varying(15)"
     spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
+    # An array target: the cause is this importer's flag, not the target.
+    arrays = c11.preflight([CHILD, parent], spec, {"parent": 3})
+    assert [(b["code"], b["field"]) for b in arrays["blockers"]] == [
+        ("unbounded_relation_arrays_not_enabled", "tags")
+    ]
+    empty = c11.preflight([CHILD, parent], spec, {"parent": 0})
+    assert empty["blockers"] == [] and [w["code"] for w in empty["warnings"]] == [
+        "unbounded_relation_arrays_not_enabled"
+    ]
+    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", True)
     assert c11.preflight([CHILD, parent], spec, {"parent": 3})["blockers"] == []
 
 
@@ -945,7 +989,8 @@ def test_manifest_mode_checks_references_without_file_bytes(tmp_path, monkeypatc
         c11.diagnose(bundle, export, source_version="0.22.27", manifest=manifest)
 
 
-def entry(path, size=0, sha="0" * 64, crc="0" * 8):
+def entry(path, size=0, sha=c11.EMPTY_SHA256, crc=c11.EMPTY_CRC32):
+    """A manifest entry; by default a consistent 0-byte object."""
     return {"path": path, "bytes": size, "sha256": sha, "crc32": crc}
 
 
@@ -957,6 +1002,10 @@ def entry(path, size=0, sha="0" * 64, crc="0" * 8):
         (lambda m: m["files"].append({"path": "x"}), "manifest_invalid"),
         (lambda m: m["files"].append(entry("x", size=-1)), "manifest_invalid"),
         (lambda m: m["files"].append(entry("x", crc="123")), "manifest_invalid"),
+        # A 0-byte object has exactly the empty SHA-256 and CRC-32.
+        (lambda m: m["files"].append(entry("data.db-wal", sha="0" * 64)), "manifest_invalid"),
+        (lambda m: m["files"].append(entry("data.db-wal", crc="1" * 8)), "manifest_invalid"),
+        (lambda m: m["files"].append(entry("storage/c/r/f", sha="0" * 64)), "manifest_invalid"),
         (lambda m: m["files"].append(entry("storage/../x")), "manifest_unsafe_entry"),
         (lambda m: m["files"].append(entry("/abs")), "manifest_unsafe_entry"),
         (lambda m: m["files"].append(entry("storage\\x")), "manifest_unsafe_entry"),
@@ -965,11 +1014,11 @@ def entry(path, size=0, sha="0" * 64, crc="0" * 8):
         (lambda m: m["files"].append(dict(m["files"][0])), "manifest_duplicate_entry"),
         (lambda m: m["files"].append(entry("pb_data/x")), "unexpected_manifest_entry"),
         (
-            lambda m: m["files"].append(entry("data.db-wal", size=1)),
+            lambda m: m["files"].append(entry("data.db-wal", size=1, sha="1" * 64)),
             "live_or_incomplete_sqlite_snapshot",
         ),
         (
-            lambda m: m["files"].append(entry("data.db-journal", size=8)),
+            lambda m: m["files"].append(entry("data.db-journal", size=8, sha="1" * 64)),
             "live_or_incomplete_sqlite_snapshot",
         ),
         (lambda m: m["files"].pop(0), "manifest_data_db_entry_required"),
@@ -993,7 +1042,7 @@ def test_manifest_is_validated_and_must_describe_this_data_db(tmp_path, monkeypa
 def test_empty_sidecars_are_accepted_and_reported(tmp_path, monkeypatch):
     data, export, _ = tiny_snapshot(tmp_path, monkeypatch)
     bundle, path = manifest_bundle(
-        tmp_path, data, lambda m: m["files"].append(entry("data.db-wal", crc="00000000"))
+        tmp_path, data, lambda m: m["files"].append(entry("data.db-wal"))
     )
     checked = c11.read_manifest(path, bundle / "data.db")
     assert checked["summary"]["empty_sqlite_sidecars"] == ["data.db-wal"]
@@ -1130,13 +1179,20 @@ class FakePostgres:
     """In-memory stand-in for the asyncpg calls of the load (COPY, fetch, cursor).
 
     Rows are stored in COPY column order. ``on_copy`` may alter rows as they are
-    stored, like a BEFORE INSERT trigger. Readback and re-read return the
-    selected order (the archive is read key first) plus a row hash computed from
-    the stored row at query time, like PostgreSQL.
+    stored, like a BEFORE INSERT trigger; ``on_execute`` runs for each plain
+    statement (SET CONSTRAINTS), like deferred work. Readback and re-read
+    return the selected order (the archive is read key first) plus a row hash
+    computed from the stored row at query time, like PostgreSQL.
     """
 
-    def __init__(self, on_copy=None):
+    def __init__(self, on_copy=None, on_execute=None):
         self.tables, self.calls, self.on_copy = {}, [], on_copy
+        self.on_execute = on_execute
+
+    async def execute(self, sql):
+        self.calls.append(("execute", sql))
+        if self.on_execute:
+            self.on_execute(self, sql)
 
     async def copy_records_to_table(self, table, records, columns, schema_name):
         self.calls.append(("copy", table, len(records)))
@@ -1178,10 +1234,12 @@ class FakePostgres:
         return Cursor()
 
 
-def parent_load(tmp_path, monkeypatch, fake, *, spec=None, batch_size=2, after_batches=None):
-    """_load_table, then the end-of-load re-read and verdicts, on FakePostgres."""
+def parent_load(
+    tmp_path, monkeypatch, fake, *, spec=None, batch_size=2, after_batches=None, rows=PARENT_ROWS
+):
+    """_load_table, then _final_verification (layer 2), on FakePostgres."""
     tmp_path.mkdir(parents=True, exist_ok=True)
-    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows)
     plan = c11.RowPlan(PARENT)
     spec = spec or spec_for(schema)
     specs = [spec["parent"][column] for column in plan.columns]
@@ -1194,12 +1252,9 @@ def parent_load(tmp_path, monkeypatch, fake, *, spec=None, batch_size=2, after_b
             await c11._load_table(state, db, PARENT, plan, specs, check, entry)
         if after_batches:
             after_batches(fake)
-        await c11._reread(state, "parent", specs, c11.json_columns(specs), check)
-        c11.check_final("parent", check, 3)
-        await c11._reread(
-            state, c11.ARCHIVE_TABLE, c11.ARCHIVE_READ, c11.ARCHIVE_JSON, state.archive
+        await c11._final_verification(
+            state, [(entry, specs, check)], {"parent": len(rows)}, len(rows)
         )
-        c11.check_final(c11.ARCHIVE_TABLE, state.archive, 3)
 
     asyncio.run(run())
     return state, check, entry
@@ -1212,7 +1267,12 @@ def test_load_pipeline_verifies_batches_and_the_final_reread(tmp_path, monkeypat
     assert check.source.hexdigest() == check.target.hexdigest()
     assert check.server_rows == 3 and check.final_hash == check.server_hash
     assert state.archive.target.rows == 3
-    assert dict(state.statements) == {"copy": 4, "readback": 4, "final_check": 2}
+    assert dict(state.statements) == {"copy": 4, "readback": 4, "final_check": 2, "other": 1}
+    # Deferred work is pulled in before the first full re-read.
+    kinds = [call[0] for call in fake.calls]
+    assert ("execute", "SET CONSTRAINTS ALL IMMEDIATE") in fake.calls
+    assert kinds.index("execute") > max(i for i, kind in enumerate(kinds) if kind == "fetch")
+    assert kinds.index("execute") < kinds.index("cursor")
     cursors = [call for call in fake.calls if call[0] == "cursor"]
     assert [call[2] for call in cursors] == [c11.FINAL_PREFETCH] * 2
     assert all("ANY" not in call[1] for call in cursors)  # full scans, no key list
@@ -1488,3 +1548,598 @@ def test_rowid_archive_and_auth_columns_have_a_fixed_order():
         key=str,
     )
     assert c11.inventory_fingerprint({}) == hashlib.sha256(b"{}").hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Review round 2: unchained refusals, triggers, deferred work, definitions,
+# jsonb scale and notation, PocketBase read rules, recount SQL, termination.
+# ---------------------------------------------------------------------------
+
+SECRET = "c11-synthetic-secret-value"
+
+
+def assert_unchained(exc, *forbidden):
+    """No chained error and nothing forbidden in the rendered traceback."""
+    assert exc.__cause__ is None and exc.__context__ is None, repr(exc.__context__)
+    rendered = "".join(traceback.format_exception(exc))
+    for text in forbidden:
+        assert text not in rendered, text
+
+
+def test_no_refusal_is_raised_inside_an_exception_handler():
+    """Static guard: raised in an ``except`` block, an ImportBlocked would keep
+    the decoder or driver error (and the record values it quotes) as context."""
+    tree = ast.parse(inspect.getsource(c11))
+    offenders = []
+
+    def visit(node, handler):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            handler = None
+        if isinstance(node, ast.ExceptHandler):
+            handler = node
+        if isinstance(node, ast.Raise) and handler is not None and node.exc is not None:
+            offenders.append(node.lineno)
+        for child in ast.iter_child_nodes(node):
+            visit(child, handler)
+
+    visit(tree, None)
+    assert offenders == []
+
+
+def test_copy_refusals_never_chain_the_driver_error():
+    def state_raising(error):
+        class Driver:
+            async def copy_records_to_table(self, *args, **kwargs):
+                raise error
+
+        return c11._LoadState(Driver(), 5, None)
+
+    error = asyncpg.exceptions.CheckViolationError.new(
+        {
+            "C": "23514",
+            "M": "new row violates check constraint",
+            "D": f"Failing row contains (u1, {SECRET}).",
+            "n": "c11_negative_check",
+            "t": "users",
+        }
+    )
+    assert "Failing row" in str(error)  # what a chained traceback would show
+    with pytest.raises(ImportBlocked, match="target_constraint_violation") as raised:
+        asyncio.run(c11._copy(state_raising(error), "users", ("id",), [("u1",)], "users"))
+    assert raised.value.details == {
+        "collection": "users",
+        "sqlstate": "23514",
+        "constraint": "c11_negative_check",
+    }
+    assert_unchained(raised.value, "Failing row", SECRET)
+    unicode_error = UnicodeEncodeError("utf-8", SECRET + "\ud800", 0, 1, "surrogates not allowed")
+    with pytest.raises(ImportBlocked, match="invalid_unicode_for_postgresql") as raised:
+        asyncio.run(c11._copy(state_raising(unicode_error), "t", ("id",), [("x",)], "t"))
+    assert_unchained(raised.value, SECRET)
+
+
+@pytest.mark.parametrize(
+    "call,code",
+    [
+        (lambda: c11.text_value(SECRET + "\ud800"), "invalid_unicode_for_postgresql"),
+        (lambda: c11.json_text('{"k":"' + SECRET + '" broken'), "json_text_served"),
+        (lambda: c11.json_text("[" * 200000 + SECRET), "json_nesting_too_deep"),
+        (lambda: c11.array_value(f'["{SECRET}"'), "invalid_array"),
+        (lambda: c11.date_value("2023-02-29 00:00:00.000Z"), "invalid_date"),
+        (lambda: c11.auth_legacy_text({"lastResetSentAt": float("nan")}), "invalid_auth_field"),
+        (
+            lambda: c11.RowPlan(
+                {"name": "t", "type": "base", "schema": [text_field("n", "number")]}
+            ).convert({"id": "a", "created": TIMESTAMP, "updated": TIMESTAMP, "n": 2**1100}),
+            "unmappable_value",
+        ),
+        (lambda: c11.target_spec_from_json({"tables": {"t": [{"name": SECRET}]}}), "target_spec"),
+    ],
+)
+def test_conversion_refusals_never_chain_the_error_holding_the_value(call, code):
+    with pytest.raises(ImportBlocked, match=code) as raised:
+        call()
+    assert_unchained(raised.value, SECRET)
+
+
+def test_manifest_and_batch_refusals_are_unchained(tmp_path, monkeypatch):
+    path = tmp_path / "manifest.json"
+    path.write_text('{"files": [{"path": "storage/c/' + SECRET + '/f"')  # truncated
+    with pytest.raises(ImportBlocked, match="manifest_invalid") as raised:
+        c11.read_manifest(path, tmp_path / "data.db")
+    assert_unchained(raised.value, SECRET)
+    narrow = c11.TargetColumn("child", "character varying", False, 3, True, True)
+    spec = spec_for([CHILD, PARENT], {("parent", "child"): narrow})
+    with pytest.raises(ImportBlocked, match="value_exceeds_target_length") as raised:
+        parent_load(tmp_path / "length", monkeypatch, FakePostgres(), spec=spec)
+    assert_unchained(raised.value)
+    rows = PARENT_ROWS + [("p4", "c1", "", SECRET, "{}", 1)]  # gallery is no JSON list
+    with pytest.raises(ImportBlocked, match="invalid_array") as raised:
+        parent_load(tmp_path / "array", monkeypatch, FakePostgres(), rows=rows)
+    assert raised.value.details == {"collection": "parent", "field": "gallery"}
+    assert_unchained(raised.value, SECRET)
+
+
+def test_deferred_work_runs_before_the_final_reread(tmp_path, monkeypatch):
+    """A deferred constraint trigger would change rows at COMMIT, after every
+    check; SET CONSTRAINTS ALL IMMEDIATE runs it before the full re-read."""
+    amount = c11.RowPlan(PARENT).columns.index("amount")
+
+    def deferred(fake, sql):
+        assert sql == "SET CONSTRAINTS ALL IMMEDIATE"
+        row = list(fake.tables["parent"][1])
+        row[amount] = 7.5
+        fake.tables["parent"][1] = tuple(row)
+
+    fake = FakePostgres(on_execute=deferred)
+    with pytest.raises(ImportBlocked, match="target_changed_after_readback") as raised:
+        parent_load(tmp_path, monkeypatch, fake)
+    assert raised.value.details == {"collection": "parent"}
+    kinds = [call[0] for call in fake.calls]
+    assert kinds.index("execute") < kinds.index("cursor")
+
+
+def test_deferred_constraint_failures_are_coded_without_values():
+    def state_raising(error):
+        class Driver:
+            async def execute(self, sql):
+                raise error
+
+        return c11._LoadState(Driver(), 5, None)
+
+    unique = asyncpg.exceptions.UniqueViolationError.new(
+        {
+            "C": "23505",
+            "M": "duplicate key value violates unique constraint",
+            "D": f"Key (status)=({SECRET}) already exists.",
+            "n": "c11_deferred_unique",
+            "t": "buma_supplier",
+        }
+    )
+    with pytest.raises(ImportBlocked, match="target_constraint_violation") as raised:
+        asyncio.run(c11._immediate_constraints(state_raising(unique)))
+    assert raised.value.details == {
+        "collection": "buma_supplier",
+        "sqlstate": "23505",
+        "constraint": "c11_deferred_unique",
+    }
+    assert_unchained(raised.value, SECRET, "already exists")
+    raised_by_trigger = asyncpg.exceptions.RaiseError.new({"C": "P0001", "M": SECRET})
+    with pytest.raises(ImportBlocked, match="target_deferred_check_failed") as raised:
+        asyncio.run(c11._immediate_constraints(state_raising(raised_by_trigger)))
+    assert_unchained(raised.value, SECRET)
+
+
+def trigger_row(table="users", name="buma_sqlite_rowid", **changes):
+    return {"table_name": table, "trigger_name": name, **c11.ROWID_TRIGGER_DEFINITION, **changes}
+
+
+def test_only_the_migrated_rowid_triggers_are_accepted():
+    tables = {"users", "buma_article", "buma_supplier"}
+    expected = [trigger_row("buma_article"), trigger_row("users")]
+    assert c11.check_target_triggers(expected, 0, tables) == [
+        "buma_article.buma_sqlite_rowid",
+        "users.buma_sqlite_rowid",
+    ]
+    users = {"kind": "table", "collection": "users", "trigger": "buma_sqlite_rowid"}
+    deferred = trigger_row(
+        "buma_supplier",
+        "c11_deferred",
+        type=5,  # AFTER INSERT FOR EACH ROW
+        is_constraint=True,
+        deferrable=True,
+        initially_deferred=True,
+        function="public.c11_rewrite",
+    )
+    for found, details in (
+        (
+            expected + [deferred],
+            {"kind": "table", "collection": "buma_supplier", "trigger": "c11_deferred"},
+        ),
+        (expected[:1] + [trigger_row(deferrable=True, initially_deferred=True)], users),
+        (expected[:1] + [trigger_row(is_constraint=True)], users),
+        (expected[:1] + [trigger_row(type=5)], users),  # AFTER instead of BEFORE
+        (expected[:1] + [trigger_row(type=7 | 16)], users),  # also on UPDATE
+        (expected[:1] + [trigger_row(enabled="D")], users),
+        (expected[:1] + [trigger_row(enabled="A")], users),
+        (expected[:1] + [trigger_row(function="public.c11_rewrite")], users),
+        (expected[:1] + [trigger_row(function_arguments=1)], users),
+        (expected[:1] + [trigger_row(arguments=1)], users),
+        (expected[:1] + [trigger_row(has_when=True)], users),
+        (expected[:1] + [trigger_row(has_columns=True)], users),
+        (
+            expected + [trigger_row(name="extra")],
+            {"kind": "table", "collection": "users", "trigger": "extra"},
+        ),
+    ):
+        with pytest.raises(ImportBlocked, match="unexpected_target_trigger") as raised:
+            c11.check_target_triggers(found, 0, tables)
+        assert raised.value.details == details
+    with pytest.raises(ImportBlocked, match="unexpected_target_trigger") as raised:
+        c11.check_target_triggers(expected, 1, tables)
+    assert raised.value.details == {"kind": "event", "triggers": 1}
+    with pytest.raises(ImportBlocked, match="target_trigger_missing") as raised:
+        c11.check_target_triggers(expected[:1], 0, tables)
+    assert raised.value.details == {"collection": "users", "trigger": "buma_sqlite_rowid"}
+    # Small test schemas without the rowid tables expect no allocator at all.
+    assert c11.check_target_triggers([], 0, {"child", "parent"}) == []
+
+
+def test_load_refuses_definitions_other_than_the_diagnosed_ones(tmp_path, monkeypatch):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert report["definitions_sha256"] == c11.definitions_fingerprint(schema)
+    staged = tmp_path / "staged"
+    stage_snapshot(data, staged, report)
+    changed = json.loads(json.dumps(schema))
+    changed[1]["schema"][0]["options"]["maxSelect"] = 2  # same names, other field
+    for definitions in (schema[1:], schema[:1], list(reversed(schema)), changed):
+        connection = FakeConnection()
+        with pytest.raises(ImportBlocked, match="definitions_do_not_match_diagnosis"):
+            asyncio.run(c11.load_isolated(connection, staged, definitions))
+        assert connection.statements == []  # refused before any SQL
+    assert c11.diagnosed_collections_match(schema, report)
+    assert not c11.diagnosed_collections_match(schema, {**report, "definitions_sha256": None})
+
+
+def test_final_total_must_equal_the_diagnosed_total(tmp_path, monkeypatch):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    plan = c11.RowPlan(PARENT)
+    specs = [spec_for(schema)["parent"][column] for column in plan.columns]
+    state = c11._LoadState(FakePostgres(), 2, None)
+    check = c11._Verification()
+    entry = {"name": "parent", "rows": 0, "copy_batches": 0}
+
+    async def run(total):
+        with snapshot(data, worker_threads=True) as db:
+            await c11._load_table(state, db, PARENT, plan, specs, check, entry)
+        await c11._final_verification(state, [(entry, specs, check)], {"parent": 3}, total)
+
+    with pytest.raises(ImportBlocked, match="source_row_count_mismatch") as raised:
+        asyncio.run(run(4))  # every table agrees, the diagnosed total does not
+    assert raised.value.details == {"scope": "all_tables"}
+
+
+def test_decimal_keys_keep_the_scale_jsonb_stores(tmp_path, monkeypatch):
+    key = c11.canonical_json
+    assert key("1e2") == key("100") and key("1E+2") == key("100")
+    assert key("1.5E-1") == key("0.15") and key("1.50E1") == key("15.0")
+    assert key("1.0") != key("1") and key("2.50") != key("2.5") and key("0.0") != key("0")
+    assert key('{"v":1.0,"w":[2.50]}') == key('{"w": [2.50], "v": 1.0}')
+    assert c11.decimal_key(Decimal("1.0")) == "1e0/1"
+    assert c11.decimal_key(Decimal("0.00")) == "0/2"
+    data_at = c11.RowPlan(PARENT).columns.index("data")
+    rows = [(*PARENT_ROWS[0][:4], '{"v":1.0,"w":[2.50]}', 1), *PARENT_ROWS[1:]]
+
+    def rewriting(stored):
+        def trigger(table, row):
+            if table == "parent" and row[0] == "p1":
+                row = (*row[:data_at], stored, *row[data_at + 1 :])
+            return row
+
+        return trigger
+
+    for stored in ('{"v": 1, "w": [2.50]}', '{"v": 1.0, "w": [2.5]}'):
+        with pytest.raises(ImportBlocked, match="target_readback_mismatch") as raised:
+            parent_load(
+                tmp_path / stored[6:9], monkeypatch, FakePostgres(rewriting(stored)), rows=rows
+            )
+        assert raised.value.details == {"collection": "parent", "field": "data"}
+    # jsonb's own rendering (sorted keys, spacing) is the same stored value.
+    parent_load(
+        tmp_path / "same",
+        monkeypatch,
+        FakePostgres(rewriting('{"v": 1.0, "w": [2.50]}')),
+        rows=rows,
+    )
+
+
+@pytest.mark.parametrize(
+    "value,text",
+    [
+        (1234567.5, "1.2345675e+06"),
+        (-1234567.0, "-1.234567e+06"),
+        (1e6, "1e+06"),
+        (999999.5, "999999.5"),
+        (123456.0, "123456"),
+        (12345.5, "12345.5"),
+        (100.25, "100.25"),
+        (1.5, "1.5"),
+        (0.1, "0.1"),
+        (0.0001, "0.0001"),
+        (1e-05, "1e-05"),
+        (-2.5e-07, "-2.5e-07"),
+        (1e20, "1e+20"),
+        (1e100, "1e+100"),
+        (5e-324, "5e-324"),
+        (1.7976931348623157e308, "1.7976931348623157e+308"),
+        (0.0, "0"),
+    ],
+)
+def test_real_json_values_get_the_text_go_gives_pocketbase(value, text):
+    """strconv.FormatFloat(v, 'g', -1, 64), what database/sql hands PB 0.22."""
+    assert c11.go_float_text(value) == text
+    assert c11.json_text(value) == text
+
+
+def test_pocketbase_read_rules_of_list_fields():
+    single = c11.pocketbase_single_value
+    assert single('["a","c"]') == "c"
+    assert single('["a","c","a"]') == "c"
+    assert single('["a",""]') == "a"
+    assert single("[]") == ""
+    assert single('[null,"b"]') == "b"
+    assert single(' ["x"] ') == "x"  # Go's decoder accepts surrounding whitespace
+    for kept in ('["a",1]', "plain", "a[b", '{"a":"["}', '"[x]"', "", "[NaN]"):
+        assert single(kept) == kept, kept
+    assert c11.nonzero_uniques(["b", "", "a", "b"]) == ["b", "a"]
+    assert c11.pocketbase_list_changed(["a", "a"]) and c11.pocketbase_list_changed(["", "b"])
+    assert not c11.pocketbase_list_changed(["b", "a"]) and not c11.pocketbase_list_changed([])
+
+
+SELECTS = {
+    **PARENT,
+    "schema": [
+        *PARENT["schema"],
+        text_field("kind", "select", maxSelect=1, values=["a", "c"]),
+        text_field("tags", "select", maxSelect=3, values=["a", "b"]),
+    ],
+}
+
+
+def test_number_notation_and_pocketbase_read_rules_are_warnings(tmp_path, monkeypatch):
+    rows = [
+        # id, child, photo, gallery, data, amount, kind, tags
+        ("p1", "c1", "a.bin", '["b.bin"]', '{"b":1,"a":2}', 1, "a", '["a"]'),
+        ("p2", "c1", "", "[]", None, 2, '["a","c"]', '["b","b",""]'),
+        ("p3", "c1", '["x.bin","y.bin"]', "[]", '{"x":1e2}', 3, "", "[]"),
+        ("p4", "c1", "", "[]", 1234567.5, 4, "c", '["a","b"]'),
+    ]
+    data, export, _ = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=SELECTS)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert report["blockers"] == [] and report["ready_for_isolated_rehearsal"]
+    warnings = {(w["code"], w["field"]): w["affected_rows"] for w in report["warnings"]}
+    assert warnings == {
+        ("jsonb_key_order_normalized", "data"): 1,
+        # '{"x":1e2}' and the REAL 1234567.5, which PB serves as 1.2345675e+06
+        ("jsonb_number_notation_normalized", "data"): 2,
+        ("sql_null_json_stored_as_jsonb_null", "data"): 1,
+        ("single_value_served_as_last_element", "photo"): 1,
+        ("single_value_served_as_last_element", "kind"): 1,
+        ("list_served_deduplicated_by_pocketbase", "tags"): 1,
+    }
+    # The stored values are kept: the single file is one (absent) reference.
+    missing = report["preserved_source_anomalies"]["missing_files"]["fields"]
+    assert {(f["field"], f["references"]) for f in missing} == {("photo", 1)}
+
+
+def test_unbounded_relation_over_an_array_target_names_the_importer_flag(tmp_path, monkeypatch):
+    unbounded = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
+    parent = {**PARENT, "schema": [*PARENT["schema"], unbounded]}
+    rows = [row + ('["c1"]',) for row in PARENT_ROWS]
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
+    spec = spec_for(schema)
+    spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    assert report["blockers"] == [
+        {
+            "code": "unbounded_relation_arrays_not_enabled",
+            "collection": "parent",
+            "field": "tags",
+            "expected": "character varying[]|text[]",
+            "actual": "text[]",
+            "affected_rows": 3,
+        }
+    ]
+    assert not [w for w in report["warnings"] if isinstance(w, dict) and "tags" == w.get("field")]
+    # Without a target description the documented D-0019 cause stays.
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert [b["code"] for b in report["blockers"]] == ["unbounded_relation_target_scalar"]
+
+
+class SqliteResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def one(self):
+        assert len(self.rows) == 1
+        return self.rows[0]
+
+    def all(self):
+        return self.rows
+
+
+class SqliteConnection:
+    """Runs the recount SQL of target_anomalies on SQLite, arrays as JSON text.
+
+    Only PostgreSQL's array syntax is mapped (unnest(X) e(ref) -> json_each(X)
+    e, e.ref -> e.value, CROSS JOIN LATERAL -> CROSS JOIN); every predicate,
+    join and aggregate runs as written.
+    """
+
+    def __init__(self, db):
+        self.db, self.statements = db, []
+
+    async def execute(self, statement, parameters=None):
+        sql = str(statement)
+        self.statements.append(sql)
+        sql = sql.replace("CROSS JOIN LATERAL", "CROSS JOIN")
+        sql = re.sub(r"unnest\(([^()]*)\) e\(ref\)", r"json_each(\1) e", sql)
+        return SqliteResult(self.db.execute(sql.replace("e.ref", "e.value")).fetchall())
+
+
+def test_target_recount_counts_each_anomaly_kind_exactly():
+    column = c11.TargetColumn
+    links = text_field("links", "relation", collectionId=CHILD["id"], maxSelect=5)
+    parent = {**PARENT, "schema": [*PARENT["schema"], links]}
+    empty = {**CHILD, "id": "emptycol0000001", "name": "empty"}
+    definitions = [CHILD, parent, empty]
+    spec = spec_for([CHILD, PARENT, empty])
+    spec["parent"]["links"] = column("links", "character varying", True, 15, True, True)
+    db = sqlite3.connect(":memory:")
+    db.executescript(
+        "CREATE TABLE child (id TEXT); INSERT INTO child VALUES ('c1');"
+        "CREATE TABLE empty (id TEXT);"
+        "CREATE TABLE parent (id TEXT, child TEXT, photo TEXT, gallery TEXT, data TEXT, "
+        "amount REAL, links TEXT);"
+    )
+    db.executemany(
+        "INSERT INTO parent VALUES (?,?,?,?,'null',0,?)",
+        [
+            ("p1", "c1", "a.bin", '["b.bin","missing.bin"]', '["c1","x"]'),
+            ("p2", "absent", "gone.bin", "[]", "[]"),
+            ("p3", "absent", "", '["c.bin"]', '["y","y"]'),
+            ("p4", "", "", "[]", '["c1"]'),
+        ],
+    )
+    collection = PARENT["id"]
+    inventory = {
+        f"{collection}/p1/a.bin": {},
+        f"{collection}/p1/b.bin": {},
+        f"{collection}/p9/orphan.bin": {},
+    }
+    connection = SqliteConnection(db)
+    recount = asyncio.run(
+        c11.target_anomalies(
+            connection, definitions, spec, inventory, {"child": 1, "parent": 4, "empty": 0}
+        )
+    )
+    relations = {(f["field"]): f for f in recount["dangling_relations"]["fields"]}
+    assert relations == {
+        "child": {
+            "collection": "parent",
+            "field": "child",
+            "target": "child",
+            "references": 2,
+            "records": 2,
+            "distinct_targets": 1,
+        },
+        "links": {
+            "collection": "parent",
+            "field": "links",
+            "target": "child",
+            "references": 3,
+            "records": 2,
+            "distinct_targets": 2,
+        },
+    }
+    # p1 (links), p2 (child) and p3 (child and links): each record once.
+    assert recount["dangling_relations"]["references"] == 5
+    assert recount["dangling_relations"]["records"] == 3
+    assert recount["relations_checked"] == 3 + 5
+    files = {f["field"]: f for f in recount["missing_files"]["fields"]}
+    assert files == {
+        "photo": {
+            "collection": "parent",
+            "field": "photo",
+            "references": 1,
+            "records": 1,
+            "distinct_files": 1,
+        },
+        "gallery": {
+            "collection": "parent",
+            "field": "gallery",
+            "references": 2,
+            "records": 2,
+            "distinct_files": 2,
+        },
+    }
+    assert recount["missing_files"]["records"] == 3  # p1, p2 and p3
+    assert recount["missing_files"]["distinct_files"] == 3
+    assert recount["unreferenced_files"] == 1
+    # Parent only (child has no relation or file field, empty is skipped): the
+    # scalar relations with the any-orphan count, the array relation, 2 file fields.
+    assert recount["statements"] == len(connection.statements) == 4
+    assert not [sql for sql in connection.statements if '"empty"' in sql]
+
+
+def test_registry_refuses_evidence_that_did_not_pass(tmp_path, monkeypatch):
+    for status in ("failed", None):
+        evidence = tmp_path / f"evidence-{status}.json"
+        evidence.write_text(
+            json.dumps({"status": status, "diagnostic": {"source_version": "0.22.27"}})
+        )
+        registry = {
+            "0.22.27": {"evidence": str(evidence), "version_path": ["diagnostic", "source_version"]}
+        }
+        monkeypatch.setattr(c11, "VALIDATED_SOURCE_VERSIONS", registry)
+        assert c11.source_version_status("0.22.27") == (
+            "source_version_evidence_invalid",
+            str(evidence),
+        )
+    evidence = tmp_path / "evidence-other.json"
+    evidence.write_text(
+        json.dumps({"status": "passed", "diagnostic": {"source_version": "0.22.26"}})
+    )
+    registry = {
+        "0.22.27": {"evidence": str(evidence), "version_path": ["diagnostic", "source_version"]}
+    }
+    monkeypatch.setattr(c11, "VALIDATED_SOURCE_VERSIONS", registry)
+    assert c11.source_version_status("0.22.27")[0] == "source_version_evidence_invalid"
+
+
+TERMINATION_SCRIPT = r"""
+import asyncio, hashlib, json, sqlite3, sys
+from pathlib import Path
+import scripts.c11_import as c11
+
+root = Path(sys.argv[1])
+data = root / "source"
+(data / "storage").mkdir(parents=True)
+with sqlite3.connect(data / "data.db") as db:
+    db.execute("CREATE TABLE sample(id TEXT)")
+report = {
+    "ready_for_isolated_rehearsal": True,
+    "data_db_sha256": c11.digest(data / "data.db"),
+    "file_manifest_sha256": c11.inventory_fingerprint({}),
+}
+
+
+class Engine:
+    def begin(self):
+        class Context:
+            async def __aenter__(self):
+                print("loading", flush=True)
+                await asyncio.sleep(60)  # stands for a long load
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return Context()
+
+
+async def main():
+    async with c11.cancelled_by_termination():
+        await c11.import_snapshot(Engine(), data, root / "staged", report, [])
+
+
+asyncio.run(main())
+"""
+
+
+def test_termination_signals_still_remove_the_staging(tmp_path):
+    root = Path(c11.__file__).resolve().parents[1]
+    script = tmp_path / "terminate.py"
+    script.write_text(TERMINATION_SCRIPT)
+    for number in (signal.SIGTERM, signal.SIGHUP):
+        work = tmp_path / f"run-{number}"
+        work.mkdir()
+        process = subprocess.Popen(
+            [sys.executable, str(script), str(work)],
+            cwd=root,
+            env={**os.environ, "PYTHONPATH": str(root), "PYTHONDONTWRITEBYTECODE": "1"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert process.stdout.readline().strip() == "loading"
+            assert (work / "staged" / "data.db").is_file()  # the private copy exists
+            process.send_signal(number)
+            _, errors = process.communicate(timeout=30)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        assert process.returncode != 0 and "CancelledError" in errors
+        assert not (work / "staged").exists()  # cleaned up despite the signal
