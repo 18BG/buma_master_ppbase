@@ -9,9 +9,11 @@ It also checks the physical relation columns (D-0019) without changing the
 expected metadata, which keeps ``maxSelect: null``: a multiple relation (shared
 PPBase rule ``ppbase.models.field_multiplicity``) must be ``text[] NOT NULL
 DEFAULT '{}'`` with its GIN index; a single relation ``text NOT NULL DEFAULT ''``
-with its btree index on a database created by the corrected PPBase ("fresh"),
-or also the earlier ``character varying(15)`` on a database migrated before the
-correction ("migrated").
+with its btree index on a database created by the corrected PPBase ("fresh",
+the default and the mode of a new or imported cutover database), or also the
+earlier ``character varying(15)`` on a database created before the correction
+and converted by migration 1789236850 ("migrated", to be asked explicitly with
+``--relation-columns migrated``).
 """
 
 from __future__ import annotations
@@ -70,6 +72,14 @@ def _source_index_deltas() -> dict[str, list[str]]:
 SOURCE_INDEX_DELTAS = _source_index_deltas()
 
 RELATION_COLUMN_MODES = ("fresh", "migrated")
+# Strict by default: accepting VARCHAR(15) single relations must be explicit.
+DEFAULT_RELATION_COLUMN_MODE = "fresh"
+RELATION_COLUMN_HELP = (
+    "fresh (default): single relations must be text, as on a database created by "
+    "the corrected PPBase; migrated: character varying(15) is also accepted, for a "
+    "database created before the D-0019 correction and converted by 1789236850"
+)
+VARCHAR_SINGLE_SUFFIX = ": single relation stored as character varying(15)"
 # Column type -> expected default; managed index access method per shape.
 MULTIPLE_RELATION_COLUMNS = {"text[]": "'{}'::text[]"}
 SINGLE_RELATION_COLUMNS = {
@@ -292,11 +302,20 @@ def verify_relation_columns(
             method = physical["indexes"].get(f"idx_{name}_{field['name']}")
             if method != RELATION_INDEX_METHODS[shape]:
                 errors.append(f"{path}: managed index method {method}")
+    hint = None
+    if mode == "fresh" and errors and all(e.endswith(VARCHAR_SINGLE_SUFFIX) for e in errors):
+        hint = (
+            "every error is a single relation still character varying(15): expected on a "
+            "database created before the D-0019 correction and converted by 1789236850, "
+            "which is checked with --relation-columns migrated; a new or imported "
+            "database must not have them"
+        )
     return {
         "mode": mode,
         "multiple": dict(sorted(shapes["multiple"].items())),
         "single": dict(sorted(shapes["single"].items())),
         "errors": errors,
+        "hint": hint,
         "ok": not errors,
     }
 
@@ -370,17 +389,21 @@ def verify(
     }
 
 
-async def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     parser.add_argument(
         "--relation-columns",
         choices=RELATION_COLUMN_MODES,
-        default="migrated",
-        help="fresh: single relations must be text; migrated: varchar(15) is also accepted",
+        default=DEFAULT_RELATION_COLUMN_MODE,
+        help=RELATION_COLUMN_HELP,
     )
-    args = parser.parse_args()
+    return parser
+
+
+async def main() -> int:
+    args = build_parser().parse_args()
 
     definitions, digest, _ = load_schema(args.schema, include_views=False)
     actual_rows = await read_collections(args.db)

@@ -30,7 +30,8 @@ from ppbase.models.field_multiplicity import field_is_multiple
 
 from app.legacy.records import prepared
 from app.legacy.views import source_view_row
-from scripts.verify_schema_baseline import verify, verify_relation_columns
+from scripts import verify_complete_schema
+from scripts.verify_schema_baseline import build_parser, verify, verify_relation_columns
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = Path(
@@ -326,6 +327,24 @@ def definitions(max_select):
 def test_relation_column_check(max_select, state, mode, ok):
     rows = [{"name": "coll", "type": "base", "physical": physical(*state)}]
     assert verify_relation_columns(definitions(max_select), rows, mode)["ok"] is ok
+
+
+def test_relation_column_check_hints_at_migrated_mode_only_for_varchar_single_relations():
+    varchar = ("character varying(15)", "''::character varying", "btree")
+    rows = [{"name": "coll", "type": "base", "physical": physical(*varchar)}]
+    strict = verify_relation_columns(definitions(1), rows, "fresh")
+    assert strict["ok"] is False and "--relation-columns migrated" in strict["hint"]
+    assert verify_relation_columns(definitions(1), rows, "migrated")["hint"] is None
+    # A wrong multiple relation is never explained away by the hint.
+    assert verify_relation_columns(definitions(None), rows, "fresh")["hint"] is None
+
+
+@pytest.mark.parametrize("parser", [build_parser, verify_complete_schema.build_parser])
+def test_verifier_clis_are_strict_unless_migrated_is_asked(parser):
+    assert parser().parse_args([]).relation_columns == "fresh"
+    assert parser().parse_args(["--relation-columns", "migrated"]).relation_columns == "migrated"
+    with pytest.raises(SystemExit):
+        parser().parse_args(["--relation-columns", "any"])
 
 
 def test_relation_column_check_needs_physical_rows_and_keeps_metadata_contract():

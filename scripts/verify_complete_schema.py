@@ -5,8 +5,10 @@ This check covers both ordinary/auth collections and translated views. The
 ``users.username`` and ``agent_users.username`` compatibility fields are
 intentionally required because the corrected PocketBase export exposes them as
 auth system fields while PPBase 0.3.x does not create the physical columns
-itself. ``--relation-columns`` adds the physical relation column check of
-``verify_schema_baseline.verify_relation_columns`` (D-0019).
+itself. It also runs the physical relation column check of
+``verify_schema_baseline.verify_relation_columns`` (D-0019): ``fresh`` by
+default, ``--relation-columns migrated`` for a database created before the
+D-0019 correction and converted by migration 1789236850.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ try:
     from scripts.generate_native_baseline import load_schema
     from scripts.verify_schema_baseline import (
         ALLOWED_EXTRAS,
+        DEFAULT_RELATION_COLUMN_MODE,
+        RELATION_COLUMN_HELP,
         RELATION_COLUMN_MODES,
         _compare_collection,
         attach_physical,
@@ -35,6 +39,8 @@ except ImportError:  # pragma: no cover - direct script execution
     from generate_native_baseline import load_schema
     from verify_schema_baseline import (
         ALLOWED_EXTRAS,
+        DEFAULT_RELATION_COLUMN_MODE,
+        RELATION_COLUMN_HELP,
         RELATION_COLUMN_MODES,
         _compare_collection,
         attach_physical,
@@ -171,17 +177,21 @@ def verify(
     }
 
 
-async def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     parser.add_argument(
         "--relation-columns",
         choices=RELATION_COLUMN_MODES,
-        default="migrated",
-        help="fresh: single relations must be text; migrated: varchar(15) is also accepted",
+        default=DEFAULT_RELATION_COLUMN_MODE,
+        help=RELATION_COLUMN_HELP,
     )
-    args = parser.parse_args()
+    return parser
+
+
+async def main() -> int:
+    args = build_parser().parse_args()
 
     definitions, digest, _ = load_schema(args.schema, include_views=True)
     actual_rows = await read_collections(args.db)
