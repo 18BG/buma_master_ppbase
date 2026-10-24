@@ -6,19 +6,38 @@ Run from the repository root, never from the destination:
         --manifest-out NEW_FILE [--expect-manifest private-manifest.json]
 
 The archive is inventoried first with ``scripts.c11_import.inspect_archive``
-and stricter member checks; a refusal creates nothing. Members are then
-streamed in bounded chunks into a destination created by this invocation
-(directories 0700, files 0600). Content is never executed or interpreted, and
-links, special files, archive modes and overwrites are never produced. Each
-CRC-32 is verified by a complete read, every file is re-read from disk, and the
-archive must keep its identity, size, mtime and SHA-256 from start to end.
+and stricter member checks (among them at most 32 path components per member);
+a refusal creates nothing. Members are then streamed in bounded chunks into a
+destination created by this invocation (directories 0700, files 0600). Content
+is never executed or interpreted, and links, special files, archive modes and
+overwrites are never produced. Each CRC-32 is verified by a complete read,
+every file is re-read from disk, and the archive must keep its identity, size,
+mtime and SHA-256 from start to end. Open descriptors grow with the depth of
+the tree, never with its width: the soft RLIMIT_NOFILE must be at least the
+deepest member's component count + 16, checked before extracting.
 
 The manifest has the private format ``{archive_sha256, files: [{path, bytes,
-sha256, crc32}]}`` (paths sorted, lowercase hex, two-space JSON). With
-``--expect-manifest`` it must match exactly. Any failure removes only the
-destination created by this invocation; the manifest is written only after all
-members were verified. Standard output carries aggregates, never member names.
-No PostgreSQL, PocketBase, network or production access.
+sha256, crc32}]}`` (paths sorted, lowercase hex, two-space JSON). It is written
+only after all members were verified, to a temporary file that is then
+hard-linked to --manifest-out: that name appears complete or not at all. With
+``--expect-manifest`` (a regular file of at most 64 MiB) it must match exactly.
+Any failure removes only the destination created by this invocation. Standard
+output carries one aggregated JSON summary, never member names. No PostgreSQL,
+PocketBase, network or production access.
+
+Exit status:
+  0      extracted and verified, manifest written ("ok": true).
+  1      refused or failed; nothing is left, except the manifest when only the
+         verified content differs from --expect-manifest ("expected_manifest"
+         in the summary), kept for a private diff.
+  3      the destination created by this run could not be removed (see
+         "cleanup_error"): never use it; inspect it, remove it by hand and
+         rerun with new paths. Takes precedence over the other failure codes.
+  128+N  interrupted by signal N (130 SIGINT, 143 SIGTERM, 129 SIGHUP); the
+         destination was removed (see "destination_removed").
+A run killed without a summary (SIGKILL, power cut) may leave a partial
+destination and a hidden ".c11-extract-*.partial" file next to the manifest:
+remove both by hand and rerun with new paths.
 """
 
 from __future__ import annotations
@@ -30,6 +49,7 @@ import json
 import os
 import re
 import resource
+import secrets
 import shutil
 import signal
 import stat
@@ -37,16 +57,29 @@ import sys
 import time
 import zipfile
 import zlib
+from contextlib import contextmanager
 from pathlib import Path
 
 from scripts.c11_import import ImportBlocked, inspect_archive
 
 CHUNK_BYTES = 1 << 20
 FREE_SPACE_RESERVE_BYTES = 1 << 30
+# The private manifest of the real backup (1 290 entries) is about 0.35 MB.
+MANIFEST_MAX_BYTES = 64 << 20
+# PocketBase v0.22.34 stores files at storage/<collection>/<record>/<file> and
+# thumbnails one level lower (core/base.go:39,530, models/record.go:460-461,
+# apis/file.go:158,175): at most 5 components. The bound keeps the descriptors of
+# the verification walk and the recursion of shutil.rmtree small for any archive.
+MAX_MEMBER_DEPTH = 32
+# Descriptors besides one per directory level of the verification walk or of the
+# cleanup: standard streams, archive, destination, file, listing, interpreter.
+# Measured need: depth + 6 (10 for a depth-4 tree of 1 100 record directories).
+DESCRIPTOR_RESERVE = 16
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
-# PocketBase writes Deflate members (tools/archive/create.go). STORED is the
-# only other method for which zipfile bounds the output of each read.
+# PocketBase v0.22.34 tools/archive/create.go:53 skips directories and :76 writes
+# Deflate members only (same in v0.22.27:76 and v0.40.6:74). STORED is the only
+# other method for which zipfile bounds the output of each read.
 ALLOWED_METHODS = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 # Traditional (bit 0) and strong (bit 6) encryption, masked local headers (bit 13).
 ENCRYPTION_FLAGS = 0x0001 | 0x0040 | 0x2000
@@ -58,6 +91,9 @@ DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 NEW_FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
 PROGRESS_SECONDS = 10.0
+INTERRUPT_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 
 
 class ExtractionFailed(ImportBlocked):
@@ -94,6 +130,8 @@ def member_blockers(infos: list[zipfile.ZipInfo]) -> list[str]:
             or any(char in "\\:" or ord(char) < 32 or ord(char) == 127 for char in name)
         ):
             blockers.add("unsafe_archive_member")
+        if len(parts) > MAX_MEMBER_DEPTH:
+            blockers.add("archive_member_too_deep")
         kind = stat.S_IFMT(info.external_attr >> 16)
         if kind == stat.S_IFLNK:
             blockers.add("symlink_in_archive")
@@ -153,9 +191,38 @@ def valid_manifest(value) -> bool:
     return True
 
 
+def _check_manifest_file(info: os.stat_result) -> None:
+    if not stat.S_ISREG(info.st_mode):
+        raise ExtractionFailed("expected_manifest_not_regular_file")
+    if info.st_size > MANIFEST_MAX_BYTES:
+        raise ExtractionFailed("expected_manifest_too_large", max_bytes=MANIFEST_MAX_BYTES)
+
+
+def _read_manifest_bytes(fd: int, limit: int) -> bytes:
+    """Read a whole descriptor in chunks, refusing more than ``limit`` bytes."""
+    chunks, size = [], 0
+    while chunk := os.read(fd, min(CHUNK_BYTES, limit + 1 - size)):
+        size += len(chunk)
+        if size > limit:
+            raise ExtractionFailed("expected_manifest_too_large", max_bytes=limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def load_manifest(path: Path) -> tuple[dict, bytes]:
-    """Strict private-manifest reader: exact keys, lowercase hex, unique paths."""
-    raw = path.read_bytes()
+    """Strict private-manifest reader: exact keys, lowercase hex, unique paths.
+
+    Only a regular file of at most MANIFEST_MAX_BYTES is read, with bounded memory.
+    It is checked by stat before opening, so a FIFO or device is never opened, and
+    again on the descriptor, opened non-blocking, in case the path was swapped.
+    """
+    _check_manifest_file(os.stat(path))
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        _check_manifest_file(os.fstat(fd))
+        raw = _read_manifest_bytes(fd, MANIFEST_MAX_BYTES)
+    finally:
+        os.close(fd)
     try:
         value = json.loads(
             raw.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_reject_constant
@@ -223,6 +290,33 @@ def _check_platform() -> None:
     needed = (os.open, os.mkdir, os.stat)
     if not all(call in os.supports_dir_fd for call in needed) or os.scandir not in os.supports_fd:
         raise ExtractionFailed("platform_without_dir_fd_support")
+    if os.link not in os.supports_follow_symlinks:
+        raise ExtractionFailed("platform_without_link_nofollow_support")
+    if not hasattr(signal, "pthread_sigmask"):
+        raise ExtractionFailed("platform_without_signal_mask_support")
+
+
+def _check_descriptor_limit(depth: int) -> None:
+    """Refuse before extracting when verification or cleanup could run out of descriptors."""
+    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    required = depth + DESCRIPTOR_RESERVE
+    if soft != resource.RLIM_INFINITY and soft < required:
+        raise ExtractionFailed("descriptor_limit_too_low", soft_limit=soft, required=required)
+
+
+@contextmanager
+def _deferred_signals():
+    """Hold SIGINT, SIGTERM and SIGHUP until the block has recorded what it created.
+
+    A signal received meanwhile stays pending. CPython runs its handler as soon as
+    the previous mask is restored, from that pthread_sigmask call, so whatever the
+    block created is already known to the cleanup.
+    """
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -231,14 +325,49 @@ def _write_all(fd: int, data: bytes) -> None:
         view = view[os.write(fd, view) :]
 
 
-def _write_new_private(path: Path, data: bytes) -> None:
-    fd = os.open(path, NEW_FILE_FLAGS, FILE_MODE)
+def _unlink_own(path: Path, own: os.stat_result) -> None:
+    """Remove ``path`` only while it is still the file this invocation created."""
     try:
+        current = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if (current.st_dev, current.st_ino) == (own.st_dev, own.st_ino):
+        os.unlink(path)
+
+
+def _publish_new_private(path: Path, data: bytes, published) -> None:
+    """Create ``path`` as a complete 0600 file, or not at all; never overwrite.
+
+    The bytes are written and fsynced to a new temporary file of the same
+    directory, which is hard-linked to ``path`` (link() never replaces an existing
+    name) and then unlinked. ``published`` runs once ``path`` is in place, before
+    a pending signal is handled. A failure never leaves a partial ``path``.
+    """
+    temporary = path.parent / f".c11-extract-{os.getpid()}-{secrets.token_hex(8)}.partial"
+    fd = own = None
+    try:
+        with _deferred_signals():
+            fd = os.open(temporary, NEW_FILE_FLAGS, FILE_MODE)
+            own = os.fstat(fd)
         os.fchmod(fd, FILE_MODE)
         _write_all(fd, data)
         os.fsync(fd)
+        with _deferred_signals():
+            try:
+                os.link(temporary, path, follow_symlinks=False)
+            except FileExistsError as exc:
+                raise ExtractionFailed("manifest_out_exists") from exc
+            linked = os.lstat(path)
+            if (linked.st_dev, linked.st_ino) != (own.st_dev, own.st_ino):
+                raise ExtractionFailed("manifest_out_replaced")
+            published()
     finally:
-        os.close(fd)
+        try:
+            if own is not None:
+                _unlink_own(temporary, own)
+        finally:
+            if fd is not None:
+                os.close(fd)
 
 
 def _open_directories(root_fd: int, parts: tuple[str, ...], created: set) -> int:
@@ -313,44 +442,67 @@ def _hash_file(dir_fd: int, name: str, expected: os.stat_result, chunk_bytes: in
     return (size, sha256.hexdigest(), f"{crc32:08x}")
 
 
+def _listed_directory(parent_fd: int, name: str | None, expected: os.stat_result | None):
+    """Open a directory (``name`` None: a copy of ``parent_fd``) and list it sorted.
+
+    The descriptor is closed again if the identity check or the listing fails.
+    """
+    if name is None:
+        fd = os.dup(parent_fd)
+    else:
+        fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        if expected is not None:
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino):
+                raise ExtractionFailed("destination_changed_during_verification")
+        with os.scandir(fd) as scan:
+            names = sorted(entry.name for entry in scan)
+        return fd, iter(names)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def _verify_tree(root_fd: int, entries: list[dict], directories: set, chunk_bytes: int) -> None:
-    """Re-read the destination from disk: exact tree, modes, single links, contents."""
+    """Re-read the destination from disk: exact tree, modes, single links, contents.
+
+    Depth first, keeping open only the directories of the current path: the open
+    descriptors grow with the depth of the tree (at most MAX_MEMBER_DEPTH), never
+    with the number of sibling directories.
+    """
     if stat.S_IMODE(os.fstat(root_fd).st_mode) != DIRECTORY_MODE:
         raise ExtractionFailed("destination_mode_mismatch")
     seen_files, seen_directories = {}, set()
-    pending = [((), os.dup(root_fd))]
+    walk = []  # (relative parts, open descriptor, names left), one per open directory
     try:
-        while pending:
-            parts, fd = pending.pop()
-            try:
-                with os.scandir(fd) as scan:
-                    names = sorted(entry.name for entry in scan)
-                for name in names:
-                    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
-                    relative = (*parts, name)
-                    if stat.S_ISLNK(info.st_mode):
-                        raise ExtractionFailed("symlink_in_destination")
-                    if stat.S_ISDIR(info.st_mode):
-                        if stat.S_IMODE(info.st_mode) != DIRECTORY_MODE:
-                            raise ExtractionFailed("destination_mode_mismatch")
-                        child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
-                        pending.append((relative, child))
-                        opened = os.fstat(child)
-                        if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
-                            raise ExtractionFailed("destination_changed_during_verification")
-                        seen_directories.add(relative)
-                    elif stat.S_ISREG(info.st_mode):
-                        if stat.S_IMODE(info.st_mode) != FILE_MODE:
-                            raise ExtractionFailed("destination_mode_mismatch")
-                        if info.st_nlink != 1:
-                            raise ExtractionFailed("hardlink_in_destination")
-                        seen_files["/".join(relative)] = _hash_file(fd, name, info, chunk_bytes)
-                    else:
-                        raise ExtractionFailed("special_file_in_destination")
-            finally:
+        walk.append(((), *_listed_directory(root_fd, None, None)))
+        while walk:
+            parts, fd, names = walk[-1]
+            name = next(names, None)
+            if name is None:
+                walk.pop()
                 os.close(fd)
+                continue
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            relative = (*parts, name)
+            if stat.S_ISLNK(info.st_mode):
+                raise ExtractionFailed("symlink_in_destination")
+            if stat.S_ISDIR(info.st_mode):
+                if stat.S_IMODE(info.st_mode) != DIRECTORY_MODE:
+                    raise ExtractionFailed("destination_mode_mismatch")
+                walk.append((relative, *_listed_directory(fd, name, info)))
+                seen_directories.add(relative)
+            elif stat.S_ISREG(info.st_mode):
+                if stat.S_IMODE(info.st_mode) != FILE_MODE:
+                    raise ExtractionFailed("destination_mode_mismatch")
+                if info.st_nlink != 1:
+                    raise ExtractionFailed("hardlink_in_destination")
+                seen_files["/".join(relative)] = _hash_file(fd, name, info, chunk_bytes)
+            else:
+                raise ExtractionFailed("special_file_in_destination")
     finally:
-        for _, fd in pending:
+        for _, fd, _ in walk:
             os.close(fd)
     wanted = {entry["path"]: (entry["bytes"], entry["sha256"], entry["crc32"]) for entry in entries}
     problems = {
@@ -486,12 +638,15 @@ def extract(
                     raise ExtractionFailed("archive_inventory_blocked", blockers=blockers)
                 members = [info for info in infos if not info.is_dir()]
                 declared_bytes = sum(info.file_size for info in members)
+                depth = max((len(member_parts(info)) for info in infos), default=0)
                 summary.update(
                     members=len(infos),
                     files=len(members),
                     directory_members=len(infos) - len(members),
                     declared_bytes=declared_bytes,
+                    max_member_depth=depth,
                 )
+                _check_descriptor_limit(depth)
                 if expected is not None:
                     declared = {
                         "archive_sha256": before,
@@ -517,14 +672,16 @@ def extract(
                     )
                 lap("preflight")
                 summary["phase"] = "extract"
-                try:
-                    os.mkdir(destination, DIRECTORY_MODE)
-                except FileExistsError as exc:
-                    raise ExtractionFailed("destination_exists") from exc
-                created = summary["destination_created"] = True
-                root_fd = os.open(destination, DIRECTORY_FLAGS)
-                root = os.fstat(root_fd)
-                identity = (root.st_dev, root.st_ino)
+                # A signal is handled only once the new directory is recorded for cleanup.
+                with _deferred_signals():
+                    try:
+                        os.mkdir(destination, DIRECTORY_MODE)
+                    except FileExistsError as exc:
+                        raise ExtractionFailed("destination_exists") from exc
+                    created = summary["destination_created"] = True
+                    root_fd = os.open(destination, DIRECTORY_FLAGS)
+                    root = os.fstat(root_fd)
+                    identity = (root.st_dev, root.st_ino)
                 os.fchmod(root_fd, DIRECTORY_MODE)
                 if os.listdir(root_fd):
                     raise ExtractionFailed("unexpected_destination_entry")
@@ -581,15 +738,16 @@ def extract(
         summary["phase"] = "manifest"
         manifest = {"archive_sha256": before, "files": sorted(entries, key=lambda e: e["path"])}
         data = render_manifest(manifest)
+        manifest_sha256 = hashlib.sha256(data).hexdigest()
         comparison = None
         if expected is not None:
             comparison = compare_manifests(manifest, expected)
             summary["expected_manifest"] = {**comparison, "byte_identical": data == expected_raw}
-        try:
-            _write_new_private(manifest_out, data)
-        except FileExistsError as exc:
-            raise ExtractionFailed("manifest_out_exists") from exc
-        summary.update(manifest_written=True, manifest_sha256=hashlib.sha256(data).hexdigest())
+        _publish_new_private(
+            manifest_out,
+            data,
+            lambda: summary.update(manifest_written=True, manifest_sha256=manifest_sha256),
+        )
         if comparison is not None and not comparison["matches"]:
             raise ExtractionFailed(
                 "expected_manifest_mismatch", stage="verified_content", **comparison
@@ -661,9 +819,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(128 + signum)
 
     handlers = {}
-    for name in ("SIGINT", "SIGTERM", "SIGHUP"):
-        if hasattr(signal, name):
-            handlers[name] = signal.signal(getattr(signal, name), interrupted)
+    for signum in INTERRUPT_SIGNALS:
+        handlers[signum] = signal.signal(signum, interrupted)
     try:
         extract(
             args.archive,
@@ -681,8 +838,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         code = exc.code if isinstance(exc.code, int) else 1
     finally:
-        for name, handler in handlers.items():
-            signal.signal(getattr(signal, name), handler)
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
     if summary["destination_created"] and not summary["destination_removed"] and not summary["ok"]:
         code = 3  # The partial destination must be inspected and removed by hand.
     print(json.dumps(summary, ensure_ascii=False))

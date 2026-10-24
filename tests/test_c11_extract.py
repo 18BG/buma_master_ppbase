@@ -15,6 +15,7 @@ import types
 import warnings
 import zipfile
 import zlib
+from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 
@@ -23,6 +24,7 @@ import pytest
 from scripts import c11_extract
 from scripts.c11_extract import (
     CHUNK_BYTES,
+    MAX_MEMBER_DEPTH,
     ExtractionFailed,
     extract,
     load_manifest,
@@ -35,6 +37,53 @@ ROOT = Path(__file__).resolve().parents[1]
 DATE = (2026, 9, 15, 23, 18, 12)
 FILE = "storage/collection1/record1/picture_abc.png"
 REGULAR = stat.S_IFREG | 0o644
+MANIFEST_START = b'{\n  "archive_sha256": '
+
+
+def deep_name(depth: int) -> str:
+    return "/".join(["storage", *["d"] * (depth - 2), "deep.bin"])
+
+
+def cli_arguments(archive, destination, manifest, *extra) -> list[str]:
+    paths = ("--archive", archive, "--destination", destination, "--manifest-out", manifest)
+    return [str(value) for value in (*paths, *extra)]
+
+
+def run_cli(archive, destination, manifest, *, descriptor_limit=None):
+    """The real CLI in a subprocess, optionally under a lower soft RLIMIT_NOFILE."""
+    command = ["-m", "scripts.c11_extract"]
+    if descriptor_limit is not None:
+        command = [
+            "-c",
+            "import resource, runpy\n"
+            "hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]\n"
+            f"resource.setrlimit(resource.RLIMIT_NOFILE, ({descriptor_limit}, hard))\n"
+            "runpy.run_module('scripts.c11_extract', run_name='__main__', alter_sys=True)\n",
+        ]
+    return subprocess.run(
+        [sys.executable, *command, *cli_arguments(archive, destination, manifest)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+@contextmanager
+def deadline(seconds: float = 10.0):
+    """Fail instead of hanging if a call blocks, for example when opening a FIFO."""
+
+    def expired(_signum, _frame):
+        raise TimeoutError("blocked")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def payload(size: int, seed: int) -> bytes:
@@ -75,7 +124,11 @@ class Unseekable(io.RawIOBase):
 
 
 def write_archive(path, members, *, method=zipfile.ZIP_DEFLATED, modes=None, streamed=False):
-    """PocketBase-like ZIP (tools/archive/create.go): Deflate, Unix regular files."""
+    """PocketBase-like ZIP: Deflate, no directory entries, Unix regular files.
+
+    PocketBase v0.22.34 tools/archive/create.go:53 (directories skipped), :70
+    (zip.FileInfoHeader) and :76 (h.Method = zip.Deflate).
+    """
     with path.open("wb") as target:
         with zipfile.ZipFile(Unseekable(target) if streamed else target, "w") as archive:
             for name, data in members.items():
@@ -160,6 +213,7 @@ def test_pocketbase_like_archive_is_extracted_verified_and_private(tmp_path, str
     assert summary["archive_sha256"] == summary["archive_sha256_after"] == checksum
     assert (summary["files"], summary["bytes"]) == (12, sum(map(len, members.values())))
     assert summary["crc_all_files_ok"] and summary["destination_reread_verified"]
+    assert summary["max_member_depth"] == 5  # storage/<collection>/<record>/thumbs_x/<thumb>
     assert not summary["production_authorized"] and not summary["postgresql_imported"]
     for name, data in members.items():
         assert (destination / name).read_bytes() == data
@@ -185,6 +239,7 @@ def test_pocketbase_like_archive_is_extracted_verified_and_private(tmp_path, str
             "crc32": f"{zlib.crc32(data):08x}",
         }
     assert stat.S_IMODE(manifest_path.stat().st_mode) == 0o600
+    assert manifest_path.stat().st_nlink == 1  # the temporary name was removed
     assert summary["manifest_sha256"] == sha256(text.encode()).hexdigest()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip", "manifest.json", "out"]
 
@@ -437,6 +492,10 @@ def flagged(bit):
             ),
             "invalid_directory_member",
         ),
+        (
+            lambda p: backup(p, {**backup_members(), deep_name(MAX_MEMBER_DEPTH + 1): b"x"}),
+            "archive_member_too_deep",
+        ),
     ],
 )
 def test_archive_anomalies_are_refused_before_creating_anything(tmp_path, build, blocker):
@@ -641,6 +700,10 @@ def tamper(destination: Path, kind: str) -> None:
         (destination / "extra").chmod(0o700)
     elif kind == "mode":
         (destination / "README.md").chmod(0o644)
+    elif kind == "directory_mode":
+        (destination / "storage" / "collection1").chmod(0o755)
+    elif kind == "root_mode":
+        destination.chmod(0o750)
     elif kind == "hardlink":
         os.link(destination / "README.md", destination / "README.md.link")
     elif kind == "symlink":
@@ -657,6 +720,8 @@ def tamper(destination: Path, kind: str) -> None:
         ("extra_file", "destination_verification_failed", "unexpected_files"),
         ("extra_directory", "destination_verification_failed", "unexpected_directories"),
         ("mode", "destination_mode_mismatch", None),
+        ("directory_mode", "destination_mode_mismatch", None),
+        ("root_mode", "destination_mode_mismatch", None),
         ("hardlink", "hardlink_in_destination", None),
         ("symlink", "symlink_in_destination", None),
         ("fifo", "special_file_in_destination", None),
@@ -714,7 +779,8 @@ def test_unreadable_or_irregular_archive_is_refused_without_blocking(tmp_path, k
     else:
         os.mkfifo(archive, 0o600)  # opening it for reading would block forever
     before = sorted(p.name for p in tmp_path.iterdir())
-    code, _, summary = refused(tmp_path, archive)
+    with deadline():
+        code, _, summary = refused(tmp_path, archive)
     expected = (
         "bad_zip_archive" if kind in {"not_a_zip", "truncated"} else "archive_not_regular_file"
     )
@@ -736,24 +802,7 @@ def test_content_is_never_executed_or_interpreted(tmp_path):
     }
     archive = backup(tmp_path, members)
     destination, manifest = outputs(tmp_path)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "scripts.c11_extract",
-            "--archive",
-            str(archive),
-            "--destination",
-            str(destination),
-            "--manifest-out",
-            str(manifest),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    result = run_cli(archive, destination, manifest)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout.splitlines()[-1])["ok"] is True
     assert (destination / "json.py").read_bytes() == code
@@ -795,17 +844,318 @@ def test_sigterm_during_extraction_cleans_up_and_exits_143(tmp_path, monkeypatch
     monkeypatch.setattr(c11_extract, "_extract_member", terminated)
     destination, manifest = outputs(tmp_path)
     previous = signal.getsignal(signal.SIGTERM)
-    code = main(
-        [
-            "--archive",
-            str(archive),
-            "--destination",
-            str(destination),
-            "--manifest-out",
-            str(manifest),
-        ]
-    )
+    code = main(cli_arguments(archive, destination, manifest))
     assert code == 128 + signal.SIGTERM and signal.getsignal(signal.SIGTERM) is previous
     summary = json.loads(capsys.readouterr().out)
     assert summary["error"] == "interrupted" and summary["destination_removed"]
     assert not destination.exists() and not manifest.exists()
+
+
+def wide_members(records: int) -> dict[str, bytes]:
+    """PocketBase storage keeps one directory per record with files: width grows with data."""
+    files = {f"storage/collection9/record{i:04d}/file.bin": payload(16, i) for i in range(records)}
+    return {**backup_members(), **files}
+
+
+def test_wide_and_deep_trees_are_verified_under_a_low_descriptor_limit(tmp_path):
+    # 300 sibling record directories need 300 descriptors if the walk opens siblings
+    # ahead; depth-first with only the current path open needs about depth + 6.
+    archive = backup(tmp_path, {**wide_members(300), deep_name(MAX_MEMBER_DEPTH): b"deep"})
+    destination, manifest = outputs(tmp_path)
+    result = run_cli(archive, destination, manifest, descriptor_limit=64)
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+    summary = json.loads(result.stdout.splitlines()[-1])
+    assert summary["ok"] and summary["destination_reread_verified"]
+    assert (summary["files"], summary["max_member_depth"]) == (12 + 300 + 1, MAX_MEMBER_DEPTH)
+    assert (destination / deep_name(MAX_MEMBER_DEPTH)).read_bytes() == b"deep"
+
+
+def test_too_low_descriptor_limit_is_refused_before_extracting(tmp_path):
+    archive = backup(tmp_path, {**backup_members(), deep_name(MAX_MEMBER_DEPTH): b"deep"})
+    destination, manifest = outputs(tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    result = run_cli(archive, destination, manifest, descriptor_limit=30)
+    summary = json.loads(result.stdout.splitlines()[-1])
+    assert result.returncode == 1 and summary["error"] == "descriptor_limit_too_low"
+    assert summary["details"] == {"soft_limit": 30, "required": MAX_MEMBER_DEPTH + 16}
+    assert summary["phase"] == "preflight" and not summary["destination_created"]
+    assert_nothing_created(tmp_path, before)
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="counts /proc/self/fd")
+def test_verification_descriptors_do_not_grow_with_the_width_of_the_tree(tmp_path, monkeypatch):
+    original, counts = c11_extract._hash_file, []
+
+    def counting(*args):
+        counts.append(len(os.listdir("/proc/self/fd")))
+        return original(*args)
+
+    monkeypatch.setattr(c11_extract, "_hash_file", counting)
+    peaks = {}
+    for records in (3, 300):
+        archive = write_archive(tmp_path / f"wide-{records}.zip", wide_members(records))
+        counts.clear()
+        extract(archive, tmp_path / f"out-{records}", tmp_path / f"manifest-{records}.json")
+        peaks[records] = max(counts)
+    assert peaks[300] == peaks[3], peaks
+
+
+@pytest.mark.parametrize("where", ["root", "nested"])
+def test_entry_added_by_someone_else_during_extraction_is_refused(tmp_path, monkeypatch, where):
+    archive = backup(tmp_path)
+    destination, manifest = outputs(tmp_path)
+    if where == "root":
+        fchmod, fired = os.fchmod, []
+
+        def intruding(fd, mode):
+            # The first fchmod is the one of the new destination, before its emptiness check.
+            if not fired:
+                fired.append(1)
+                (destination / "intruder.bin").write_bytes(b"not ours")
+            return fchmod(fd, mode)
+
+        monkeypatch.setattr(c11_extract.os, "fchmod", intruding)
+    else:
+        member, calls = c11_extract._extract_member, []
+
+        def intruding(*args):
+            calls.append(1)
+            if len(calls) == 2:  # storage/ does not exist yet: it is not ours
+                (destination / "storage").mkdir(mode=0o700)
+            return member(*args)
+
+        monkeypatch.setattr(c11_extract, "_extract_member", intruding)
+    code, _, summary = refused(tmp_path, archive)
+    assert code == "unexpected_destination_entry" and summary["phase"] == "extract"
+    assert summary["destination_removed"] and not destination.exists()
+    assert not summary["manifest_written"] and not manifest.exists()
+
+
+def test_a_second_signal_cannot_interrupt_the_cleanup(tmp_path, monkeypatch, capsys):
+    archive = backup(tmp_path)
+    member, remove, calls = c11_extract._extract_member, c11_extract._remove_created, []
+
+    def terminated(*args):
+        calls.append(1)
+        if len(calls) == 2:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return member(*args)
+
+    def interrupted_again(*args):
+        os.kill(os.getpid(), signal.SIGINT)  # handled while the cleanup is running
+        return remove(*args)
+
+    monkeypatch.setattr(c11_extract, "_extract_member", terminated)
+    monkeypatch.setattr(c11_extract, "_remove_created", interrupted_again)
+    destination, manifest = outputs(tmp_path)
+    code = main(cli_arguments(archive, destination, manifest))
+    summary = json.loads(capsys.readouterr().out)
+    assert code == 128 + signal.SIGTERM and summary["error"] == "interrupted"
+    assert summary["destination_created"] and summary["destination_removed"] is True
+    assert "cleanup_error" not in summary
+    assert not destination.exists() and not manifest.exists()
+
+
+def test_a_signal_right_after_creating_the_destination_still_removes_it(
+    tmp_path, monkeypatch, capsys
+):
+    archive = backup(tmp_path)
+    destination, manifest = outputs(tmp_path)
+    mkdir, check = os.mkdir, c11_extract._check_descriptor_limit
+
+    def mkdir_then_terminated(path, *args, **kwargs):
+        mkdir(path, *args, **kwargs)
+        if kwargs.get("dir_fd") is None and Path(path) == destination:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    def checked_then_patched(depth):
+        # After the platform check, which looks os.mkdir up in os.supports_dir_fd.
+        check(depth)
+        monkeypatch.setattr(c11_extract.os, "mkdir", mkdir_then_terminated)
+
+    monkeypatch.setattr(c11_extract, "_check_descriptor_limit", checked_then_patched)
+    code = main(cli_arguments(archive, destination, manifest))
+    summary = json.loads(capsys.readouterr().out)
+    assert code == 128 + signal.SIGTERM and summary["error"] == "interrupted"
+    assert summary["destination_created"] and summary["destination_removed"]
+    assert not destination.exists() and not manifest.exists()
+
+
+@pytest.mark.parametrize(
+    "failure,error",
+    [
+        ("enospc", "os_error_enospc"),
+        ("interrupt", "interrupted"),
+        ("exists", "manifest_out_exists"),
+        ("replaced", "manifest_out_replaced"),
+    ],
+)
+def test_manifest_is_published_complete_or_not_at_all(tmp_path, monkeypatch, failure, error):
+    archive = backup(tmp_path)
+    destination, manifest = outputs(tmp_path)
+    write_all = c11_extract._write_all
+
+    def someone_else_links(_source, target, **_options):
+        Path(target).write_bytes(b"someone else")
+
+    def failing(fd, data):
+        if bytes(data[: len(MANIFEST_START)]) != MANIFEST_START:
+            return write_all(fd, data)
+        if failure in {"enospc", "interrupt"}:  # half of the manifest, then the failure
+            write_all(fd, data[: len(data) // 2])
+            if failure == "interrupt":
+                raise KeyboardInterrupt
+            raise OSError(errno.ENOSPC, "No space left on device")
+        write_all(fd, data)
+        if failure == "exists":  # someone else takes the name before the link
+            manifest.write_bytes(b"someone else")
+        else:  # the name is swapped for another file during the link
+            monkeypatch.setattr(c11_extract.os, "link", someone_else_links)
+
+    monkeypatch.setattr(c11_extract, "_write_all", failing)
+    summary = c11_extract.new_summary(archive, destination, manifest)
+    with pytest.raises(KeyboardInterrupt if failure == "interrupt" else ExtractionFailed):
+        extract(archive, destination, manifest, summary=summary)
+    assert summary["error"] == error
+    assert summary["phase"] == "manifest" and not summary["manifest_written"]
+    assert "manifest_sha256" not in summary
+    assert summary["destination_removed"] and not destination.exists()
+    if failure in {"exists", "replaced"}:
+        assert manifest.read_bytes() == b"someone else"  # never overwritten nor removed
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip", "manifest.json"]
+    else:
+        # Neither a truncated manifest nor the temporary file is left behind.
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip"]
+
+
+@pytest.mark.parametrize("kind", ["fifo", "directory", "device", "too_large"])
+def test_expected_manifest_must_be_a_bounded_regular_file(tmp_path, kind):
+    archive = backup(tmp_path)
+    expected = tmp_path / "expected.json"
+    if kind == "fifo":
+        os.mkfifo(expected, 0o600)  # opening it for reading would block forever
+    elif kind == "directory":
+        expected.mkdir()
+    elif kind == "device":
+        expected = Path(os.devnull)
+    else:
+        with expected.open("wb") as stream:
+            stream.truncate(c11_extract.MANIFEST_MAX_BYTES + 1)  # sparse: cheap to create
+    before = sorted(p.name for p in tmp_path.iterdir())
+    tracemalloc.start()
+    try:
+        with deadline():
+            code, details, summary = refused(tmp_path, archive, expect_manifest=expected)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    if kind == "too_large":
+        assert code == "expected_manifest_too_large"
+        assert details == {"max_bytes": c11_extract.MANIFEST_MAX_BYTES}
+    else:
+        assert code == "expected_manifest_not_regular_file"
+    assert peak < CHUNK_BYTES, peak  # the file was never read
+    assert "archive_sha256" not in summary and not summary["destination_created"]
+    assert_nothing_created(tmp_path, before)
+
+
+def test_expected_manifest_size_bound_is_inclusive_and_enforced_while_reading(
+    tmp_path, monkeypatch
+):
+    archive = backup(tmp_path)
+    reference = tmp_path / "reference.json"
+    extract(archive, tmp_path / "reference", reference)
+    size = reference.stat().st_size
+    monkeypatch.setattr(c11_extract, "MANIFEST_MAX_BYTES", size)
+    assert load_manifest(reference)[1] == reference.read_bytes()
+    monkeypatch.setattr(c11_extract, "MANIFEST_MAX_BYTES", size - 1)
+    with pytest.raises(ExtractionFailed, match="expected_manifest_too_large"):
+        load_manifest(reference)
+    # A file growing after the size check is still read with a bound.
+    for length, refused_read in ((10, False), (11, True)):
+        read, write = os.pipe()
+        try:
+            os.write(write, b"x" * length)
+            os.close(write)
+            if refused_read:
+                with pytest.raises(ExtractionFailed, match="expected_manifest_too_large"):
+                    c11_extract._read_manifest_bytes(read, 10)
+            else:
+                assert c11_extract._read_manifest_bytes(read, 10) == b"x" * length
+        finally:
+            os.close(read)
+
+
+def test_help_documents_the_exit_status(capsys):
+    with pytest.raises(SystemExit) as done:
+        main(["--help"])
+    assert done.value.code == 0
+    text = capsys.readouterr().out
+    fragments = ("Exit status:", "\n  0 ", "\n  1 ", "\n  3 ", "128+N", ".c11-extract-*.partial")
+    for fragment in fragments:
+        assert fragment in text, fragment
+
+
+def test_expected_manifest_fifo_is_never_opened_even_if_swapped_after_stat(tmp_path, monkeypatch):
+    fifo, regular = tmp_path / "expected.json", tmp_path / "regular.json"
+    os.mkfifo(fifo, 0o600)
+    regular.write_text("{}")
+    opened, real_open, real_stat = [], os.open, os.stat
+
+    def spying_open(path, *args, **kwargs):
+        opened.append(Path(path))
+        return real_open(path, *args, **kwargs)
+
+    def stat_before_the_swap(path, *args, **kwargs):
+        return real_stat(regular if Path(path) == fifo else path, *args, **kwargs)
+
+    monkeypatch.setattr(c11_extract.os, "open", spying_open)
+    with deadline(5), pytest.raises(ExtractionFailed, match="expected_manifest_not_regular_file"):
+        load_manifest(fifo)
+    assert fifo not in opened  # refused by stat, before any open
+    # Swapped for the FIFO between stat and open: the non-blocking open and fstat refuse it.
+    monkeypatch.setattr(c11_extract.os, "stat", stat_before_the_swap)
+    with deadline(5), pytest.raises(ExtractionFailed, match="expected_manifest_not_regular_file"):
+        load_manifest(fifo)
+    assert fifo in opened
+
+
+@pytest.mark.parametrize("moment", ["temporary_created", "linked"])
+def test_a_signal_during_manifest_publication_leaves_a_consistent_state(
+    tmp_path, monkeypatch, capsys, moment
+):
+    archive = backup(tmp_path)
+    destination, manifest = outputs(tmp_path)
+    render, real_open, real_link = c11_extract.render_manifest, os.open, os.link
+
+    def open_then_terminated(path, *args, **kwargs):
+        fd = real_open(path, *args, **kwargs)
+        if Path(path).name.startswith(".c11-extract-"):
+            os.kill(os.getpid(), signal.SIGTERM)
+        return fd
+
+    def link_then_terminated(source, target, **kwargs):
+        real_link(source, target, **kwargs)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    def rendered_then_patched(value):
+        # After the platform check, which looks os.open and os.link up by identity.
+        if moment == "temporary_created":
+            monkeypatch.setattr(c11_extract.os, "open", open_then_terminated)
+        else:
+            monkeypatch.setattr(c11_extract.os, "link", link_then_terminated)
+        return render(value)
+
+    monkeypatch.setattr(c11_extract, "render_manifest", rendered_then_patched)
+    code = main(cli_arguments(archive, destination, manifest))
+    summary = json.loads(capsys.readouterr().out)
+    assert code == 128 + signal.SIGTERM and summary["error"] == "interrupted"
+    assert summary["phase"] == "manifest" and summary["destination_removed"]
+    if moment == "linked":
+        # The handler runs once the manifest is in place and recorded as written.
+        assert summary["manifest_written"] and json.loads(manifest.read_text())["files"]
+        assert summary["manifest_sha256"] == sha256(manifest.read_bytes()).hexdigest()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip", "manifest.json"]
+    else:
+        assert not summary["manifest_written"]
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["backup.zip"]  # no temporary file
