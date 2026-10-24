@@ -1,0 +1,660 @@
+{
+  "timestamp_utc": "2026-10-24T11:42:14.462367+00:00",
+  "scope": "synthetic_volume_benchmark",
+  "production_data_used": false,
+  "real_backup_read": false,
+  "status": "passed",
+  "environment": {
+    "python": "3.12.3",
+    "sqlite": "3.45.1",
+    "asyncpg": "0.32.0",
+    "sqlalchemy": "2.1.6",
+    "ppbase_version": "0.3.2",
+    "ppbase_commit": "c6821aa71a79c0c3d86e2757e7424b45e84016dc",
+    "buma_commit": "bf00a14ca753c752ee9c32a319a811e2a4dc963f",
+    "buma_worktree_clean": true,
+    "pocketbase": "pocketbase version 0.22.27",
+    "docker": "29.9.1",
+    "machine": {
+      "kernel": "6.8.0-147-generic",
+      "cpu_model": "AMD EPYC Processor (with IBPB)",
+      "cpu_count": 4,
+      "memory_total_kib": 8131776
+    },
+    "concurrent_load_at_start": {
+      "loadavg_1_5_15": [
+        2.29,
+        2.44,
+        2.31
+      ],
+      "other_running_containers": 1
+    }
+  },
+  "container": {
+    "image": "postgres:16-alpine",
+    "memory": {
+      "limit": "2g",
+      "memory_max_bytes": 2147483648,
+      "cgroup_memory_peak_bytes_including_page_cache": 2149253120,
+      "sampled_max_current_bytes": 2148716544,
+      "sampled_max_anon_bytes": 80392192,
+      "sampled_max_file_bytes": 2069299200,
+      "sampled_max_shmem_bytes": 148406272,
+      "sampled_max_anon_plus_shmem_bytes": 227368960,
+      "events": {
+        "max": 4018,
+        "oom": 0,
+        "oom_kill": 0
+      },
+      "interpretation": "memory.peak and memory.current include the reclaimable page cache: cgroup 'file' (which also counts shmem). The memory that cannot be reclaimed without swap is anon + shmem (PostgreSQL shared_buffers is shmem). memory.events 'max' counts reclaims at the limit; 'oom' and 'oom_kill' must stay 0."
+    },
+    "cpus": "2"
+  },
+  "fixture_baseline_anomalies": 0,
+  "negative_dataset": {
+    "scale": 0.002,
+    "minimum_rows_per_table": 5,
+    "synthetic_rows_added": 2635,
+    "records": 2644,
+    "seconds": 0.16,
+    "data_db_bytes": 2109440
+  },
+  "dataset": {
+    "source": "PocketBase-built fixture (default profile) completed in SQLite",
+    "profile": "public per-collection counts, docs/c11-master-initial-diagnostic.json",
+    "excluded_collections_d0019": [
+      "buma_customer",
+      "buma_pilotage_ticket",
+      "buma_wallet"
+    ],
+    "scale": 1.0,
+    "orphan_every": 997,
+    "missing_file_every": 1999,
+    "synthetic_rows_added": 1182397,
+    "records": 1182406,
+    "seconds": 70.18,
+    "data_db_bytes": 521601024,
+    "diagnostic": {
+      "rows": 1182406,
+      "relations_checked": 7527497,
+      "anomalies": {
+        "dangling_references": 11154,
+        "missing_file_references": 176,
+        "equal_to_generated_counts": true
+      },
+      "dangling_references": 11154,
+      "dangling_fields": 135,
+      "missing_file_references": 176,
+      "files_in_manifest": 3,
+      "storage_mode": "manifest",
+      "file_bytes_copied": false,
+      "warnings": [
+        {
+          "code": "jsonb_key_order_normalized",
+          "collection": "users",
+          "field": "more",
+          "affected_rows": 15
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "users",
+          "field": "more",
+          "affected_rows": 5
+        },
+        {
+          "code": "jsonb_key_order_normalized",
+          "collection": "buma_apps_roles",
+          "field": "info",
+          "affected_rows": 15
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "buma_apps_roles",
+          "field": "info",
+          "affected_rows": 3
+        },
+        {
+          "code": "jsonb_key_order_normalized",
+          "collection": "buma_article",
+          "field": "details",
+          "affected_rows": 36
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "buma_article",
+          "field": "details",
+          "affected_rows": 8
+        },
+        {
+          "code": "jsonb_key_order_normalized",
+          "collection": "buma_article",
+          "field": "specification",
+          "affected_rows": 36
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "buma_article",
+          "field": "specification",
+          "affected_rows": 7
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "buma_config",
+          "field": "posConfig",
+          "affected_rows": 1
+        },
+        {
+          "code": "jsonb_key_order_normalized",
+          "collection": "roles",
+          "field": "permission",
+          "affected_rows": 5
+        },
+        {
+          "code": "sql_null_json_stored_as_jsonb_null",
+          "collection": "roles",
+          "field": "permission",
+          "affected_rows": 1
+        }
+      ]
+    }
+  },
+  "target": {
+    "migrations_applied": 10,
+    "seed_rows_removed": 24,
+    "server_version": "16.15",
+    "shared_buffers": "128MB",
+    "work_mem": "4MB",
+    "maintenance_work_mem": "64MB",
+    "max_wal_size": "1GB",
+    "synchronous_commit": "on"
+  },
+  "memory_phases": {
+    "prepare": {
+      "max_current_bytes": 103178240,
+      "max_anon_bytes": 17903616,
+      "max_file_bytes": 77832192,
+      "max_shmem_bytes": 22257664,
+      "max_anon_plus_shmem_bytes": 39333888,
+      "max_host_loadavg_1min": 3.11
+    },
+    "negative_load_cases": {
+      "max_current_bytes": 169410560,
+      "max_anon_bytes": 30584832,
+      "max_file_bytes": 131813376,
+      "max_shmem_bytes": 35979264,
+      "max_anon_plus_shmem_bytes": 65228800,
+      "max_host_loadavg_1min": 5.04
+    },
+    "diagnosis": {
+      "max_current_bytes": 147247104,
+      "max_anon_bytes": 5726208,
+      "max_file_bytes": 131837952,
+      "max_shmem_bytes": 35979264,
+      "max_anon_plus_shmem_bytes": 41705472,
+      "max_host_loadavg_1min": 5.04
+    },
+    "failure_injection": {
+      "max_current_bytes": 1491619840,
+      "max_anon_bytes": 15167488,
+      "max_file_bytes": 1430921216,
+      "max_shmem_bytes": 146948096,
+      "max_anon_plus_shmem_bytes": 162111488,
+      "max_host_loadavg_1min": 5.23
+    },
+    "concurrent_imports": {
+      "max_current_bytes": 2148716544,
+      "max_anon_bytes": 80392192,
+      "max_file_bytes": 2069299200,
+      "max_shmem_bytes": 148406272,
+      "max_anon_plus_shmem_bytes": 227368960,
+      "max_host_loadavg_1min": 4.74
+    }
+  },
+  "negative_load_cases": {
+    "bundle_rows": 2644,
+    "bundle_anomalies_in_diagnosis": {
+      "dangling_references": 174,
+      "missing_file_references": 18,
+      "equal_to_generated_counts": true
+    },
+    "cases": [
+      {
+        "name": "rowid_archive_exists",
+        "code": "rowid_archive_exists",
+        "details": {},
+        "expected_code_and_details": true,
+        "seconds": 0.923,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "unexpected_deferred_constraint_trigger",
+        "code": "unexpected_target_trigger",
+        "details": {
+          "kind": "table",
+          "collection": "buma_supplier",
+          "trigger": "c11_negative_deferred"
+        },
+        "expected_code_and_details": true,
+        "seconds": 1.495,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "unexpected_event_trigger",
+        "code": "unexpected_target_trigger",
+        "details": {
+          "kind": "event",
+          "triggers": 1
+        },
+        "expected_code_and_details": true,
+        "seconds": 2.553,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "target_constraint_violation",
+        "code": "target_constraint_violation",
+        "details": {
+          "collection": "buma_supplier",
+          "sqlstate": "23514",
+          "constraint": "c11_negative_check"
+        },
+        "expected_code_and_details": true,
+        "seconds": 3.621,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "deferred_constraint_violation",
+        "code": "target_constraint_violation",
+        "details": {
+          "collection": "buma_supplier",
+          "sqlstate": "23505",
+          "constraint": "c11_negative_deferred_unique"
+        },
+        "expected_code_and_details": true,
+        "seconds": 4.479,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "value_exceeds_target_length_at_load",
+        "code": "value_exceeds_target_length",
+        "details": {
+          "collection": "buma_agent",
+          "field": "name"
+        },
+        "expected_code_and_details": true,
+        "seconds": 1.928,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "target_readback_mismatch",
+        "code": "target_readback_mismatch",
+        "details": {
+          "collection": "users",
+          "field": "updated"
+        },
+        "expected_code_and_details": true,
+        "seconds": 2.073,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "target_changed_after_readback",
+        "code": "target_changed_after_readback",
+        "details": {
+          "collection": "buma_agent"
+        },
+        "expected_code_and_details": true,
+        "seconds": 5.0,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "target_row_count_mismatch",
+        "code": "target_row_count_mismatch",
+        "details": {
+          "collection": "buma_agent"
+        },
+        "expected_code_and_details": true,
+        "seconds": 5.374,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "definitions_do_not_match_diagnosis",
+        "code": "definitions_do_not_match_diagnosis",
+        "details": {},
+        "expected_code_and_details": true,
+        "seconds": 0.03,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "anomaly_conservation_mismatch",
+        "code": "anomaly_conservation_mismatch",
+        "details": {},
+        "expected_code_and_details": true,
+        "seconds": 7.111,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "source_row_count_mismatch",
+        "code": "source_row_count_mismatch",
+        "details": {
+          "collection": "buma_agent"
+        },
+        "expected_code_and_details": true,
+        "seconds": 13.168,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "injected_import_failure",
+        "code": "injected_import_failure",
+        "details": {},
+        "expected_code_and_details": true,
+        "seconds": 5.316,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      }
+    ],
+    "all_refused_with_expected_code_and_no_effect": true,
+    "target_signature_restored": {
+      "objects": 1831,
+      "sha256": "0ade2fe770a5202f43c17a8370f76ed128d08de216da7bc1c3ee253944984ebd",
+      "identical_before_and_after": true
+    }
+  },
+  "diagnosis": {
+    "seconds": 123.52,
+    "peak_rss_kib": 106892,
+    "ready": true
+  },
+  "failure_injection": {
+    "fail_after_rows": 591203,
+    "outcome": "injected_import_failure",
+    "seconds_until_rollback_complete": 128.015,
+    "peak_rss_kib": 105232,
+    "staging_removed": true,
+    "target_tables_empty": true,
+    "rowid_archive_absent": true,
+    "advisory_locks": 0,
+    "idle_in_transaction_sessions": 0,
+    "no_effect_verified": true
+  },
+  "concurrent_imports": {
+    "outcomes": [
+      "1182406",
+      "target_not_empty"
+    ],
+    "only_one_succeeded": true,
+    "loser_outcome": "target_not_empty",
+    "loser_staging_removed": true,
+    "winner_staging_kept_for_serving": true
+  },
+  "import": {
+    "rows": 1182406,
+    "archive_rows": 1182406,
+    "storage_mode": "manifest",
+    "file_bytes_copied": false,
+    "batch_size": 5000,
+    "timings_seconds": {
+      "checks": 1.118,
+      "copy_and_readback": 213.321,
+      "copy_and_readback_breakdown": {
+        "copy": 101.367,
+        "prepare_in_worker": 108.231,
+        "readback_and_compare": 101.155,
+        "waiting_for_worker": 10.665
+      },
+      "final_check": 80.441,
+      "conservation": 24.566,
+      "total": 321.066,
+      "importer_cpu": 218.017,
+      "staging": 3.618,
+      "commit": 0.008
+    },
+    "child_wall_seconds": 324.841,
+    "rows_per_second": 3682.8,
+    "importer_peak_rss_kib": 113968,
+    "statements": {
+      "other": 157,
+      "copy": 566,
+      "readback": 566,
+      "final_check": 73,
+      "conservation": 53
+    },
+    "statements_total": 1415,
+    "previous_per_record_statements": 3547218,
+    "typed_batch_readback": true,
+    "final_typed_reread": true,
+    "fingerprints_match": true,
+    "server_row_hashes_unchanged_since_readback": true,
+    "conservation_matches_diagnostic": true,
+    "recount_anomalies": {
+      "dangling_references": 11154,
+      "missing_file_references": 176,
+      "equal_to_generated_counts": true
+    },
+    "deferred_constraints_run_before_final_reread": true,
+    "rows_equal_diagnosed_total": true,
+    "triggers_unchanged_during_load": true,
+    "json_normalizations_stated": [
+      {
+        "code": "jsonb_key_order_normalized",
+        "collection": "users",
+        "field": "more",
+        "affected_rows": 15
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "users",
+        "field": "more",
+        "affected_rows": 5
+      },
+      {
+        "code": "jsonb_key_order_normalized",
+        "collection": "buma_apps_roles",
+        "field": "info",
+        "affected_rows": 15
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_apps_roles",
+        "field": "info",
+        "affected_rows": 3
+      },
+      {
+        "code": "jsonb_key_order_normalized",
+        "collection": "buma_article",
+        "field": "details",
+        "affected_rows": 36
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_article",
+        "field": "details",
+        "affected_rows": 8
+      },
+      {
+        "code": "jsonb_key_order_normalized",
+        "collection": "buma_article",
+        "field": "specification",
+        "affected_rows": 36
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_article",
+        "field": "specification",
+        "affected_rows": 7
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_config",
+        "field": "posConfig",
+        "affected_rows": 1
+      },
+      {
+        "code": "jsonb_key_order_normalized",
+        "collection": "roles",
+        "field": "permission",
+        "affected_rows": 5
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "roles",
+        "field": "permission",
+        "affected_rows": 1
+      }
+    ],
+    "preflight_columns_checked": 796,
+    "preflight_blockers": [],
+    "preflight_warnings": [
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_customer",
+        "field": "pdv"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_pilotage_ticket",
+        "field": "tag"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_wallet",
+        "field": "managers"
+      }
+    ],
+    "target_triggers": [
+      "buma_article.buma_sqlite_rowid",
+      "users.buma_sqlite_rowid"
+    ],
+    "largest_tables": [
+      {
+        "name": "buma_transaction",
+        "rows": 336240,
+        "copy_batches": 68,
+        "seconds": 75.26
+      },
+      {
+        "name": "buma_caisse_transactions",
+        "rows": 317066,
+        "copy_batches": 64,
+        "seconds": 75.018
+      },
+      {
+        "name": "buma_return",
+        "rows": 214784,
+        "copy_batches": 43,
+        "seconds": 24.752
+      },
+      {
+        "name": "buma_sale",
+        "rows": 115326,
+        "copy_batches": 24,
+        "seconds": 15.438
+      },
+      {
+        "name": "buma_customer_solder_history",
+        "rows": 85267,
+        "copy_batches": 18,
+        "seconds": 8.716
+      },
+      {
+        "name": "buma_sim_balance_activity",
+        "rows": 80461,
+        "copy_batches": 17,
+        "seconds": 8.082
+      },
+      {
+        "name": "buma_wallet_transactions",
+        "rows": 10827,
+        "copy_batches": 3,
+        "seconds": 1.899
+      },
+      {
+        "name": "buma_pdv",
+        "rows": 5221,
+        "copy_batches": 2,
+        "seconds": 0.961
+      }
+    ]
+  },
+  "verification_after_commit": {
+    "row_counts_equal_diagnostic": true,
+    "rowid_matches": {
+      "users": 20,
+      "buma_article": 44,
+      "archive_rows": 1182406
+    },
+    "advisory_locks": 0,
+    "idle_in_transaction_sessions": 0
+  },
+  "concurrent_load_at_end": {
+    "loadavg_1_5_15": [
+      3.29,
+      3.63,
+      3.19
+    ]
+  },
+  "benchmark_wall_seconds": 771.0,
+  "cleanup": "owned_container_and_temporary_files_removed"
+}
