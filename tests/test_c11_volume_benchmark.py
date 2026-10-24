@@ -105,13 +105,111 @@ def test_unbounded_relations_are_not_generated_in_this_wave():
         benchmark.field_generator(field, "t", {}, {"x": {"name": "x"}})
 
 
-def test_container_memory_reads_the_cgroup_files(tmp_path):
+def test_container_memory_separates_page_cache_from_unreclaimable_memory(tmp_path):
     monitor = benchmark.ContainerMemory("absent")
     assert monitor.root is None and monitor.finish() == {"cgroup": "unavailable"}
     (tmp_path / "memory.current").write_text("4096\n")
-    (tmp_path / "memory.stat").write_text("anon 1024\nfile 3072\n")
+    (tmp_path / "memory.stat").write_text("anon 1024\nfile 3072\nshmem 512\nactive_file 9\n")
     (tmp_path / "memory.peak").write_text("8192\n")
     (tmp_path / "memory.max").write_text("2147483648\n")
+    (tmp_path / "memory.events").write_text("low 0\nhigh 0\nmax 12\noom 0\noom_kill 0\n")
+    monitor = benchmark.ContainerMemory("absent")
     monitor.root = tmp_path
-    assert monitor.read() == (4096, 1024)
-    assert monitor.finish()["cgroup_memory_peak_bytes"] == 8192
+    values = monitor.read()
+    assert values == {
+        "anon": 1024,
+        "file": 3072,
+        "shmem": 512,
+        "current": 4096,
+        "anon_plus_shmem": 1536,
+    }
+    monitor.samples = dict(values)
+    result = monitor.finish()
+    assert result["cgroup_memory_peak_bytes_including_page_cache"] == 8192
+    assert result["sampled_max_anon_plus_shmem_bytes"] == 1536
+    assert result["events"] == {"max": 12, "oom": 0, "oom_kill": 0}
+    assert "page cache" in result["interpretation"]
+    assert set(monitor.take_phase()) == {
+        *(f"max_{key}_bytes" for key in benchmark.MEMORY_KEYS),
+        "max_host_loadavg_1min",
+    }
+
+
+def test_negative_bundle_has_rows_in_every_generated_table():
+    counts = benchmark.negative_counts()
+    assert set(counts) == set(benchmark.profile_counts(1.0))
+    assert min(counts.values()) == benchmark.NEGATIVE_MINIMUM_ROWS
+    assert sum(counts.values()) < 5000
+
+
+def test_negative_cases_alter_one_owned_object_each_and_undo_it():
+    definitions = [
+        {"name": "users", "type": "auth"},
+        {"name": "early", "type": "base"},
+        {"name": benchmark.NEGATIVE_TABLE, "type": "base"},
+        {"name": "late", "type": "base"},
+        {"name": "a_view", "type": "view"},
+    ]
+    column = importer.TargetColumn
+    spec = {
+        "users": {"id": column("id", "character varying", False, 15, True, False)},
+        "early": {
+            "id": column("id", "character varying", False, 15, True, False),
+            "updated": column("updated", "timestamp with time zone", False, None, True, True),
+        },
+        benchmark.NEGATIVE_TABLE: {
+            "id": column("id", "character varying", False, 15, True, False),
+            benchmark.NEGATIVE_COLUMN: column("firstname", "text", False, None, True, True),
+        },
+        "late": {"id": column("id", "character varying", False, 15, True, False)},
+    }
+    diagnostic = {
+        "rows": 20,
+        "collections": [{"name": d["name"], "rows": 5} for d in definitions[:4]],
+        "preserved_source_anomalies": {
+            "dangling_relations": {
+                "references": 2,
+                "records": 2,
+                "fields": [{"collection": "late", "field": "x", "references": 2}],
+            }
+        },
+    }
+    definitions[2]["schema"] = [{"name": "firstname", "type": "text"}]
+    definitions[3]["schema"] = [{"name": "note", "type": "text"}]
+    spec["late"]["note"] = column("note", "text", False, None, True, True)
+    for d in definitions[:2] + definitions[4:]:
+        d["schema"] = []
+    used_by_views = {(benchmark.NEGATIVE_TABLE, "firstname")}
+    narrow = benchmark.narrowable_text_field(definitions, spec, diagnostic, used_by_views)
+    assert narrow == ("late", "note")
+    cases = benchmark.negative_cases(definitions, spec, diagnostic, narrow, "''::text")
+    names = [case["name"] for case in cases]
+    assert names == [
+        "rowid_archive_exists",
+        "target_constraint_violation",
+        "value_exceeds_target_length_at_load",
+        "target_readback_mismatch",
+        "target_changed_after_readback",
+        "target_row_count_mismatch",
+        "anomaly_conservation_mismatch",
+        "source_row_count_mismatch",
+        "injected_import_failure",
+    ]
+    by_name = {case["name"]: case for case in cases}
+    assert by_name["target_changed_after_readback"]["details"] == {"collection": "early"}
+    assert 'AFTER INSERT ON "late"' in by_name["target_row_count_mismatch"]["setup"][1]
+    # Every created object is dropped by the same case; the diagnosis is a copy.
+    for case in cases:
+        created = [s.split()[2] for s in case.get("setup", []) if s.startswith("CREATE")]
+        dropped = " ".join(case.get("teardown", []))
+        assert all(name.split("(")[0] in dropped for name in created), case["name"]
+    assert diagnostic["preserved_source_anomalies"]["dangling_relations"]["references"] == 2
+    tampered = by_name["anomaly_conservation_mismatch"]["diagnostic"]
+    assert tampered["preserved_source_anomalies"]["dangling_relations"]["references"] == 1
+    assert by_name["injected_import_failure"]["fail_after"] == 10
+    narrowing = by_name["value_exceeds_target_length_at_load"]
+    assert narrowing["details"] == {"collection": "late", "field": "note"}
+    assert narrowing["teardown"] == [
+        'ALTER TABLE "late" ALTER COLUMN "note" TYPE text',
+        'ALTER TABLE "late" ALTER COLUMN "note" SET DEFAULT \'\'::text',
+    ]
