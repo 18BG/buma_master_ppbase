@@ -1413,15 +1413,28 @@ async def remove_fresh_seeds(conn, definitions) -> None:
             await conn.execute(text(f"DELETE FROM {quote(c['name'])}"))
 
 
-async def ppbase_server(root: Path, url: str, published: Path):
-    port = free_port()
-    env = {
+def ppbase_server_environment() -> dict[str, str]:
+    """Environment of the isolated PPBase server.
+
+    This project first (its app/ and scripts/), then the caller's PYTHONPATH,
+    which selects the PPBase under test (e.g. a PPBase worktree), as
+    scripts/c11_idempotency_runtime.server_environment does. Replacing the
+    caller's PYTHONPATH would make the server load the venv's editable PPBase
+    while this process and its report name another one.
+    """
+    paths = [str(PROJECT), *filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep))]
+    return {
         **os.environ,
-        "PYTHONPATH": str(PROJECT),
+        "PYTHONPATH": os.pathsep.join(dict.fromkeys(paths)),
         "BUMA_MASTER_ENABLE_INTERNAL_JOBS": "false",
         "PPBASE_AUTO_MIGRATE": "false",
         "PPBASE_STORAGE_BACKEND": "local",
     }
+
+
+async def ppbase_server(root: Path, url: str, published: Path):
+    port = free_port()
+    env = ppbase_server_environment()
     log = (root / "ppbase.log").open("w")
     process = subprocess.Popen(
         [
