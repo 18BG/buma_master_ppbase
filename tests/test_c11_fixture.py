@@ -682,7 +682,8 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
     )
     ppbase = _answers(
         {
-            "declared": _answer(500, _error(500, key="status")),
+            # An unhandled error: plain text, its Content-Type part of the divergence.
+            "declared": _answer(500, {"non_json_bytes_sha256": "0"}, None, "text/plain"),
             "classed": _answer(404, _error(404, key="status")),
             "changed": _answer(200, {"name": "b"}),
         }
@@ -690,6 +691,7 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
     result = rehearsal.compare_servers(pocketbase, ppbase, "real_shape", {})
     entry = result["declared_divergences"]["declared"]
     assert (entry["state"], entry["ppbase_status"], entry["client_impact"]) == ("present", 500, "i")
+    assert entry["content_types"] == {"pocketbase": "application/json", "ppbase": "text/plain"}
     assert result["divergence_classes"]["error_envelope_code_vs_status"]["probes"] == ["classed"]
     assert result["divergence_classes"]["error_envelope_code_vs_status"]["state"] == "open"
     assert result["unexpected_differences"] == [{"probe": "changed", "differences": ["/name"]}]

@@ -392,9 +392,10 @@ UNDECLARED_PERMISSION_KEY = (
     "error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false"
 )
 UNDECLARED_PERMISSION_IMPACT = (
-    "HTTP 500 instead of 200 or 404 for any record session, admins included, whose role "
-    "and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer "
-    "(customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys "
+    "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of "
+    "200 or 404 for any record session, admins included, whose role and the buma_apps_roles "
+    "rows do not declare the key: listing or viewing buma_customer (customer.read) and "
+    "buma_wallet (wallet.read, wallet.list) fails; with the keys "
     "declared, the same rules answer as PocketBase (see declared_permission_keys). "
     "Production exposure depends on its roles.permission and buma_apps_roles content "
     "(aggregates to measure on the real backup). Cutover blocker until fixed in "
@@ -1079,7 +1080,13 @@ def compare_servers(pocketbase: dict, ppbase: dict, profile: str, field_types: d
                     "paths": unclassified if "paths" in declared else len(found),
                 }
                 if declared["pocketbase"] != declared["ppbase"]:
-                    named = []  # an error body instead of the answer: nothing to classify
+                    # Another answer altogether (an error instead of the
+                    # resource): its body and Content-Type are the divergence.
+                    named, content_class, content_problem = [], None, None
+                    declared_found[label]["content_types"] = {
+                        "pocketbase": reference["content_type"],
+                        "ppbase": mine["content_type"],
+                    }
             else:
                 if declared:
                     declared_found[label] = {"state": "resolved" if state else "unexplained"}
