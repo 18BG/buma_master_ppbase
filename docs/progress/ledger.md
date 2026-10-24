@@ -2744,3 +2744,80 @@ non régénéré. Aucune action sur la production.
 Décision : phase 0 réussie, aucun écart sur le code, la source ou l'export.
 Vague 2 lancée : WS-A, WS-B (hors tableaux), WS-C, WS-D et WS-F en parallèle,
 chacun relu par un agent indépendant avant intégration. C11 reste ouvert.
+
+## Session serveur — vague 2 et début de vague 3, état intermédiaire — 2026-10-24 14:05
+
+Entrée écrite en cours de vague pour permettre une reprise propre ; elle sera
+complétée par l'entrée de fin de session. Orchestration : un workflow par
+chantier (auteur dans son worktree, relecteurs indépendants qui reçoivent la
+mission et le diff mais pas les conclusions de l'auteur, au plus 2 ou 3 tours de
+correction) ; intégration par l'orchestrateur dans `c11/integration` après suite
+complète, Ruff, `c11_idempotency_runtime` et `c11_rehearsal`, puis avance rapide
+de `features/auth` et push.
+
+### Interruption de 06:27 à 10:37
+
+`apt-daily-upgrade.timer` (06:26:29) a lancé `unattended-upgrade`, qui a
+installé un correctif `zlib1g` ; le hook `needrestart` (`DPkg::Post-Invoke`,
+mode `-m u`) a redémarré les services liés à l'ancienne zlib, dont
+`rac-agent.service`, hôte de la session (journal systemd,
+`/var/log/apt/history.log`, `unattended-upgrades.log`). Le service est revenu
+seul (`Restart=always`), mais la conversation n'a repris qu'au retour de
+l'utilisateur. Environ 4 h 10 perdues ; workflows repris depuis leur cache
+(`resumeFromRunId`, script remis à l'identique), conteneur orphelin d'un banc
+supprimé, worktrees et commits intacts, `data.db` intact. Parade proposée à
+l'utilisateur, non appliquée (le plan interdit de toucher aux services) :
+exclure `rac-agent` de `needrestart` ou suspendre `apt-daily-upgrade.timer`
+pendant les longues sessions.
+
+Incident : l'auteur WS-A a ouvert la copie réelle sans `immutable` (04:04:59) ;
+`data.db-shm` et `data.db-wal` (vide) créés, `data.db` inchangé ; annexes
+retirées par l'orchestrateur, empreinte revérifiée.
+
+### Intégré et poussé
+
+- WS-D (`5fdb9b4`) : référence 0.22.34 (`docs/c11-pb-0.22.34-reference-report.json`)
+  et profil de fixture `real_shape` ; D-0024.
+- WS-B2 (`6c979b6`) : `scripts/c11_extract.py`, 113 tests ; D-0028.
+- WS-F (`ecfd0b6`) : brouillon `docs/c11-cutover-runbook.md` (durées à mesurer).
+- WS-C (`e6bf546`) : `scripts/c11_auth_import.py`, `scripts/c11_auth_runtime.py`,
+  contrat `docs/contracts/c11-auth-import.md`, rapport
+  `docs/c11-auth-runtime-report.json` ; jetons 0.22.34 d'avant import acceptés.
+- Décisions D-0024 et D-0028 (`0203332`).
+- PPBase : `c11/ws-a` fusionné dans `fix/d0019-relation-maxselect` (`526397a`),
+  poussé sur `ssakone/ppbase` ; suite PPBase 927 passés, 71 sautés, 6 xfail
+  stricts, exactement les 10 échecs antérieurs.
+
+Chaque intégration a passé : suite BUMA (209 puis 322 puis 379 tests avec les
+binaires PocketBase), Ruff, format, `git diff --check`, `c11_idempotency_runtime`,
+`c11_rehearsal` 0.22.27 et, pour WS-C, `c11_auth_runtime` 0.22.34 ; contrôle de
+confidentialité des rapports publics (0 JWT, bcrypt, secret, email ou ID réel).
+
+### En cours ou en attente
+
+- WS-E (`c11/ws-e`, `eefe0fb`) approuvé : migration `1789236850`, graine C5,
+  `prepared()`, vérificateurs, bancs. Fusion bloquée tant que
+  `/root/projects/ppbase` n'est pas sur le PPBase corrigé (BUMA importe
+  désormais `ppbase.models.field_multiplicity`), ce qui attend la fin de WS-B
+  dont les bancs tournent sur l'ancien PPBase. Projet D-0025 prêt.
+- WS-B (`c11/ws-b`) : importeur (anomalies conservées, types cibles, COPY
+  vérifié, mode manifeste) en dernier tour de correction.
+- WS-A2 (`c11/ws-a2`, PPBase) : realtime après refresh, masquage des secrets
+  importés, `hide_parameters`, jetons à usage, statuts et messages d'auth.
+- WS-A3 (`c11/ws-a3`, PPBase) : **faille de sécurité préexistante** relevée par
+  WS-A : `users.createRule` et `updateRule` commencent par
+  `@collection.users.id = @request.auth.id` ; PocketBase 0.22.34 applique un
+  multi-match (fausse dès deux comptes), PPBase un « au moins une ligne », si
+  bien que tout utilisateur connecté peut créer et modifier des comptes, rôle
+  compris. Bloquant pour toute bascule tant que non corrigé.
+- Puis : WS-B3 (tableaux, porte 0.22.34, import des comptes dans la même
+  transaction, extraction unique), WS-G (répétition réelle), WS-D2 (répétition
+  synthétique complète), WS-F2 (runbook final), documentation finale.
+
+Écart à trancher par l'utilisateur, consigné : après un login ou un refresh
+PPBase, le jeton porte `type=auth` au lieu de `authRecord` ; avec le SDK JS 0.21,
+`isAuthRecord` devient faux (SDK Dart et `isValid` inchangés). Aucun usage trouvé
+dans les projets présents sur le serveur ; les clients BUMA Master ne sont pas
+sur le serveur.
+
+C11 reste ouvert ; aucune action sur la production.
