@@ -527,3 +527,103 @@ des transactions pour trier dessus, plus lourde et susceptible de ralentir les
 Régression : `tests/test_idempotency.py::test_d0023_lookup_keeps_created_order_and_source_precedence`
 fige ce tri et la précédence source `system_id`, ancienne clé, puis
 `mobile_message_id`.
+
+## D-0024 — C11 : PocketBase 0.22.34 accepté comme version source du backup
+
+Constat du 2026-10-24 (session serveur, chantier WS-D), sur le dépôt officiel
+PocketBase (tags `v0.22.27` = `b83f924c`, `v0.22.34` = `ea732074`) et sur les
+binaires officiels linux amd64, vérifiés contre le `checksums.txt` de chaque
+release (binaires `ca223268…` et `f164a633…`). Preuves :
+`scripts/c11_version_reference.py` et `docs/c11-pb-0.22.34-reference-report.json`
+(rapport public agrégé, rejouable par la commande qu'il contient).
+
+- Code : `git diff --stat v0.22.27 v0.22.34` touche 52 fichiers, dont 41 sous
+  `ui/`. Hors interface, seuls changent `daos/view.go` (extraction des champs
+  d'une vue : les commentaires SQL sont retirés plus tôt, l.465-467 ; les
+  42 vues BUMA, dont 4 commentées, donnent les champs de l'export avec les
+  deux binaires), `plugins/jsvm` (chemin de `require()`), `tools/logger`
+  (`logs.db`, jamais importé), `tools/auth/oidc.go` (OAuth2, `_externalAuths`
+  vide), les dépendances (`go.mod`) et le workflow de release. Les 28 chemins
+  qui décident du contenu de `data.db` et de `storage/` (models, models/schema,
+  models/settings, tools/types, tools/security, tools/filesystem, forms,
+  migrations, core, apis, tokens et les daos record, table et settings) ont le
+  même objet Git dans les deux tags. Les deux binaires embarquent SQLite 3.46.0.
+- Binaires : construites par chacun des deux binaires, les fixtures `default` et
+  `real_shape` ont les mêmes `sqlite_master`, colonnes, valeurs, classes SQLite,
+  rowids et objets `storage/` (chemins, tailles, SHA-256). Seules diffèrent les
+  valeurs aléatoires par construction, au même format : bcrypt `$2a$12$`,
+  tokenKey et secrets alphanumériques de 50 caractères, IDs générés, suffixe de
+  10 caractères des noms de fichiers, horodatages, IDs des champs de vues.
+  L'importeur de `fb381ac` lit les deux identiquement.
+- Backup réel (copie privée lue en `mode=ro&immutable=1`, agrégats seulement,
+  empreinte inchangée) : en-tête écrit par SQLite 3.46.0, aucune différence de
+  déclaration de colonne, formats identiques à la fixture 0.22.34, paramètres en
+  JSON clair (264 chemins de même structure), 14 migrations système identiques.
+
+Décision : `0.22.34` est ajoutée au registre des versions validées de
+`scripts/c11_import.py`, avec ce rapport comme preuve relue à l'exécution
+(`status` passed et `conclusion.importer_can_accept_0_22_34`), sans changement
+du lecteur ; `0.22.27` reste validée pour la fixture historique. La version
+reste fournie avec le backup, jamais devinée.
+
+Formes réelles relevées par la même lecture, conservées telles quelles comme
+l'historique de D-0021 (aucune normalisation) : 26 IDs de records hors du format
+généré (18 de 3 à 9 minuscules dans `buma_apps_roles`, 8 de 15 caractères avec
+majuscules et `_`), 436 relations vers ces IDs, 51 145 valeurs de select hors
+des valeurs déclarées sur 4 champs (dont 49 794 pour
+`buma_customer_solder_history.type` et 1 342 pour `buma_sale.kind`), 10 objets
+`storage/` de records supprimés, 8 objets sous un ID personnalisé, 4 JSON texte
+`null` à côté de 100 `NULL` SQL, 23 comptes auth sans email. Les tableaux des
+relations multiples réelles n'ont que 0 ou 1 élément (5 505 et 336).
+
+Impact client : aucun (aucune route, réponse ni donnée modifiée). Limites : seuls
+les binaires officiels linux amd64 sont comparés ; le build exact de la
+production n'est pas connu (l'en-tête SQLite est cohérent avec 0.22.34 sans
+distinguer 0.22.27) ; les comportements HTTP des deux versions ne sont pas
+comparés. Régressions : `tests/test_c11_fixture.py` (34 tests, dont 30 exigent
+les binaires désignés par `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`).
+
+## D-0028 — C11 : extraction vérifiée du ZIP complet, plus stricte que PocketBase
+
+Le ZIP réel (1 555 849 147 octets, 1 290 membres, SHA-256 `541ca900…1295`)
+n'est pas sur le serveur ; l'extraction faite sur le Mac le 2026-09-28 était
+ponctuelle et non versionnée. Pour la répétition avec fichiers prévue devant
+l'utilisateur et pour la bascule, `scripts/c11_extract.py` (chantier WS-B2) est
+l'unique chemin d'extraction du mode complet :
+
+```sh
+.venv/bin/python -m scripts.c11_extract --archive X.zip --destination NOUVEAU \
+  --manifest-out NOUVEAU [--expect-manifest manifeste.json]
+```
+
+Lancé depuis la racine du dépôt, jamais depuis le dossier extrait. Inventaire
+préalable (`inspect_archive` et règles plus strictes : NUL, composants vides,
+caractères de contrôle, liens et fichiers spéciaux, chiffrement, méthodes autres
+que Stored et Deflate, conflits fichier/dossier, plus de 32 composants) ; un
+refus ne crée rien. Destination et manifeste neufs, espace libre suffisant,
+limite de descripteurs vérifiée. Extraction en flux (environ 4 Mio de mémoire
+Python), répertoires 0700 et fichiers 0600 quels que soient l'umask et les modes
+archivés, `O_EXCL` et `O_NOFOLLOW`, CRC-32 vérifié par lecture complète, taille
+et SHA-256 de chaque membre, relecture complète de l'arbre, archive inchangée du
+début à la fin. Manifeste au format exact du manifeste privé (relu et réécrit à
+l'identique octet pour octet), publié atomiquement, comparé exactement à
+`--expect-manifest`. Tout échec ou signal supprime seulement la destination créée
+par l'invocation ; codes de sortie documentés par `--help`.
+
+Écarts volontaires avec PocketBase (outil hors ligne, aucun effet client) :
+la restauration de PocketBase (v0.22.34 `tools/archive/extract.go`, identique en
+v0.40.6) ignore en silence liens et fichiers spéciaux, écrase avec `O_TRUNC` et
+le mode archivé, crée les dossiers en `os.ModePerm` ; l'outil BUMA refuse,
+n'écrase jamais, impose 0700/0600 et vérifie CRC, SHA-256, relecture et archive.
+Le format accepté est celui que produit PocketBase (v0.22.34
+`tools/archive/create.go`), contrôlé sur une vraie sauvegarde 0.22.34 de données
+synthétiques.
+
+Durées constatées sur archives synthétiques seulement : 1 290 membres et
+8,85 Go en environ 103 s (RSS 27 Mo). Le ZIP réel n'a jamais été traité sur le
+serveur. Points ouverts mineurs, sans blocage : un signal reçu pendant le
+nettoyage d'un échec ordinaire rend le code 3 sans `cleanup_error` ; `nohup`
+n'est pas respecté (lancer dans tmux ou screen) ; quelques protections sans test
+dédié (comparaison SHA-256 avant/après, `O_EXCL`, `O_NOFOLLOW`) ; l'aide omet le
+code 2. Régressions : `tests/test_c11_extract.py` (113 tests ; 20 mutants
+supprimant chacun une protection, tous détectés).
