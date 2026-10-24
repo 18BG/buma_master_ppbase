@@ -5,7 +5,8 @@ This check covers both ordinary/auth collections and translated views. The
 ``users.username`` and ``agent_users.username`` compatibility fields are
 intentionally required because the corrected PocketBase export exposes them as
 auth system fields while PPBase 0.3.x does not create the physical columns
-itself.
+itself. ``--relation-columns`` adds the physical relation column check of
+``verify_schema_baseline.verify_relation_columns`` (D-0019).
 """
 
 from __future__ import annotations
@@ -24,11 +25,22 @@ try:
     from scripts.generate_native_baseline import load_schema
     from scripts.verify_schema_baseline import (
         ALLOWED_EXTRAS,
+        RELATION_COLUMN_MODES,
         _compare_collection,
+        attach_physical,
+        read_physical,
+        verify_relation_columns,
     )
 except ImportError:  # pragma: no cover - direct script execution
     from generate_native_baseline import load_schema
-    from verify_schema_baseline import ALLOWED_EXTRAS, _compare_collection
+    from verify_schema_baseline import (
+        ALLOWED_EXTRAS,
+        RELATION_COLUMN_MODES,
+        _compare_collection,
+        attach_physical,
+        read_physical,
+        verify_relation_columns,
+    )
 
 DEFAULT_SCHEMA = Path(
     os.environ.get(
@@ -68,6 +80,7 @@ async def read_collections(database_url: str) -> list[dict[str, Any]]:
                     {"name": definition["name"]},
                 )
                 definition["physical_columns"] = list(columns.scalars())
+            attach_physical(definitions, await read_physical(connection))
             return definitions
     finally:
         await engine.dispose()
@@ -81,6 +94,8 @@ def _without_compat_fields(name: str, fields: list[dict[str, Any]]) -> list[dict
 def verify(
     expected_definitions: list[dict[str, Any]],
     actual_rows: list[dict[str, Any]],
+    *,
+    relation_columns: str | None = None,
 ) -> dict[str, Any]:
     expected = {str(item["name"]): item for item in expected_definitions}
     actual = {str(item["name"]): item for item in actual_rows if not item["system"]}
@@ -123,6 +138,11 @@ def verify(
             if target and str(target) not in known_ids:
                 relation_errors.append(f"{name}.{field.get('name')}: {target}")
 
+    columns = (
+        None
+        if relation_columns is None
+        else verify_relation_columns(expected_definitions, actual_rows, relation_columns)
+    )
     return {
         "expected": len(expected),
         "expected_base_auth": sum(item.get("type") != "view" for item in expected.values()),
@@ -138,6 +158,7 @@ def verify(
         "metadata_mismatches": mismatches,
         "relation_errors": relation_errors,
         "view_projection_errors": projection_errors,
+        "relation_columns": columns,
         "ok": not (
             missing
             or unexpected
@@ -145,6 +166,7 @@ def verify(
             or missing_compat_fields
             or relation_errors
             or projection_errors
+            or (columns is not None and not columns["ok"])
         ),
     }
 
@@ -153,11 +175,17 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    parser.add_argument(
+        "--relation-columns",
+        choices=RELATION_COLUMN_MODES,
+        default="migrated",
+        help="fresh: single relations must be text; migrated: varchar(15) is also accepted",
+    )
     args = parser.parse_args()
 
     definitions, digest, _ = load_schema(args.schema, include_views=True)
     actual_rows = await read_collections(args.db)
-    report = verify(definitions, actual_rows)
+    report = verify(definitions, actual_rows, relation_columns=args.relation_columns)
     report["schema_sha256"] = digest
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if report["ok"] else 1
