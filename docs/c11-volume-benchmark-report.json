@@ -1,0 +1,260 @@
+{
+  "timestamp_utc": "2026-10-24T04:07:02.335813+00:00",
+  "scope": "synthetic_volume_benchmark",
+  "production_data_used": false,
+  "real_backup_read": false,
+  "status": "passed",
+  "environment": {
+    "python": "3.12.3",
+    "sqlite": "3.45.1",
+    "asyncpg": "0.32.0",
+    "sqlalchemy": "2.1.6",
+    "ppbase_version": "0.3.2",
+    "ppbase_commit": "c6821aa71a79c0c3d86e2757e7424b45e84016dc",
+    "buma_commit": "d2a174e19deb592b7b3b882bdaf47f01d46f64e6",
+    "buma_worktree_clean": true,
+    "pocketbase": "pocketbase version 0.22.27",
+    "docker": "29.9.1",
+    "machine": {
+      "kernel": "6.8.0-147-generic",
+      "cpu_model": "AMD EPYC Processor (with IBPB)",
+      "cpu_count": 4,
+      "memory_total_kib": 8131776
+    },
+    "concurrent_load_at_start": {
+      "loadavg_1_5_15": [
+        2.02,
+        2.38,
+        2.89
+      ],
+      "other_running_containers": 2
+    }
+  },
+  "container": {
+    "image": "postgres:16-alpine",
+    "memory": {
+      "limit": "2g",
+      "cgroup_memory_peak_bytes": 2149253120,
+      "sampled_max_current_bytes": 2148192256,
+      "sampled_max_anon_bytes": 79339520,
+      "memory_max_bytes": 2147483648
+    },
+    "cpus": "2"
+  },
+  "dataset": {
+    "source": "PocketBase-built fixture (default profile) completed in SQLite",
+    "profile": "public per-collection counts, docs/c11-master-initial-diagnostic.json",
+    "excluded_collections_d0019": [
+      "buma_customer",
+      "buma_pilotage_ticket",
+      "buma_wallet"
+    ],
+    "scale": 1.0,
+    "orphan_every": 997,
+    "missing_file_every": 1999,
+    "synthetic_rows_added": 1182397,
+    "records": 1182406,
+    "seconds": 55.28,
+    "data_db_bytes": 521601024,
+    "diagnostic": {
+      "rows": 1182406,
+      "relations_checked": 7527497,
+      "dangling_references": 11154,
+      "dangling_fields": 135,
+      "missing_file_references": 176,
+      "files_in_manifest": 3,
+      "storage_mode": "manifest",
+      "file_bytes_copied": false
+    }
+  },
+  "target": {
+    "migrations_applied": 10,
+    "seed_rows_removed": 24,
+    "server_version": "16.15",
+    "shared_buffers": "128MB",
+    "work_mem": "4MB",
+    "maintenance_work_mem": "64MB",
+    "max_wal_size": "1GB",
+    "synchronous_commit": "on"
+  },
+  "memory_phases": {
+    "prepare": {
+      "max_current_bytes": 101535744,
+      "max_anon_bytes": 17739776,
+      "max_host_loadavg_1min": 2.68
+    },
+    "diagnosis": {
+      "max_current_bytes": 92082176,
+      "max_anon_bytes": 5480448,
+      "max_host_loadavg_1min": 2.5
+    },
+    "failure_injection": {
+      "max_current_bytes": 1452531712,
+      "max_anon_bytes": 15286272,
+      "max_host_loadavg_1min": 3.28
+    },
+    "concurrent_imports": {
+      "max_current_bytes": 2148192256,
+      "max_anon_bytes": 79339520,
+      "max_host_loadavg_1min": 4.87
+    }
+  },
+  "diagnosis": {
+    "seconds": 83.79,
+    "peak_rss_kib": 107328,
+    "ready": true
+  },
+  "failure_injection": {
+    "fail_after_rows": 591203,
+    "outcome": "injected_import_failure",
+    "seconds_until_rollback_complete": 101.963,
+    "peak_rss_kib": 106084,
+    "staging_removed": true,
+    "target_tables_empty": true,
+    "rowid_archive_absent": true,
+    "advisory_locks": 0,
+    "idle_in_transaction_sessions": 0,
+    "no_effect_verified": true
+  },
+  "concurrent_imports": {
+    "outcomes": [
+      "1182406",
+      "target_not_empty"
+    ],
+    "only_one_succeeded": true,
+    "loser_outcome": "target_not_empty",
+    "loser_staging_removed": true,
+    "winner_staging_kept_for_serving": true
+  },
+  "import": {
+    "rows": 1182406,
+    "archive_rows": 1182406,
+    "storage_mode": "manifest",
+    "file_bytes_copied": false,
+    "batch_size": 5000,
+    "timings_seconds": {
+      "checks": 0.938,
+      "copy_and_readback": 210.035,
+      "copy_and_readback_breakdown": {
+        "copy": 93.959,
+        "prepare_in_worker": 85.603,
+        "readback_and_compare": 107.229,
+        "waiting_for_worker": 8.722
+      },
+      "final_check": 11.296,
+      "conservation": 19.386,
+      "total": 242.845,
+      "importer_cpu": 143.445,
+      "staging": 4.155,
+      "commit": 0.012
+    },
+    "child_wall_seconds": 247.118,
+    "rows_per_second": 4869.0,
+    "importer_peak_rss_kib": 114144,
+    "statements": {
+      "other": 151,
+      "copy": 566,
+      "readback": 566,
+      "final_check": 73,
+      "conservation": 53
+    },
+    "statements_total": 1409,
+    "previous_per_record_statements": 3547218,
+    "fingerprints_match": true,
+    "typed_batch_readback": true,
+    "server_row_hashes_unchanged_since_readback": true,
+    "conservation_matches_diagnostic": true,
+    "preflight_columns_checked": 796,
+    "preflight_blockers": [],
+    "preflight_warnings": [
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_customer",
+        "field": "pdv"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_pilotage_ticket",
+        "field": "tag"
+      },
+      {
+        "code": "unbounded_relation_target_scalar",
+        "collection": "buma_wallet",
+        "field": "managers"
+      }
+    ],
+    "target_triggers": [
+      "buma_article.buma_sqlite_rowid",
+      "users.buma_sqlite_rowid"
+    ],
+    "largest_tables": [
+      {
+        "name": "buma_transaction",
+        "rows": 336240,
+        "copy_batches": 68,
+        "seconds": 69.528
+      },
+      {
+        "name": "buma_caisse_transactions",
+        "rows": 317066,
+        "copy_batches": 64,
+        "seconds": 77.372
+      },
+      {
+        "name": "buma_return",
+        "rows": 214784,
+        "copy_batches": 43,
+        "seconds": 27.411
+      },
+      {
+        "name": "buma_sale",
+        "rows": 115326,
+        "copy_batches": 24,
+        "seconds": 14.546
+      },
+      {
+        "name": "buma_customer_solder_history",
+        "rows": 85267,
+        "copy_batches": 18,
+        "seconds": 8.198
+      },
+      {
+        "name": "buma_sim_balance_activity",
+        "rows": 80461,
+        "copy_batches": 17,
+        "seconds": 7.894
+      },
+      {
+        "name": "buma_wallet_transactions",
+        "rows": 10827,
+        "copy_batches": 3,
+        "seconds": 1.664
+      },
+      {
+        "name": "buma_pdv",
+        "rows": 5221,
+        "copy_batches": 2,
+        "seconds": 0.727
+      }
+    ]
+  },
+  "verification_after_commit": {
+    "row_counts_equal_diagnostic": true,
+    "rowid_matches": {
+      "users": 20,
+      "buma_article": 44,
+      "archive_rows": 1182406
+    },
+    "advisory_locks": 0,
+    "idle_in_transaction_sessions": 0
+  },
+  "concurrent_load_at_end": {
+    "loadavg_1_5_15": [
+      3.56,
+      3.4,
+      3.15
+    ]
+  },
+  "benchmark_wall_seconds": 513.5,
+  "cleanup": "owned_container_and_temporary_files_removed"
+}
