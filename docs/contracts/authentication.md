@@ -63,7 +63,7 @@ HTTP 200 ; les minima retournent les messages attendus.
 L'adaptateur BUMA accepte les deux valeurs du claim JWT `type` des jetons
 record : `authRecord`, signée par PocketBase 0.22.34 (v0.22.34 `tokens/tokens.go`
 l.6, `tokens/record.go` l.21, `apis/middlewares.go` l.241), et `auth`, signée par
-la version actuelle et par PPBase (v0.40.6 `core/record_tokens.go` l.13).
+la version actuelle et par PPBase (v0.40.6 `core/record_tokens.go` : constante l.13, claim posé l.62).
 Rectification du 2026-10-24 : la note initiale présentait `authRecord` comme un
 simple contexte de requête. Accepter les deux garde valides les sessions émises
 par PocketBase 0.22.34 avant l'import (D-0027).

@@ -77,7 +77,7 @@ seront traduites vers `id` dans PPBase et ne nécessitent pas l'ajout d'un champ
   (v0.22.34 `tokens/tokens.go` l.6), signée par `NewRecordAuthToken`
   (v0.22.34 `tokens/record.go` l.21) et reconnue par le middleware
   (v0.22.34 `apis/middlewares.go` l.241) ; la version actuelle et PPBase signent
-  `type=auth` (v0.40.6 `core/record_tokens.go` l.13). L'adaptateur accepte les
+  `type=auth` (v0.40.6 `core/record_tokens.go` l.13 et l.62). L'adaptateur accepte les
   deux, ce qui rend valides après l'import les sessions émises par PocketBase
   0.22.34 (D-0027).
 

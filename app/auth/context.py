@@ -24,7 +24,7 @@ def is_record_auth(auth: dict[str, Any] | None) -> bool:
 
     PocketBase 0.22 signs record tokens with ``type=authRecord``
     (v0.22.34 tokens/tokens.go l.4-7); current PocketBase and PPBase sign
-    ``type=auth`` (v0.40.6 core/record_tokens.go l.13). Both are accepted so
+    ``type=auth`` (v0.40.6 core/record_tokens.go l.13 and l.62). Both are accepted so
     that sessions issued by PocketBase 0.22.34 stay valid after the import.
     """
     return bool(auth and auth.get("type") in AUTH_RECORD_TYPES)
