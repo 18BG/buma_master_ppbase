@@ -1,0 +1,2581 @@
+{
+  "timestamp_utc": "2026-10-24T16:11:21.334393+00:00",
+  "scope": "c11_complete_synthetic_rehearsal",
+  "command": "python -m scripts.c11_rehearsal --pocketbase /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --schema /root/projects/buma-master-pb_schema-corrected.json --report docs/c11-synthetic-rehearsal-report.json --container-tag ws-d2",
+  "buma": {
+    "git_commit": "791f4e11956e57b7d4c5e50db97836e8a0bd1ec5",
+    "uncommitted_changes": false
+  },
+  "profile": "real_shape",
+  "pocketbase": {
+    "version": "0.22.34",
+    "binary_sha256": "f164a6333e674fec53fbaf49fffba884654de3a6e712f220d0bbe1c54f2ee04d"
+  },
+  "importer": {
+    "source_version_evidence": "docs/c11-pb-0.22.34-reference-report.json",
+    "validated_source_versions": [
+      "0.22.27",
+      "0.22.34"
+    ],
+    "unbounded_relation_arrays": true
+  },
+  "c10_resumed": false,
+  "production_data_used": false,
+  "status": "passed",
+  "permission_keys_without_default": {
+    "permission_keys": 20,
+    "rules": 28,
+    "collections": 11,
+    "keys_of_the_probed_rules_included": true
+  },
+  "pocketbase_before_import": {
+    "sessions_issued": {
+      "admin": "admin",
+      "agent": "authRecord",
+      "agent_no_email": "authRecord",
+      "denied": "authRecord",
+      "users": "authRecord",
+      "users_no_email": "authRecord"
+    },
+    "token_claims": {
+      "admin": [
+        "exp",
+        "id",
+        "type"
+      ],
+      "agent": [
+        "collectionId",
+        "exp",
+        "id",
+        "type"
+      ],
+      "agent_no_email": [
+        "collectionId",
+        "exp",
+        "id",
+        "type"
+      ],
+      "denied": [
+        "collectionId",
+        "exp",
+        "id",
+        "type"
+      ],
+      "users": [
+        "collectionId",
+        "exp",
+        "id",
+        "type"
+      ],
+      "users_no_email": [
+        "collectionId",
+        "exp",
+        "id",
+        "type"
+      ]
+    },
+    "probes": 84,
+    "file_references": {
+      "present": 6,
+      "absent": 2,
+      "unreferenced_objects_probed": 5
+    },
+    "stopped_cleanly": true,
+    "sqlite_sidecars_after_stop": {},
+    "realtime_probe_on_a_copy": true,
+    "declared_keys_probes_on_a_copy": true
+  },
+  "diagnostic": {
+    "mode": "offline_read_only",
+    "source_version": "0.22.34",
+    "production_authorized": false,
+    "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+    "definitions_sha256": "ecc8169659c38789e72812d1835ede8596e404b0aa77c267a662f27c02bbd4e1",
+    "blockers": [],
+    "collections": [
+      {
+        "name": "agent_users",
+        "id": "it0zrlwgubakjn6",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "6228d5cd0f670bc778cd2b5be9eaa43d451016c0901d622bc6a8cf3d166a1971",
+        "source_rows_sha256": "9b500b9029222ae6132c0699bed8718ca23d457f0b2f9f42eef34b7c8847b9ca"
+      },
+      {
+        "name": "users",
+        "id": "_pb_users_auth_",
+        "rows": 4,
+        "rowid_min": 41,
+        "rowid_max": 95,
+        "identity_sha256": "6c2130741bf1260ed661777daf54127d7bdaa5ec66aa3e49f20ca856714642f3",
+        "source_rows_sha256": "1ce9ca34f5bb4502fd09fe02a434f37b83c50ad1fdf4bb4e6c1ed872c5defa0a"
+      },
+      {
+        "name": "buma_agent",
+        "id": "3eb3aemdt1p8z2w",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_agent_doc",
+        "id": "hk3mgbyn90rkg9b",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_agent_doc_type",
+        "id": "cjlugbh0ivagt3z",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_apps_roles",
+        "id": "64a3j55w1esqqs0",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "4191efe9b2471e45d96d45f69af4e9bd75bfa77d156512a632b1c3e76767ca80",
+        "source_rows_sha256": "821c310b9b49e7f2cb3aead731211d30410ecb5925e0f692ee5d43f5e3319f9f"
+      },
+      {
+        "name": "buma_article",
+        "id": "8gwrmca55n1pw9i",
+        "rows": 2,
+        "rowid_min": 7001,
+        "rowid_max": 7002,
+        "identity_sha256": "5442a78efbc0251b7b111fe50cf00ce9771785c54376ed770f8c3c4f4d735788",
+        "source_rows_sha256": "5a142d12b38951e742480f5d8dc3c3333c57d163f2338c38565a488fabba3e02"
+      },
+      {
+        "name": "buma_article_categorie",
+        "id": "iq5sw9lk8s5lcax",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_components",
+        "id": "nfsnn0i2sx0qopd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock",
+        "id": "wqnalhwf7wp4mts",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock_designation",
+        "id": "t3vebzn43oztrrh",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stock_session",
+        "id": "dloqlsocb7q7cxb",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_stockage",
+        "id": "34338d0ihxaxaad",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_article_unite",
+        "id": "o7g4jwrkzul3wv6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_buy",
+        "id": "bwqeemm6uufjkfd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_buy_item",
+        "id": "detodbw69zipc1t",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_bw",
+        "id": "g59i32ftidg0jn3",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse",
+        "id": "4hhvam1jwlv4ekk",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_access",
+        "id": "ou09dalnjnwz44k",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+        "source_rows_sha256": "4f72e2e14b474d8ec09aa958fadd8d0bd7e58c00f17376c61cb76e043755b23e"
+      },
+      {
+        "name": "buma_caisse_expense_type",
+        "id": "iow8g4ooe3nvrsj",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_open_close",
+        "id": "tga1qlg616xwn5c",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_caisse_transactions",
+        "id": "6y0f0rx6t5eauo1",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_customer",
+        "id": "fnb2m2dhoemjgqd",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_group",
+        "id": "5a17w0050kwn42q",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_commission_product",
+        "id": "p1pzmk81g8e27b2",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_config",
+        "id": "zlsffpxp71r6jyh",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "b037e01aa4e1062f4713e358a6db21555a9ae47fa81291425721a25e558c7e85",
+        "source_rows_sha256": "88074f7c0ce64b6e38bfb806c5bb13ed3058bc78dd51f336484284ab655c50a9"
+      },
+      {
+        "name": "buma_conversion",
+        "id": "83pj5ryd48a9t1x",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer",
+        "id": "ynd8qrm418yp975",
+        "rows": 3,
+        "rowid_min": 1,
+        "rowid_max": 3,
+        "identity_sha256": "22ec6aad7827f3c98451567ab93b6c49e46a8e2dc554623a45ca16c61ba1b504",
+        "source_rows_sha256": "ec9267838c3597ce79586774b7cbb38f1af637efb9d93c321fd09fe86608aa8d"
+      },
+      {
+        "name": "buma_customer_document",
+        "id": "i5s8u1sqc33dct7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_document_type",
+        "id": "8g7kofta0j25xoz",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_number",
+        "id": "hixcukd84uzbpub",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_old",
+        "id": "ef34l79pquuwbz1",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_pdv",
+        "id": "6exbgeq4b5iztd6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_solder_history",
+        "id": "31kv12xpjrw5r6k",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_type",
+        "id": "rz0tl1k4ddly3ix",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_customer_user",
+        "id": "78g31fn92mr18j5",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee",
+        "id": "fn8o9mvij3xs3dh",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_contract",
+        "id": "zui0phvyss2g6ox",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_contract_type",
+        "id": "wtlp2yyexvsi50d",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_debt",
+        "id": "78bymqyq6uz1av7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_debt_payment",
+        "id": "h4p8tpqewogrezo",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_document",
+        "id": "kh9dq0o4pbpu88j",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_document_type",
+        "id": "o8qdc2uc8f09ryt",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_employee_position",
+        "id": "31330khx2jrvp7t",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_invoice",
+        "id": "29lztvbdmnprpo6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_invoice_item",
+        "id": "r3o6wxamzk89olm",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_payment",
+        "id": "l1rvyoznm344mrb",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "6be22fe5d00840e3083057d8d18a03cd878e1a1b7d46f08035aea039f101cb60",
+        "source_rows_sha256": "8ef92065544381b0330750da8c65aebd45a200f9ed448ac082cb2f410bbc0306"
+      },
+      {
+        "name": "buma_payment_method",
+        "id": "hioc4qai5ii0oad",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "e66195be86ab5ad8fcb2328d2155e797a139d4a645dcb9fcfc24d524f9de794f",
+        "source_rows_sha256": "84eec0ed3551a4ff1a00b4a4e2e5ea3966752e464de16819e4e833add9adb463"
+      },
+      {
+        "name": "buma_pdv",
+        "id": "l0wk3fy5xnw6et7",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "b933b23133be0f6da1dcfea4f35475b8a98abab9178cf8c1b8fd6af00ce606f2",
+        "source_rows_sha256": "9cafa4c715aa439ec1cd5bc4e3c167e1adc2d74dd2835f1353de62420e6e0cba"
+      },
+      {
+        "name": "buma_pdv_doc",
+        "id": "slf0g0jondx5mp6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pdv_doc_type",
+        "id": "hanki3uqp2t1jqr",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_person_entity",
+        "id": "vpwlli3nohzxkft",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_pilotage_ticket",
+        "id": "oxglyj8dmehpqop",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
+        "source_rows_sha256": "ba5bfb0c4d03fd492d739a4b35b9868229daf0fc4892faffa54b5564ed323ce3"
+      },
+      {
+        "name": "buma_pilotage_ticket_tag",
+        "id": "6sh812zhxaxcxdz",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
+        "source_rows_sha256": "43df6021b76e849737264bb93046887afceb64a64f8fb52405326b25487e839d"
+      },
+      {
+        "name": "buma_ressources",
+        "id": "0a3v1ce6rutrwvr",
+        "rows": 4,
+        "rowid_min": 1,
+        "rowid_max": 4,
+        "identity_sha256": "e36fa93b9afb7bf304226cb1961f459a37ab10352a07f8f83aa19bdbb2de5c3f",
+        "source_rows_sha256": "27ba7887a03886da9e815cd5b1fa5aeb04f3a0ac6cb272422ded047915bc55ca"
+      },
+      {
+        "name": "buma_return",
+        "id": "bmm8r0xl4j30jo3",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_return_regexp",
+        "id": "ent9ovilek8a135",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_rupture",
+        "id": "3xsk1eqcls0qz1h",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_sale",
+        "id": "zwbizbmz7d9icbf",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "a6acbdde313027a0c0b2d4e159ba07bce375880e5759eb1cbb588930ea581f86",
+        "source_rows_sha256": "2556d340c42429607f40f89d9b305aa8c6b22dc80e2a645e267c91f2d578290a"
+      },
+      {
+        "name": "buma_sim",
+        "id": "kr6zwb9oabrvxiq",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_sim_balance_activity",
+        "id": "h30baoim3q09w14",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "a902214beabfa4f3b8c8bc23e7ee1778d78be7101f7dca03dfbb1e978bf94cf4",
+        "source_rows_sha256": "f625a98d90d00f874580a89e30bb70f2a2332ab41859e0d726c23cbd5be514ad"
+      },
+      {
+        "name": "buma_stockage_user",
+        "id": "cdgjnixv24bsdqp",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_supplier",
+        "id": "ui5alk9pbys9wai",
+        "rows": 1,
+        "rowid_min": -17,
+        "rowid_max": -17,
+        "identity_sha256": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+        "source_rows_sha256": "c5bbf0292af9319d3779c28671e2934b50e38237af659d3cc7e88da782e360a7"
+      },
+      {
+        "name": "buma_supplier_article",
+        "id": "zekwpofynu077w7",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_transaction",
+        "id": "wv9d4bsvf0i5kki",
+        "rows": 6,
+        "rowid_min": 1,
+        "rowid_max": 6,
+        "identity_sha256": "f93792ec008eaba780efc84ec94ddf79645930998cf970ef723cb99c6144b9f2",
+        "source_rows_sha256": "3811820eae92459b6d14bfa1863f2f1d025ff99feddc396ea625761f79cfe026"
+      },
+      {
+        "name": "buma_transfer",
+        "id": "ajs6nlu2r3010vl",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_transfer_transaction",
+        "id": "77xlg9rdbp3h5he",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_user_bank_uv",
+        "id": "97hapfsjas2b90g",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_ussd_code",
+        "id": "d80v9iin2sqe5k6",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "buma_wallet",
+        "id": "ri4223ezesmoai3",
+        "rows": 2,
+        "rowid_min": 1,
+        "rowid_max": 2,
+        "identity_sha256": "937d602277a4734a1585a831e5c057197e87ca753eb2b55676a2c79fa5c1c9ce",
+        "source_rows_sha256": "16365a5113c41c56305c54ed21ba14e70406d0b23aa24b914d992faca37adbec"
+      },
+      {
+        "name": "buma_wallet_transactions",
+        "id": "kvmt9dtdjszxmwq",
+        "rows": 0,
+        "rowid_min": null,
+        "rowid_max": null,
+        "identity_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_rows_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "roles",
+        "id": "6p629b1e32w3hh5",
+        "rows": 1,
+        "rowid_min": 1,
+        "rowid_max": 1,
+        "identity_sha256": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69",
+        "source_rows_sha256": "4ac6efab9d81767970e191f03d3154b12d518a6925266f1c65bdf647566ea5d9"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "users",
+        "field": "more",
+        "affected_rows": 3
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_apps_roles",
+        "field": "info",
+        "affected_rows": 1
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_article",
+        "field": "details",
+        "affected_rows": 2
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_article",
+        "field": "specification",
+        "affected_rows": 1
+      },
+      {
+        "code": "sql_null_json_stored_as_jsonb_null",
+        "collection": "buma_config",
+        "field": "posConfig",
+        "affected_rows": 1
+      },
+      "internal_records_require_separate_review"
+    ],
+    "source_version_validated": true,
+    "source_version_evidence": "docs/c11-pb-0.22.34-reference-report.json",
+    "validated_source_versions": [
+      "0.22.27",
+      "0.22.34"
+    ],
+    "storage_mode": "directory",
+    "file_bytes_verified": true,
+    "file_sizes_source": "storage_directory",
+    "file_bytes_copied": false,
+    "target_types_checked": false,
+    "internal_tables_not_imported": {
+      "_migrations": 17,
+      "_admins": 1,
+      "_collections": 114,
+      "_params": 1,
+      "_externalAuths": 0
+    },
+    "preserved_source_anomalies": {
+      "policy": "imported_as_is_no_target_or_file_invented_no_reference_removed_or_redirected",
+      "blocking": false,
+      "dangling_relations": {
+        "references": 6,
+        "records": 6,
+        "fields": [
+          {
+            "collection": "buma_article",
+            "field": "categorie",
+            "target": "buma_article_categorie",
+            "references": 1,
+            "records": 1,
+            "distinct_targets": 1
+          },
+          {
+            "collection": "buma_customer",
+            "field": "type",
+            "target": "buma_customer_type",
+            "references": 1,
+            "records": 1,
+            "distinct_targets": 1
+          },
+          {
+            "collection": "buma_sale",
+            "field": "customer",
+            "target": "buma_customer_old",
+            "references": 2,
+            "records": 2,
+            "distinct_targets": 2
+          },
+          {
+            "collection": "buma_sim_balance_activity",
+            "field": "author",
+            "target": "users",
+            "references": 1,
+            "records": 1,
+            "distinct_targets": 1
+          },
+          {
+            "collection": "buma_wallet",
+            "field": "managers",
+            "target": "users",
+            "references": 1,
+            "records": 1,
+            "distinct_targets": 1
+          }
+        ]
+      },
+      "missing_files": {
+        "references": 2,
+        "records": 2,
+        "distinct_files": 2,
+        "fields": [
+          {
+            "collection": "buma_ressources",
+            "field": "file",
+            "references": 1,
+            "records": 1,
+            "distinct_files": 1
+          },
+          {
+            "collection": "buma_wallet",
+            "field": "image",
+            "references": 1,
+            "records": 1,
+            "distinct_files": 1
+          }
+        ]
+      }
+    },
+    "data_db_sha256": "25ea7a3abac12f7a3fef4d930b26bdda045bf83dac48d9636088f3838062e669",
+    "files": 15,
+    "file_bytes": 2220,
+    "file_manifest_sha256": "7979c497637695c8add65e51578fea18d98e0a7648ccd252f0de1cf286314b41",
+    "referenced_files": 8,
+    "present_referenced_files": 6,
+    "unreferenced_files": 9,
+    "relations_checked": 32,
+    "rows": 39,
+    "blocked_rows": 0,
+    "ready_for_isolated_rehearsal": true,
+    "elapsed_seconds": 0.09,
+    "peak_rss_kib": 100204
+  },
+  "preserved_anomalies": {
+    "dangling_relation_fields": 5,
+    "dangling_references": 6,
+    "missing_file_fields": 2,
+    "missing_file_references": 2,
+    "match_fixture_documentation": true,
+    "policy": "imported_as_is_no_target_or_file_invented_no_reference_removed_or_redirected"
+  },
+  "negative_cases": {
+    "duplicate_idempotency_key": "blocked",
+    "schema_drift": "blocked",
+    "invalid_number": "blocked",
+    "nul_in_postgresql_text": "blocked",
+    "nul_in_postgresql_jsonb": "blocked",
+    "jsonb_duplicate_keys_collapsed": "blocked",
+    "invalid_unicode_for_postgresql": "blocked",
+    "date_not_pocketbase_layout": "blocked",
+    "auth_legacy_nul": "blocked",
+    "json_text_served_as_string_by_pocketbase": "blocked",
+    "jsonb_number_notation_normalized": "warning_not_blocking",
+    "single_value_served_as_last_element": "warning_not_blocking",
+    "list_served_deduplicated_by_pocketbase": "warning_not_blocking",
+    "dangling_relation": "preserved_anomaly_not_blocking",
+    "missing_file": "preserved_anomaly_not_blocking",
+    "unbounded_relation_array": "importable_preserved_anomaly_not_blocking",
+    "unbounded_relation_target_scalar": "blocked",
+    "manifest_mode": "same_diagnosis_same_file_fingerprint_no_bytes_copied",
+    "manifest_missing_file": "preserved_anomaly_not_blocking",
+    "manifest_wal": "blocked",
+    "manifest_data_db": "blocked"
+  },
+  "migrations_applied": 11,
+  "schema_before": {
+    "definitions": 114,
+    "views": 42,
+    "ok": true
+  },
+  "unbounded_relation_target_columns": [
+    {
+      "table_name": "buma_customer",
+      "column_name": "pdv",
+      "data_type": "ARRAY",
+      "udt_name": "_text"
+    },
+    {
+      "table_name": "buma_pilotage_ticket",
+      "column_name": "tag",
+      "data_type": "ARRAY",
+      "udt_name": "_text"
+    },
+    {
+      "table_name": "buma_wallet",
+      "column_name": "managers",
+      "data_type": "ARRAY",
+      "udt_name": "_text"
+    }
+  ],
+  "relation_columns": {
+    "mode": "fresh",
+    "multiple": {
+      "text[]": 3
+    },
+    "single": {
+      "text": 188
+    }
+  },
+  "diagnostic_with_target_types": {
+    "ready_for_isolated_rehearsal": true,
+    "columns_checked": 796,
+    "blockers": []
+  },
+  "seed_rows_before": 24,
+  "failure_rollback": {
+    "records_injected_failure": "nothing_remains_no_staging",
+    "accounts_injected_failure_after_complete_record_load": "records_accounts_options_settings_rolled_back_no_staging",
+    "accounts_precondition_refusal": "nothing_remains_no_staging"
+  },
+  "concurrent_import": {
+    "attempts": 2,
+    "committed": 1,
+    "refused": "target_not_empty",
+    "loser_staging_removed": true,
+    "rows": 39
+  },
+  "import": {
+    "function": "scripts.c11_import.import_snapshot",
+    "rows": 39,
+    "storage_mode": "directory",
+    "auth": {
+      "scope": "c11_auth_settings_session_import",
+      "production_authorized": false,
+      "imported": true,
+      "admins": {
+        "source_rows": 1,
+        "imported_rows": 1,
+        "target": "_superusers",
+        "copied_unchanged": [
+          "id",
+          "avatar",
+          "email",
+          "passwordHash",
+          "tokenKey",
+          "created",
+          "updated"
+        ],
+        "archived_without_activation": [
+          "lastResetSentAt"
+        ],
+        "passwords_regenerated": 0
+      },
+      "token_configs": {
+        "agent_users": {
+          "authToken": {
+            "source": "recordAuthToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "passwordResetToken": {
+            "source": "recordPasswordResetToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "emailChangeToken": {
+            "source": "recordEmailChangeToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "verificationToken": {
+            "source": "recordVerificationToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "fileToken": {
+            "source": "recordFileToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          }
+        },
+        "users": {
+          "authToken": {
+            "source": "recordAuthToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "passwordResetToken": {
+            "source": "recordPasswordResetToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "emailChangeToken": {
+            "source": "recordEmailChangeToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "verificationToken": {
+            "source": "recordVerificationToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "fileToken": {
+            "source": "recordFileToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          }
+        },
+        "_superusers": {
+          "authToken": {
+            "source": "adminAuthToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "passwordResetToken": {
+            "source": "adminPasswordResetToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          },
+          "fileToken": {
+            "source": "adminFileToken",
+            "secret": {
+              "present": true,
+              "imported": true,
+              "length": 50
+            },
+            "duration": {
+              "present": true,
+              "imported": true
+            }
+          }
+        }
+      },
+      "settings": {
+        "mapped": {
+          "meta.appName": {
+            "target": "meta.appName",
+            "present": true,
+            "imported": true
+          },
+          "meta.appUrl": {
+            "target": "meta.appURL",
+            "present": true,
+            "imported": true
+          },
+          "meta.hideControls": {
+            "target": "meta.hideControls",
+            "present": true,
+            "imported": true
+          },
+          "meta.senderName": {
+            "target": "meta.senderName",
+            "present": true,
+            "imported": true
+          },
+          "meta.senderAddress": {
+            "target": "meta.senderAddress",
+            "present": true,
+            "imported": true
+          },
+          "logs.maxDays": {
+            "target": "logs.maxDays",
+            "present": true,
+            "imported": true
+          },
+          "logs.minLevel": {
+            "target": "logs.minLevel",
+            "present": true,
+            "imported": true
+          },
+          "logs.logIp": {
+            "target": "logs.logIP",
+            "present": true,
+            "imported": true
+          },
+          "smtp.enabled": {
+            "target": "smtp.enabled",
+            "present": true,
+            "imported": true
+          },
+          "smtp.host": {
+            "target": "smtp.host",
+            "present": true,
+            "imported": true
+          },
+          "smtp.port": {
+            "target": "smtp.port",
+            "present": true,
+            "imported": true
+          },
+          "smtp.username": {
+            "target": "smtp.username",
+            "present": true,
+            "imported": true
+          },
+          "smtp.password": {
+            "target": "smtp.password",
+            "present": false,
+            "imported": false,
+            "length": 0
+          },
+          "smtp.authMethod": {
+            "target": "smtp.authMethod",
+            "present": true,
+            "imported": true
+          },
+          "smtp.tls": {
+            "target": "smtp.tls",
+            "present": true,
+            "imported": true
+          },
+          "smtp.localName": {
+            "target": "smtp.localName",
+            "present": true,
+            "imported": true
+          }
+        },
+        "templates_copied_to_record_auth_collections": [
+          "confirmEmailChangeTemplate",
+          "resetPasswordTemplate",
+          "verificationTemplate"
+        ],
+        "not_imported": {
+          "s3": "ppbase_applies_s3_to_its_storage_runtime_requires_decision",
+          "backups": "ppbase_backup_cron_would_start_a_different_backup_mechanism",
+          "emailAuth": "deprecated_ignored_by_pocketbase_0_22",
+          "googleAuth": "oauth2_provider_not_enabled",
+          "facebookAuth": "oauth2_provider_not_enabled",
+          "githubAuth": "oauth2_provider_not_enabled",
+          "gitlabAuth": "oauth2_provider_not_enabled",
+          "discordAuth": "oauth2_provider_not_enabled",
+          "twitterAuth": "oauth2_provider_not_enabled",
+          "microsoftAuth": "oauth2_provider_not_enabled",
+          "spotifyAuth": "oauth2_provider_not_enabled",
+          "kakaoAuth": "oauth2_provider_not_enabled",
+          "twitchAuth": "oauth2_provider_not_enabled",
+          "stravaAuth": "oauth2_provider_not_enabled",
+          "giteeAuth": "oauth2_provider_not_enabled",
+          "livechatAuth": "oauth2_provider_not_enabled",
+          "giteaAuth": "oauth2_provider_not_enabled",
+          "oidcAuth": "oauth2_provider_not_enabled",
+          "oidc2Auth": "oauth2_provider_not_enabled",
+          "oidc3Auth": "oauth2_provider_not_enabled",
+          "appleAuth": "oauth2_provider_not_enabled",
+          "instagramAuth": "oauth2_provider_not_enabled",
+          "vkAuth": "oauth2_provider_not_enabled",
+          "yandexAuth": "oauth2_provider_not_enabled",
+          "patreonAuth": "oauth2_provider_not_enabled",
+          "mailcowAuth": "oauth2_provider_not_enabled",
+          "bitbucketAuth": "oauth2_provider_not_enabled",
+          "planningcenterAuth": "oauth2_provider_not_enabled"
+        },
+        "not_imported_secrets": {
+          "s3.secret": {
+            "present": false
+          },
+          "backups.s3.secret": {
+            "present": false
+          },
+          "googleAuth.clientSecret": {
+            "present": false
+          },
+          "facebookAuth.clientSecret": {
+            "present": false
+          },
+          "githubAuth.clientSecret": {
+            "present": false
+          },
+          "gitlabAuth.clientSecret": {
+            "present": false
+          },
+          "discordAuth.clientSecret": {
+            "present": false
+          },
+          "twitterAuth.clientSecret": {
+            "present": false
+          },
+          "microsoftAuth.clientSecret": {
+            "present": false
+          },
+          "spotifyAuth.clientSecret": {
+            "present": false
+          },
+          "kakaoAuth.clientSecret": {
+            "present": false
+          },
+          "twitchAuth.clientSecret": {
+            "present": false
+          },
+          "stravaAuth.clientSecret": {
+            "present": false
+          },
+          "giteeAuth.clientSecret": {
+            "present": false
+          },
+          "livechatAuth.clientSecret": {
+            "present": false
+          },
+          "giteaAuth.clientSecret": {
+            "present": false
+          },
+          "oidcAuth.clientSecret": {
+            "present": false
+          },
+          "oidc2Auth.clientSecret": {
+            "present": false
+          },
+          "oidc3Auth.clientSecret": {
+            "present": false
+          },
+          "appleAuth.clientSecret": {
+            "present": false
+          },
+          "instagramAuth.clientSecret": {
+            "present": false
+          },
+          "vkAuth.clientSecret": {
+            "present": false
+          },
+          "yandexAuth.clientSecret": {
+            "present": false
+          },
+          "patreonAuth.clientSecret": {
+            "present": false
+          },
+          "mailcowAuth.clientSecret": {
+            "present": false
+          },
+          "bitbucketAuth.clientSecret": {
+            "present": false
+          },
+          "planningcenterAuth.clientSecret": {
+            "present": false
+          }
+        },
+        "ppbase_only_keys_left_at_ppbase_defaults": true
+      },
+      "external_auths": {
+        "source_rows": 0,
+        "imported_rows": 0
+      },
+      "logs_db": "never_imported",
+      "warnings": [
+        {
+          "code": "backup_schedule_not_imported"
+        }
+      ],
+      "records_snapshot": {
+        "identity_verified": true,
+        "collections": 19,
+        "rows": 39
+      }
+    },
+    "single_transaction": {
+      "records": 39,
+      "relation_arrays_recounted": 3,
+      "accounts_and_settings": true,
+      "committed": true
+    },
+    "relation_arrays": [
+      {
+        "collection": "buma_customer",
+        "field": "pdv",
+        "target_column": "text[]",
+        "sqlite_json_each_equals_postgresql_unnest": true,
+        "rows": 3,
+        "rows_with_elements": 2,
+        "elements": 3,
+        "longest_element": 15
+      },
+      {
+        "collection": "buma_pilotage_ticket",
+        "field": "tag",
+        "target_column": "text[]",
+        "sqlite_json_each_equals_postgresql_unnest": true,
+        "rows": 2,
+        "rows_with_elements": 2,
+        "elements": 3,
+        "longest_element": 15
+      },
+      {
+        "collection": "buma_wallet",
+        "field": "managers",
+        "target_column": "text[]",
+        "sqlite_json_each_equals_postgresql_unnest": true,
+        "rows": 2,
+        "rows_with_elements": 1,
+        "elements": 1,
+        "longest_element": 31
+      }
+    ],
+    "timings_seconds": {
+      "checks": 0.888,
+      "copy_and_readback": 0.408,
+      "copy_and_readback_breakdown": {
+        "copy": 0.155,
+        "prepare_in_worker": 0.009,
+        "readback_and_compare": 0.16,
+        "waiting_for_worker": 0.046
+      },
+      "final_check": 0.385,
+      "conservation": 0.23,
+      "total": 2.235,
+      "importer_cpu": 0.773,
+      "readiness_check": 0.031,
+      "staging": 0.027,
+      "relation_arrays": 0.079,
+      "auth_import": 0.089,
+      "commit": 0.006
+    }
+  },
+  "preservation": {
+    "rows": 39,
+    "source_rowids_all_tables": true,
+    "native_rowids_users_article": true,
+    "negative_rowid_archived": true,
+    "timestamps_status_balances": true,
+    "accounts": {
+      "superusers": 1,
+      "superusers_equal_source_admins": true,
+      "settings_rows": 1,
+      "auth_token_secrets_equal_source": {
+        "users": true,
+        "agent_users": true,
+        "_superusers": true
+      },
+      "settings": {
+        "mapped_paths_equal_source": 16,
+        "smtp_password_presence_only": true,
+        "fixture_overrides": {
+          "logs.maxDays": "imported",
+          "logs.minLevel": "imported",
+          "backups.cron": "not_imported_as_documented"
+        }
+      }
+    },
+    "real_shape": {
+      "unlimited_relation_arrays_identical": true,
+      "orphans_stored_as_is": true,
+      "user_dates_exact": true,
+      "empty_multi_file_list": true,
+      "json_null": true
+    },
+    "file_count": 15
+  },
+  "schema_after": {
+    "definitions": 114,
+    "views": 42,
+    "ok": true
+  },
+  "server_ppbase": {
+    "package_dir": "/root/buma-c11-work/ppbase-snap/ppbase",
+    "git_commit": "526397ac7e83641ad485117034c9683137cb5a61",
+    "same_as_rehearsal_process": true,
+    "relation_multiplicity_rule": true,
+    "app_from_this_project": true,
+    "live_process": {
+      "source": "/proc/<server pid>",
+      "pythonpath_matches_probe": true,
+      "cwd_is_the_probe_cwd": true,
+      "command": "python -m ppbase serve --hooks app.hooks.register:register"
+    },
+    "stopped": true
+  },
+  "comparison_with_pocketbase": {
+    "profile": "real_shape",
+    "probes": 84,
+    "identical": 1,
+    "identical_status_and_body": 46,
+    "with_open_divergences": 83,
+    "declared_divergences": {
+      "customers_pdv_name_every": {
+        "state": "present",
+        "pocketbase_status": 200,
+        "ppbase_status": 200,
+        "paths": [
+          "/items: 0 != 1 items",
+          "/totalItems",
+          "/totalPages"
+        ],
+        "cause": "PPBase defect on the D-0019 arrays, independent of the import: a nested field of a multiple relation without '?' matches when any element matches (ppbase/services/filter_parser.py:1268-1282, EXISTS only); PocketBase v0.22.34 requires every element (multi-match, resolvers/record_field_resolve_runner.go:679-681, tools/search/filter.go:184-210)",
+        "client_impact": "a filter or rule on a nested field of buma_customer.pdv, buma_pilotage_ticket.tag or buma_wallet.managers without '?' (here pdv.name ~ ...) selects more records than PocketBase: a list returns records PocketBase leaves out",
+        "documented_in": "D-0025 (remaining PPBase gaps: multi-match of traversals, handled by D-0030)"
+      },
+      "users_lists_customers_by_role": {
+        "state": "present",
+        "pocketbase_status": 200,
+        "ppbase_status": 500,
+        "paths": 6,
+        "content_types": {
+          "pocketbase": "application/json; charset=UTF-8",
+          "ppbase": "text/plain; charset=utf-8"
+        },
+        "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
+        "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "denied_lists_wallets": {
+        "state": "present",
+        "pocketbase_status": 200,
+        "ppbase_status": 500,
+        "paths": 6,
+        "content_types": {
+          "pocketbase": "application/json; charset=UTF-8",
+          "ppbase": "text/plain; charset=utf-8"
+        },
+        "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
+        "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "denied_views_joined_wallet": {
+        "state": "present",
+        "pocketbase_status": 404,
+        "ppbase_status": 500,
+        "paths": 4,
+        "content_types": {
+          "pocketbase": "application/json; charset=UTF-8",
+          "ppbase": "text/plain; charset=utf-8"
+        },
+        "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
+        "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      }
+    },
+    "divergence_classes": {
+      "auth_email_hidden_despite_manage_rule": {
+        "state": "open",
+        "probes": [
+          "json_null_text_user",
+          "users_list_users"
+        ],
+        "count": 2,
+        "cause": "PocketBase v0.22.34 shows auth emails to admins, the owner and requesters satisfying the collection manageRule (apis/record_helpers.go:216-270; users.manageRule is @request.auth.role.permission.isAdmin = true); PPBase only to superusers and the owner (ppbase/models/record.py:80-101)",
+        "client_impact": "a record session whose role satisfies users.manageRule (isAdmin) no longer receives the other users' email in lists and views",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "auth_error_message_wording": {
+        "state": "open",
+        "probes": [
+          "anonymous_users_refresh",
+          "tampered_admin_lists_admins",
+          "tampered_users_refresh",
+          "users_token_on_admin_route",
+          "users_token_on_agent_refresh"
+        ],
+        "count": 5,
+        "cause": "401/403 messages of PPBase differ from PocketBase v0.22.34, same status",
+        "client_impact": "a client comparing or displaying the 401/403 message text",
+        "documented_in": "docs/contracts/c11-auth-import.md section 5; not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "default_thumb_size_serves_original": {
+        "state": "open",
+        "probes": [
+          "file:buma_config.logo:C11_CONFIG_REC1:0:thumb_100x100",
+          "file:buma_ressources.file:c11file00000003:0:thumb_100x100"
+        ],
+        "count": 2,
+        "cause": "PocketBase v0.22.34 always serves the 100x100 thumbnail (apis/file.go:27, :163-164; here the one it stored, thumbs_<name>/100x100_<name>); PPBase only the sizes the field declares (ppbase/api/files.py:280-283; the BUMA file fields declare none) and serves the original bytes",
+        "client_impact": "?thumb=100x100 returns the original image (its size and dimensions) instead of a 100x100 thumbnail",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "empty_date_served_null": {
+        "state": "open",
+        "probes": [
+          "customer_orphan_type",
+          "customers_expand_pdv",
+          "tickets_expand_tag",
+          "users_filtered_transactions_expand"
+        ],
+        "count": 4,
+        "cause": "PocketBase v0.22.34 serves an empty date as \"\" (tools/types/datetime.go:44-53); PPBase stores it as SQL NULL and serves null (ppbase/models/record.py:129-133)",
+        "client_impact": "every empty date field of every record is served null instead of \"\": a client typing it as a non-null string (Dart String, TypeScript string) receives null, JavaScript new Date(null) gives 1970-01-01 where new Date(\"\") was invalid",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "empty_expand_object": {
+        "state": "open",
+        "probes": [
+          "article_orphan_category",
+          "customers_expand_pdv",
+          "sales_expand_orphan_customer",
+          "sim_balance_orphan_author",
+          "wallets_expand_managers"
+        ],
+        "count": 5,
+        "cause": "PocketBase v0.22.34 omits expand when nothing was expanded (models/record.go:556-559); PPBase serves expand {} (ppbase/services/expand_service.py:240-242)",
+        "client_impact": "a client testing whether expand exists takes the other branch (empty object instead of no key), e.g. when every relation of the record is an orphan",
+        "documented_in": "D-0025 (remaining PPBase gaps); not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "empty_list_total_pages": {
+        "state": "open",
+        "probes": [
+          "customers_pdv_equals",
+          "customers_pdv_equals_any",
+          "wallets_managers_each_any"
+        ],
+        "count": 3,
+        "cause": "PocketBase v0.22.34 totalPages = ceil(0 / perPage) = 0 (tools/search/provider.go:254); PPBase max(1, ...) (ppbase/models/record.py:196-201)",
+        "client_impact": "an empty list reports totalPages 1 instead of 0 (pagers, page loops)",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "error_envelope_code_vs_status": {
+        "state": "open",
+        "probes": [
+          "admin_wrong_password",
+          "agent_wrong_password",
+          "anonymous_protected_supplier",
+          "anonymous_users_refresh",
+          "declared_keys:denied_views_joined_wallet",
+          "denied_reads_admin_role_caisse_access",
+          "file:buma_ressources.file:c11file00000002:0",
+          "file:buma_wallet.image:c11wallet000001:0",
+          "file:unreferenced:C11_CONFIG_REC1:attrs_sidecar:4",
+          "file:unreferenced:c11deleted00001:attrs_sidecar:1",
+          "file:unreferenced:c11deleted00001:other:0",
+          "file:unreferenced:c11file00000003:attrs_sidecar:2",
+          "file:unreferenced:c11file00000003:attrs_sidecar:3",
+          "tampered_admin_lists_admins",
+          "tampered_users_protected_supplier",
+          "tampered_users_refresh",
+          "users_token_on_admin_route",
+          "users_token_on_agent_refresh",
+          "users_wrong_password"
+        ],
+        "count": 19,
+        "cause": "PocketBase v0.22.34 {code, message, data} (apis/api_error.go:12-15), PPBase {status, message, data}",
+        "client_impact": "same HTTP status and message: a client reading the body field code of a native error (/api/admins, /api/collections/*, /api/files) gets no value",
+        "documented_in": "docs/contracts/c11-auth-import.md section 5 and the D-0025 gap list; not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "failed_login_identity_detail": {
+        "state": "open",
+        "probes": [
+          "admin_wrong_password",
+          "agent_wrong_password",
+          "users_wrong_password"
+        ],
+        "count": 3,
+        "cause": "PPBase adds data.identity validation_invalid_credentials to the 400 of a failed login (ppbase/api/record_auth.py:352-357, ppbase/api/admins.py:172); PocketBase v0.22.34 answers data {}",
+        "client_impact": "same 400 and message; a client that shows or tests the data keys of a failed login (field errors) sees an identity error",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "file_content_disposition_missing": {
+        "state": "open",
+        "probes": [
+          "file:buma_article.medias:c11art000000001:0",
+          "file:buma_config.logo:C11_CONFIG_REC1:0",
+          "file:buma_config.logo:C11_CONFIG_REC1:0:thumb_100x100",
+          "file:buma_ressources.file:c11file00000001:0",
+          "file:buma_ressources.file:c11file00000001:1",
+          "file:buma_ressources.file:c11file00000003:0",
+          "file:buma_ressources.file:c11file00000003:0:thumb_100x100",
+          "file:buma_ressources.file:c11file00000003:1"
+        ],
+        "count": 8,
+        "cause": "PocketBase v0.22.34 sends Content-Disposition inline/attachment with the file name (tools/filesystem/filesystem.go:393-418); PPBase none on its default storage stream (ppbase/api/files.py:1056-1110)",
+        "client_impact": "a browser or downloader gets no file name and no inline/attachment hint from the header (it falls back to the URL name)",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      },
+      "json_content_type_charset": {
+        "state": "open",
+        "probes": [
+          "admin_by_email",
+          "admin_list_users",
+          "admin_lists_admins",
+          "admin_reads_protected_supplier",
+          "admin_refresh",
+          "admin_wrong_password",
+          "agent_by_email",
+          "agent_by_username",
+          "agent_no_email_by_username",
+          "agent_no_email_reads_own",
+          "agent_no_email_refresh",
+          "agent_reads_own_record",
+          "agent_refresh",
+          "agent_wrong_password",
+          "anonymous_protected_supplier",
+          "anonymous_public_article",
+          "anonymous_users_refresh",
+          "article_orphan_category",
+          "custom_id_apps_role",
+          "custom_id_config",
+          "custom_id_payment_method",
+          "customer_orphan_type",
+          "customers_expand_pdv",
+          "customers_pdv_each_any",
+          "customers_pdv_equals",
+          "customers_pdv_equals_any",
+          "customers_pdv_id_any",
+          "customers_pdv_length_0",
+          "customers_pdv_length_2",
+          "customers_pdv_like",
+          "customers_pdv_name_any",
+          "customers_pdv_name_every",
+          "declared_keys:denied_lists_wallets",
+          "declared_keys:denied_views_joined_wallet",
+          "declared_keys:users_lists_customers_by_role",
+          "denied_reads_admin_role_caisse_access",
+          "denied_refresh",
+          "file:buma_ressources.file:c11file00000002:0",
+          "file:buma_wallet.image:c11wallet000001:0",
+          "file:unreferenced:C11_CONFIG_REC1:attrs_sidecar:4",
+          "file:unreferenced:c11deleted00001:attrs_sidecar:1",
+          "file:unreferenced:c11deleted00001:other:0",
+          "file:unreferenced:c11file00000003:attrs_sidecar:2",
+          "file:unreferenced:c11file00000003:attrs_sidecar:3",
+          "json_null_text_user",
+          "payments_expand_custom_id",
+          "ressources_file_lists",
+          "return_duplicates",
+          "sales_expand_orphan_customer",
+          "sim_balance_orphan_author",
+          "tampered_admin_lists_admins",
+          "tampered_users_protected_supplier",
+          "tampered_users_refresh",
+          "tickets_by_user_date",
+          "tickets_expand_tag",
+          "tickets_tag_each_any",
+          "undeclared_select_sale",
+          "users_by_username",
+          "users_filtered_transactions_expand",
+          "users_list_users",
+          "users_no_email_2_by_username",
+          "users_no_email_by_username",
+          "users_no_email_refresh",
+          "users_reads_admin_role_caisse_access",
+          "users_reads_protected_supplier",
+          "users_refresh",
+          "users_token_on_admin_route",
+          "users_token_on_agent_refresh",
+          "users_wrong_password",
+          "wallets_expand_managers",
+          "wallets_managers_each_any",
+          "wallets_managers_like"
+        ],
+        "count": 72,
+        "cause": "measured: PocketBase v0.22.34 sends JSON answers as application/json; charset=UTF-8 (set by its echo v5 dependency, whose source is not on this server: not verified offline), PPBase as application/json",
+        "client_impact": "JSON is UTF-8 either way (RFC 8259 section 8.1); only a client that compares the exact Content-Type string differs",
+        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+      }
+    },
+    "token_shapes": {
+      "users_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "denied_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "agent_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "users_no_email_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "agent_no_email_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "admin_refresh": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "admin"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "exp",
+            "iat",
+            "id",
+            "type"
+          ],
+          "type": "admin"
+        },
+        "expected": true
+      },
+      "users_by_username": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "agent_by_email": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "agent_by_username": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "users_no_email_by_username": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "users_no_email_2_by_username": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "agent_no_email_by_username": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "authRecord"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "collectionId",
+            "exp",
+            "iat",
+            "id",
+            "refreshable",
+            "type"
+          ],
+          "type": "auth"
+        },
+        "expected": true
+      },
+      "admin_by_email": {
+        "pocketbase": {
+          "alg": "HS256",
+          "claims": [
+            "exp",
+            "id",
+            "type"
+          ],
+          "type": "admin"
+        },
+        "ppbase": {
+          "alg": "HS256",
+          "claims": [
+            "exp",
+            "iat",
+            "id",
+            "type"
+          ],
+          "type": "admin"
+        },
+        "expected": true
+      }
+    },
+    "unexpected_differences": [],
+    "results": {
+      "users_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "denied_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_no_email_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_no_email_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "admin_refresh": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "admin_lists_admins": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_reads_admin_role_caisse_access": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_reads_protected_supplier": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "admin_reads_protected_supplier": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_reads_own_record": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_no_email_reads_own": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "denied_reads_admin_role_caisse_access": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "anonymous_protected_supplier": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "anonymous_users_refresh": {
+        "status": 401,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "tampered_users_refresh": {
+        "status": 401,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "tampered_users_protected_supplier": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "tampered_admin_lists_admins": {
+        "status": 401,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "users_token_on_admin_route": {
+        "status": 401,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "users_token_on_agent_refresh": {
+        "status": 403,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "anonymous_public_article": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_filtered_transactions_expand": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "users_list_users": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "ressources_file_lists": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "admin_list_users": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_expand_pdv": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "tickets_expand_tag": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "wallets_expand_managers": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_equals_any": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_equals": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_like": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_each_any": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_id_any": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_length_2": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_length_0": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_name_any": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "customers_pdv_name_every": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "tickets_tag_each_any": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "wallets_managers_like": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "wallets_managers_each_any": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "sales_expand_orphan_customer": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "sim_balance_orphan_author": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "payments_expand_custom_id": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "return_duplicates": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "tickets_by_user_date": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "article_orphan_category": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "customer_orphan_type": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "custom_id_apps_role": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "custom_id_payment_method": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "custom_id_config": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "undeclared_select_sale": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "json_null_text_user": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "users_lists_customers_by_role": {
+        "status": 500,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "denied_lists_wallets": {
+        "status": 500,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "denied_views_joined_wallet": {
+        "status": 500,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "users_by_username": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_by_email": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_by_username": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_no_email_by_username": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_no_email_2_by_username": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "agent_no_email_by_username": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "admin_by_email": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "users_wrong_password": {
+        "status": 400,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "agent_wrong_password": {
+        "status": 400,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "admin_wrong_password": {
+        "status": 400,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "declared_keys:users_lists_customers_by_role": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "declared_keys:denied_lists_wallets": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "declared_keys:denied_views_joined_wallet": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:buma_article.medias:c11art000000001:0": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_config.logo:C11_CONFIG_REC1:0": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_config.logo:C11_CONFIG_REC1:0:thumb_100x100": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000001:0": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000001:1": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000002:0": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000003:0": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000003:0:thumb_100x100": {
+        "status": 200,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:buma_ressources.file:c11file00000003:1": {
+        "status": 200,
+        "same_status_and_body": true,
+        "same_as_pocketbase": false
+      },
+      "file:buma_wallet.image:c11wallet000001:0": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:unreferenced:c11deleted00001:other:0": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:unreferenced:c11deleted00001:attrs_sidecar:1": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:unreferenced:c11file00000003:attrs_sidecar:2": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:unreferenced:c11file00000003:attrs_sidecar:3": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "file:unreferenced:C11_CONFIG_REC1:attrs_sidecar:4": {
+        "status": 404,
+        "same_status_and_body": false,
+        "same_as_pocketbase": false
+      },
+      "realtime": {
+        "same_status_and_body": true,
+        "same_as_pocketbase": true
+      }
+    }
+  },
+  "evidence_scope": {
+    "kind": "import_fidelity",
+    "answer_parity_with_pocketbase": false,
+    "statement": "Proves that the synthetic snapshot built by PocketBase is imported faithfully (records, rowids, arrays, preserved anomalies, accounts, settings, token secrets, files) and served by PPBase with the sessions PocketBase issued before the import. Does not prove answer parity with PocketBase 0.22.34: every accepted difference of comparison_with_pocketbase is an open divergence, pre-existing and independent of the import, with its cause, client impact and documentation state.",
+    "answers_compared": 84,
+    "answers_identical": 1,
+    "answers_with_open_divergences": 83,
+    "open_declared_divergences": [
+      "customers_pdv_name_every",
+      "denied_lists_wallets",
+      "denied_views_joined_wallet",
+      "users_lists_customers_by_role"
+    ],
+    "resolved_declared_divergences": [],
+    "open_divergence_classes": [
+      "auth_email_hidden_despite_manage_rule",
+      "auth_error_message_wording",
+      "default_thumb_size_serves_original",
+      "empty_date_served_null",
+      "empty_expand_object",
+      "empty_list_total_pages",
+      "error_envelope_code_vs_status",
+      "failed_login_identity_detail",
+      "file_content_disposition_missing",
+      "json_content_type_charset"
+    ]
+  },
+  "absolute_checks": {
+    "pocketbase": [
+      "expected_statuses_and_logins",
+      "native_filtered_list_envelope_and_expand",
+      "present_files_exact_bytes_absent_files_404",
+      "realtime_pocketbase_token_subscriber_only",
+      "multiple_relations_values_and_expand_in_stored_order",
+      "multiple_relation_filters_as_pocketbase_0_22",
+      "orphans_served_as_stored_without_expand",
+      "custom_ids_read_and_expanded",
+      "undeclared_select_and_json_null",
+      "user_dates_served_and_filtered",
+      "empty_multi_file_list",
+      "role_rules_and_the_joined_managers_element",
+      "role_rules_and_the_joined_managers_element_with_declared_keys"
+    ],
+    "ppbase": [
+      "expected_statuses_and_logins",
+      "native_filtered_list_envelope_and_expand",
+      "present_files_exact_bytes_absent_files_404",
+      "realtime_pocketbase_token_subscriber_only",
+      "multiple_relations_values_and_expand_in_stored_order",
+      "multiple_relation_filters_as_pocketbase_0_22_except_declared:customers_pdv_name_every",
+      "orphans_served_as_stored_without_expand",
+      "custom_ids_read_and_expanded",
+      "undeclared_select_and_json_null",
+      "user_dates_served_and_filtered",
+      "empty_multi_file_list",
+      "role_rules_and_the_joined_managers_element_except_declared:users_lists_customers_by_role,denied_lists_wallets,denied_views_joined_wallet",
+      "role_rules_and_the_joined_managers_element_with_declared_keys"
+    ]
+  },
+  "writes_during_http_probes": {
+    "realtime_supplier_update": true,
+    "ppbase_setup_token_without_superuser": false
+  },
+  "source_unchanged": true,
+  "no_business_hook_replay": true,
+  "schema_after_http": {
+    "definitions": 114,
+    "views": 42,
+    "ok": true
+  },
+  "cleanup": {
+    "temporary_directory_removed": true,
+    "container_stopped": true,
+    "container_removed": true
+  },
+  "elapsed_seconds": 55.3
+}

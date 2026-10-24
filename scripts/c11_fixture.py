@@ -9,10 +9,14 @@ Profiles (``create_fixture(..., profile=...)``):
   format audit): non-empty unlimited relations, a list element made of two
   joined IDs, orphan references, absent referenced files, duplicate mobile
   RETURN keys, custom record IDs, undeclared select values, auth records
-  without email, one PocketBase admin, PocketBase settings with non-default
-  logs/backups values, and files uploaded through the PocketBase HTTP API
-  (``.attrs`` sidecars, thumbnails, files left by a deleted record).
-  ``REAL_SHAPE`` documents every case.
+  without email, non-empty user date fields, an empty multi-file list, one
+  PocketBase admin, PocketBase settings with non-default logs/backups values,
+  and files uploaded through the PocketBase HTTP API (``.attrs`` sidecars,
+  thumbnails, files left by a deleted record). ``REAL_SHAPE`` documents every
+  case. The real unlimited relations only hold 0 or 1 element (5,505 empty
+  and 336 single-element lists over the three fields); the 2-element lists
+  here are a deliberate superset that proves the element order is kept, not
+  a shape of the production data.
 
 Records are created by PocketBase itself: its Dao in JS migrations, the
 ``admin create`` command and, for uploads, its HTTP API. No BUMA hook,
@@ -68,7 +72,12 @@ USER = "c11user00000001"
 REAL_SHAPE_RECORDS = (
     # (collection, data, password). Saved in this order by PocketBase's Dao:
     # the order fixes the SQLite rowids used by the duplicate cases below.
-    ("buma_pdv", {"id": "c11pdv000000001", "name": "C11 PDV one", "status": True}, None),
+    (
+        "buma_pdv",
+        {"id": "c11pdv000000001", "name": "C11 PDV one", "status": True}
+        | {"start_date": "2024-01-15 00:00:00.000Z"},
+        None,
+    ),
     ("buma_pdv", {"id": "c11pdv000000002", "name": "C11 PDV two", "status": True}, None),
     ("buma_pilotage_ticket_tag", {"id": "c11tag000000001", "title": "C11 tag one"}, None),
     ("buma_pilotage_ticket_tag", {"id": "c11tag000000002", "title": "C11 tag two"}, None),
@@ -106,7 +115,9 @@ REAL_SHAPE_RECORDS = (
     (
         "buma_pilotage_ticket",
         {"id": "c11ticket000001", "title": "C11 two tags", "author": USER}
-        | {"tag": ["c11tag000000002", "c11tag000000001"]},
+        | {"tag": ["c11tag000000002", "c11tag000000001"]}
+        # Given with an offset: PocketBase stores it in UTC, in its own layout.
+        | {"delais": "2025-03-01T10:00:00+02:00"},
         None,
     ),
     (
@@ -134,14 +145,16 @@ REAL_SHAPE_RECORDS = (
     ("buma_sale", {"id": "c11sale00000001", "customer": "c11cust00000001", "amount": 25}, None),
     (
         "buma_sale",
-        # "kind" outside its declared values (UV, AUTRE), as 51,145 real values.
+        # "kind" outside its declared values (UV, AUTRE), as 1,342 real values of
+        # buma_sale.kind (51,145 undeclared values over four select fields).
         {"id": "c11sale00000002", "customer": "c11nocustomer01", "amount": 30}
         | {"kind": "C11_UNDECLARED"},
         None,
     ),
     (
         "buma_sim_balance_activity",
-        {"id": "c11simbal000001", "author": "1", "id_date": "c11-simbal-1", "balance": 10},
+        {"id": "c11simbal000001", "author": "1", "id_date": "c11-simbal-1", "balance": 10}
+        | {"date": "2024-12-31 23:59:59.999Z"},
         None,
     ),
     (
@@ -154,6 +167,13 @@ REAL_SHAPE_RECORDS = (
         "buma_ressources",
         {"id": "c11file00000002", "name": "C11 absent file", "fileName": "c11-absent"}
         | {"author": USER, "status": True, "file": ["c11_absent_resource_Gh56Ij78Kl.pdf"]},
+        None,
+    ),
+    # An empty multi-file list, stored as '[]' (one such real buma_ressources value).
+    (
+        "buma_ressources",
+        {"id": "c11file00000004", "name": "C11 no file", "fileName": "c11-empty"}
+        | {"author": USER, "status": True, "file": []},
         None,
     ),
     # Custom record IDs, as the 26 real ones: 3 to 9 lowercase letters (18), or
@@ -171,16 +191,17 @@ REAL_SHAPE_RECORDS = (
 # Duplicate (type, author, mobile_message_id) RETURN groups with different
 # business values, as the 877 real groups (D-0022). Group "tie" shares its
 # first created date (30 real groups); in group "inverted" the smallest rowid is
-# not the oldest record (4 real groups, D-0023).
+# not the oldest record (4 real groups, D-0023). The last item is the
+# non-empty user date mobile_transaction_date (device time, before created).
 RETURN_DUPLICATES = {
     "c11-mobile-dup-tie": (
-        ("c11ret000000001", "2024-11-18 08:00:00.000Z", 1, 5),
-        ("c11ret000000002", "2024-11-18 08:00:00.000Z", 2, 5),
-        ("c11ret000000003", "2024-11-18 08:05:00.000Z", 1, 7),
+        ("c11ret000000001", "2024-11-18 08:00:00.000Z", 1, 5, "2024-11-18 07:59:30.000Z"),
+        ("c11ret000000002", "2024-11-18 08:00:00.000Z", 2, 5, "2024-11-18 07:59:30.000Z"),
+        ("c11ret000000003", "2024-11-18 08:05:00.000Z", 1, 7, "2024-11-18 08:04:30.000Z"),
     ),
     "c11-mobile-dup-inverted": (
-        ("c11ret000000004", "2025-01-10 10:00:00.000Z", 3, 4),
-        ("c11ret000000005", "2025-01-10 09:00:00.000Z", 4, 4),
+        ("c11ret000000004", "2025-01-10 10:00:00.000Z", 3, 4, "2025-01-10 09:59:00.000Z"),
+        ("c11ret000000005", "2025-01-10 09:00:00.000Z", 4, 4, "2025-01-10 08:59:00.000Z"),
     ),
 }
 REAL_SHAPE_RECORDS += tuple(
@@ -196,13 +217,14 @@ REAL_SHAPE_RECORDS += tuple(
             "price": price,
             "status": True,
             "notes": "C11 duplicate " + record[-1],
+            "mobile_transaction_date": mobile_date,
             "created": created,
             "updated": created,
         },
         None,
     )
     for key, rows in RETURN_DUPLICATES.items()
-    for record, created, quantity, price in rows
+    for record, created, quantity, price, mobile_date in rows
 )
 
 
@@ -314,10 +336,25 @@ REAL_SHAPE = {
     "relation_to_custom_id": {"buma_payment.method": {"c11payment00001": "C11_PAY_METHOD1"}},
     "undeclared_select_values": {"buma_sale.kind": {"c11sale00000002": "C11_UNDECLARED"}},
     "json_null_text": {"users.more": "c11user00000003"},
+    # Stored text expected from PocketBase (UTC, DefaultDateLayout); 638,158
+    # real date values are non-empty. delais was given with a +02:00 offset.
+    "user_dates": {
+        "buma_pdv.start_date": {"c11pdv000000001": "2024-01-15 00:00:00.000Z"},
+        "buma_pilotage_ticket.delais": {"c11ticket000001": "2025-03-01 08:00:00.000Z"},
+        "buma_sim_balance_activity.date": {"c11simbal000001": "2024-12-31 23:59:59.999Z"},
+        "buma_transaction.mobile_transaction_date": {
+            record: mobile_date
+            for rows in RETURN_DUPLICATES.values()
+            for record, *_, mobile_date in rows
+        },
+    },
+    "empty_multi_file": {"buma_ressources.file": {"c11file00000004": []}},
     "api_uploads": {
         fields["id"]: f"{collection}.{field}" for collection, fields, field, *_ in UPLOADS
     },
-    "deleted_record_files": dict(DELETED_RECORDS),
+    # Keyed by record, like api_uploads: two deleted records of one collection
+    # must both stay listed.
+    "deleted_record_files": {record: collection for collection, record in DELETED_RECORDS},
     "settings_overrides": SETTINGS_OVERRIDES,
     "accounts": ACCOUNTS,
 }
