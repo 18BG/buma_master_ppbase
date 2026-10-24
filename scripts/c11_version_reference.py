@@ -1337,6 +1337,21 @@ def run_real_formats(
     return json.loads(completed.stdout)
 
 
+VERSION_GATE_BLOCKER = "source_pocketbase_version_unvalidated"
+
+
+def only_version_gate_blocks(gate: dict) -> bool:
+    """True when 0.22.34 is refused by nothing but the importer version gate.
+
+    The check must survive the gate itself: once scripts/c11_import.py accepts
+    0.22.34 (D-0024), its default fixture has no blocker at all, and a replay of
+    this reference must not turn that into a failure that closes the gate again.
+    """
+    blockers_0_22_34 = gate["0.22.34"]["with_source_version"]["blocker_codes"]
+    blockers_0_22_27 = gate["0.22.27"]["with_source_version"]["blocker_codes"]
+    return set(blockers_0_22_34) <= {VERSION_GATE_BLOCKER} and blockers_0_22_27 == []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command")
@@ -1431,11 +1446,7 @@ def main() -> None:
         "importer_reads_both_identically": all(
             not p["importer_diagnostic_differences"] for p in profiles
         ),
-        "only_version_gate_blocks_0_22_34_default_fixture": gate["0.22.34"]["with_source_version"][
-            "blocker_codes"
-        ]
-        == ["source_pocketbase_version_unvalidated"]
-        and gate["0.22.27"]["with_source_version"]["blocker_codes"] == [],
+        "only_version_gate_blocks_0_22_34_default_fixture": only_version_gate_blocks(gate),
         "same_embedded_sqlite": len(embedded) == 1,
     }
     for key, value in binaries.items():
