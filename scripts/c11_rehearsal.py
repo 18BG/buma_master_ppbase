@@ -1949,7 +1949,13 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
             "storage_mode": imported["evidence"].get("storage_mode"),
             # import_auth's own value-free report (counts, states, no secret).
             "auth": auth,
+            # Aggregates the wave-3 import_snapshot adds (absent before WS-B3).
+            "single_transaction": imported["evidence"].get("single_transaction"),
+            "relation_arrays": imported["evidence"].get("relation_arrays"),
+            "timings_seconds": imported["evidence"].get("timings_seconds"),
         }
+        # Accounts and settings come from the same transaction as the records.
+        assert isinstance(auth, dict) and auth.get("imported") is True, "accounts not imported"
         final = await table_state(engine, definitions)
         assert sum(len(rows) for rows in final.values()) == diagnostic["rows"]
         report["preservation"] = await check_imported(engine, data, definitions, final, profile)
@@ -2114,7 +2120,8 @@ def main():
                 if args.private_logs is not None:
                     args.private_logs.mkdir(mode=0o700)
                     for log in root.rglob("*.log"):
-                        target = args.private_logs / log.name
+                        # One file per log, whatever directory each one lives in.
+                        target = args.private_logs / "_".join(log.relative_to(root).parts)
                         shutil.copyfile(log, target)
                         target.chmod(0o600)
     except BaseException as exc:
