@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-10-24T09:50:45.305507+00:00",
+  "timestamp_utc": "2026-10-24T11:42:14.462367+00:00",
   "scope": "synthetic_volume_benchmark",
   "production_data_used": false,
   "real_backup_read": false,
@@ -11,7 +11,7 @@
     "sqlalchemy": "2.1.6",
     "ppbase_version": "0.3.2",
     "ppbase_commit": "c6821aa71a79c0c3d86e2757e7424b45e84016dc",
-    "buma_commit": "21f2b44dcb0ed0ae6f78c58634613467eff61f21",
+    "buma_commit": "bf00a14ca753c752ee9c32a319a811e2a4dc963f",
     "buma_worktree_clean": true,
     "pocketbase": "pocketbase version 0.22.27",
     "docker": "29.9.1",
@@ -23,9 +23,9 @@
     },
     "concurrent_load_at_start": {
       "loadavg_1_5_15": [
-        1.61,
-        1.52,
-        1.46
+        2.29,
+        2.44,
+        2.31
       ],
       "other_running_containers": 1
     }
@@ -35,14 +35,14 @@
     "memory": {
       "limit": "2g",
       "memory_max_bytes": 2147483648,
-      "cgroup_memory_peak_bytes_including_page_cache": 2149285888,
-      "sampled_max_current_bytes": 2148581376,
-      "sampled_max_anon_bytes": 80199680,
-      "sampled_max_file_bytes": 2071224320,
+      "cgroup_memory_peak_bytes_including_page_cache": 2149253120,
+      "sampled_max_current_bytes": 2148716544,
+      "sampled_max_anon_bytes": 80392192,
+      "sampled_max_file_bytes": 2069299200,
       "sampled_max_shmem_bytes": 148406272,
-      "sampled_max_anon_plus_shmem_bytes": 227176448,
+      "sampled_max_anon_plus_shmem_bytes": 227368960,
       "events": {
-        "max": 3978,
+        "max": 4018,
         "oom": 0,
         "oom_kill": 0
       },
@@ -50,12 +50,13 @@
     },
     "cpus": "2"
   },
+  "fixture_baseline_anomalies": 0,
   "negative_dataset": {
     "scale": 0.002,
     "minimum_rows_per_table": 5,
     "synthetic_rows_added": 2635,
     "records": 2644,
-    "seconds": 0.15,
+    "seconds": 0.16,
     "data_db_bytes": 2109440
   },
   "dataset": {
@@ -71,11 +72,16 @@
     "missing_file_every": 1999,
     "synthetic_rows_added": 1182397,
     "records": 1182406,
-    "seconds": 54.9,
+    "seconds": 70.18,
     "data_db_bytes": 521601024,
     "diagnostic": {
       "rows": 1182406,
       "relations_checked": 7527497,
+      "anomalies": {
+        "dangling_references": 11154,
+        "missing_file_references": 176,
+        "equal_to_generated_counts": true
+      },
       "dangling_references": 11154,
       "dangling_fields": 135,
       "missing_file_references": 176,
@@ -164,57 +170,93 @@
   },
   "memory_phases": {
     "prepare": {
-      "max_current_bytes": 102879232,
-      "max_anon_bytes": 18022400,
-      "max_file_bytes": 77504512,
+      "max_current_bytes": 103178240,
+      "max_anon_bytes": 17903616,
+      "max_file_bytes": 77832192,
       "max_shmem_bytes": 22257664,
-      "max_anon_plus_shmem_bytes": 39157760,
-      "max_host_loadavg_1min": 1.71
+      "max_anon_plus_shmem_bytes": 39333888,
+      "max_host_loadavg_1min": 3.11
     },
     "negative_load_cases": {
-      "max_current_bytes": 163565568,
-      "max_anon_bytes": 30027776,
-      "max_file_bytes": 127500288,
-      "max_shmem_bytes": 33185792,
-      "max_anon_plus_shmem_bytes": 61689856,
-      "max_host_loadavg_1min": 1.73
+      "max_current_bytes": 169410560,
+      "max_anon_bytes": 30584832,
+      "max_file_bytes": 131813376,
+      "max_shmem_bytes": 35979264,
+      "max_anon_plus_shmem_bytes": 65228800,
+      "max_host_loadavg_1min": 5.04
     },
     "diagnosis": {
-      "max_current_bytes": 141905920,
-      "max_anon_bytes": 5017600,
-      "max_file_bytes": 127967232,
-      "max_shmem_bytes": 33185792,
-      "max_anon_plus_shmem_bytes": 38203392,
-      "max_host_loadavg_1min": 1.6
+      "max_current_bytes": 147247104,
+      "max_anon_bytes": 5726208,
+      "max_file_bytes": 131837952,
+      "max_shmem_bytes": 35979264,
+      "max_anon_plus_shmem_bytes": 41705472,
+      "max_host_loadavg_1min": 5.04
     },
     "failure_injection": {
-      "max_current_bytes": 1491382272,
-      "max_anon_bytes": 15233024,
-      "max_file_bytes": 1430368256,
+      "max_current_bytes": 1491619840,
+      "max_anon_bytes": 15167488,
+      "max_file_bytes": 1430921216,
       "max_shmem_bytes": 146948096,
-      "max_anon_plus_shmem_bytes": 162136064,
-      "max_host_loadavg_1min": 3.06
+      "max_anon_plus_shmem_bytes": 162111488,
+      "max_host_loadavg_1min": 5.23
     },
     "concurrent_imports": {
-      "max_current_bytes": 2148581376,
-      "max_anon_bytes": 80199680,
-      "max_file_bytes": 2071224320,
+      "max_current_bytes": 2148716544,
+      "max_anon_bytes": 80392192,
+      "max_file_bytes": 2069299200,
       "max_shmem_bytes": 148406272,
-      "max_anon_plus_shmem_bytes": 227176448,
-      "max_host_loadavg_1min": 3.08
+      "max_anon_plus_shmem_bytes": 227368960,
+      "max_host_loadavg_1min": 4.74
     }
   },
   "negative_load_cases": {
     "bundle_rows": 2644,
-    "bundle_dangling_references": 174,
-    "bundle_missing_file_references": 18,
+    "bundle_anomalies_in_diagnosis": {
+      "dangling_references": 174,
+      "missing_file_references": 18,
+      "equal_to_generated_counts": true
+    },
     "cases": [
       {
         "name": "rowid_archive_exists",
         "code": "rowid_archive_exists",
         "details": {},
         "expected_code_and_details": true,
-        "seconds": 0.447,
+        "seconds": 0.923,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "unexpected_deferred_constraint_trigger",
+        "code": "unexpected_target_trigger",
+        "details": {
+          "kind": "table",
+          "collection": "buma_supplier",
+          "trigger": "c11_negative_deferred"
+        },
+        "expected_code_and_details": true,
+        "seconds": 1.495,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "unexpected_event_trigger",
+        "code": "unexpected_target_trigger",
+        "details": {
+          "kind": "event",
+          "triggers": 1
+        },
+        "expected_code_and_details": true,
+        "seconds": 2.553,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -231,7 +273,24 @@
           "constraint": "c11_negative_check"
         },
         "expected_code_and_details": true,
-        "seconds": 2.9,
+        "seconds": 3.621,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "deferred_constraint_violation",
+        "code": "target_constraint_violation",
+        "details": {
+          "collection": "buma_supplier",
+          "sqlstate": "23505",
+          "constraint": "c11_negative_deferred_unique"
+        },
+        "expected_code_and_details": true,
+        "seconds": 4.479,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -247,7 +306,7 @@
           "field": "name"
         },
         "expected_code_and_details": true,
-        "seconds": 1.117,
+        "seconds": 1.928,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -259,11 +318,11 @@
         "name": "target_readback_mismatch",
         "code": "target_readback_mismatch",
         "details": {
-          "collection": "buma_supplier",
+          "collection": "users",
           "field": "updated"
         },
         "expected_code_and_details": true,
-        "seconds": 1.973,
+        "seconds": 2.073,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -278,7 +337,7 @@
           "collection": "buma_agent"
         },
         "expected_code_and_details": true,
-        "seconds": 2.099,
+        "seconds": 5.0,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -293,7 +352,20 @@
           "collection": "buma_agent"
         },
         "expected_code_and_details": true,
-        "seconds": 2.36,
+        "seconds": 5.374,
+        "target_tables_empty": true,
+        "archive_untouched": true,
+        "staging_removed": true,
+        "advisory_locks": 0,
+        "idle_in_transaction_sessions": 0,
+        "no_effect_verified": true
+      },
+      {
+        "name": "definitions_do_not_match_diagnosis",
+        "code": "definitions_do_not_match_diagnosis",
+        "details": {},
+        "expected_code_and_details": true,
+        "seconds": 0.03,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -306,7 +378,7 @@
         "code": "anomaly_conservation_mismatch",
         "details": {},
         "expected_code_and_details": true,
-        "seconds": 3.279,
+        "seconds": 7.111,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -321,7 +393,7 @@
           "collection": "buma_agent"
         },
         "expected_code_and_details": true,
-        "seconds": 2.458,
+        "seconds": 13.168,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -334,7 +406,7 @@
         "code": "injected_import_failure",
         "details": {},
         "expected_code_and_details": true,
-        "seconds": 2.053,
+        "seconds": 5.316,
         "target_tables_empty": true,
         "archive_untouched": true,
         "staging_removed": true,
@@ -346,20 +418,20 @@
     "all_refused_with_expected_code_and_no_effect": true,
     "target_signature_restored": {
       "objects": 1831,
-      "sha256": "a88aff2715a8c31d30d0a8649724fd0e1bacbd2263aee7bddf5351a361ef331e",
+      "sha256": "0ade2fe770a5202f43c17a8370f76ed128d08de216da7bc1c3ee253944984ebd",
       "identical_before_and_after": true
     }
   },
   "diagnosis": {
-    "seconds": 85.27,
-    "peak_rss_kib": 107376,
+    "seconds": 123.52,
+    "peak_rss_kib": 106892,
     "ready": true
   },
   "failure_injection": {
     "fail_after_rows": 591203,
     "outcome": "injected_import_failure",
-    "seconds_until_rollback_complete": 90.689,
-    "peak_rss_kib": 105112,
+    "seconds_until_rollback_complete": 128.015,
+    "peak_rss_kib": 105232,
     "staging_removed": true,
     "target_tables_empty": true,
     "rowid_archive_absent": true,
@@ -384,38 +456,46 @@
     "file_bytes_copied": false,
     "batch_size": 5000,
     "timings_seconds": {
-      "checks": 1.164,
-      "copy_and_readback": 189.031,
+      "checks": 1.118,
+      "copy_and_readback": 213.321,
       "copy_and_readback_breakdown": {
-        "copy": 90.159,
-        "prepare_in_worker": 95.35,
-        "readback_and_compare": 88.02,
-        "waiting_for_worker": 10.736
+        "copy": 101.367,
+        "prepare_in_worker": 108.231,
+        "readback_and_compare": 101.155,
+        "waiting_for_worker": 10.665
       },
-      "final_check": 68.752,
-      "conservation": 26.849,
-      "total": 286.96,
-      "importer_cpu": 194.261,
-      "staging": 3.024,
-      "commit": 0.007
+      "final_check": 80.441,
+      "conservation": 24.566,
+      "total": 321.066,
+      "importer_cpu": 218.017,
+      "staging": 3.618,
+      "commit": 0.008
     },
-    "child_wall_seconds": 290.099,
-    "rows_per_second": 4120.5,
-    "importer_peak_rss_kib": 108536,
+    "child_wall_seconds": 324.841,
+    "rows_per_second": 3682.8,
+    "importer_peak_rss_kib": 113968,
     "statements": {
-      "other": 151,
+      "other": 157,
       "copy": 566,
       "readback": 566,
       "final_check": 73,
       "conservation": 53
     },
-    "statements_total": 1409,
+    "statements_total": 1415,
     "previous_per_record_statements": 3547218,
     "typed_batch_readback": true,
     "final_typed_reread": true,
     "fingerprints_match": true,
     "server_row_hashes_unchanged_since_readback": true,
     "conservation_matches_diagnostic": true,
+    "recount_anomalies": {
+      "dangling_references": 11154,
+      "missing_file_references": 176,
+      "equal_to_generated_counts": true
+    },
+    "deferred_constraints_run_before_final_reread": true,
+    "rows_equal_diagnosed_total": true,
+    "triggers_unchanged_during_load": true,
     "json_normalizations_stated": [
       {
         "code": "jsonb_key_order_normalized",
@@ -512,49 +592,49 @@
         "name": "buma_transaction",
         "rows": 336240,
         "copy_batches": 68,
-        "seconds": 68.097
+        "seconds": 75.26
       },
       {
         "name": "buma_caisse_transactions",
         "rows": 317066,
         "copy_batches": 64,
-        "seconds": 64.209
+        "seconds": 75.018
       },
       {
         "name": "buma_return",
         "rows": 214784,
         "copy_batches": 43,
-        "seconds": 23.72
+        "seconds": 24.752
       },
       {
         "name": "buma_sale",
         "rows": 115326,
         "copy_batches": 24,
-        "seconds": 13.745
+        "seconds": 15.438
       },
       {
         "name": "buma_customer_solder_history",
         "rows": 85267,
         "copy_batches": 18,
-        "seconds": 7.042
+        "seconds": 8.716
       },
       {
         "name": "buma_sim_balance_activity",
         "rows": 80461,
         "copy_batches": 17,
-        "seconds": 7.327
+        "seconds": 8.082
       },
       {
         "name": "buma_wallet_transactions",
         "rows": 10827,
         "copy_batches": 3,
-        "seconds": 1.546
+        "seconds": 1.899
       },
       {
         "name": "buma_pdv",
         "rows": 5221,
         "copy_batches": 2,
-        "seconds": 0.656
+        "seconds": 0.961
       }
     ]
   },
@@ -570,11 +650,11 @@
   },
   "concurrent_load_at_end": {
     "loadavg_1_5_15": [
-      2.31,
-      2.23,
-      1.84
+      3.29,
+      3.63,
+      3.19
     ]
   },
-  "benchmark_wall_seconds": 572.1,
+  "benchmark_wall_seconds": 771.0,
   "cleanup": "owned_container_and_temporary_files_removed"
 }

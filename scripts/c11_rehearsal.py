@@ -1160,14 +1160,25 @@ def negative_diagnostics(data, root, schema, *, source_version="0.22.27"):
     serves otherwise than PPBase will (jsonb number notation, a single value
     stored as a JSON array, a list with duplicates) are warnings: same
     blockers and readiness, one more affected row for that code and field.
+    A maxSelect null relation list (D-0019) is importable element for
+    element, its absent targets preserved; over a scalar target column (a
+    database not converted, described to the diagnosis) it is the explicit
+    unbounded_relation_target_scalar blocker, and nothing else changes.
     Every other altered case must add its own blocker (code, and field when
     one is named), a json text that PocketBase serves as a string included.
     Manifest mode is exercised without any storage/ bytes.
     """
-    from scripts.c11_import import directory_manifest
+    from scripts.c11_import import (
+        UNBOUNDED_SCALAR,
+        RowPlan,
+        TargetColumn,
+        date_value,
+        directory_manifest,
+    )
 
+    definitions = load_schema(schema)
     reference = diagnose(data, schema, source_version=source_version)
-    article_collection = next(c["id"] for c in load_schema(schema) if c["name"] == "buma_article")
+    article_collection = next(c["id"] for c in definitions if c["name"] == "buma_article")
 
     def first(table, where="1"):
         return f"(SELECT min(rowid) FROM {table} WHERE {where})"
@@ -1190,6 +1201,19 @@ def negative_diagnostics(data, root, schema, *, source_version="0.22.27"):
         record, filename = db.execute(
             "SELECT id, medias FROM buma_article WHERE medias<>'' ORDER BY rowid"
         ).fetchone()
+
+        def unused(table, prefix, count):
+            candidates = (f"{prefix}{index:0{15 - len(prefix)}d}" for index in range(1000))
+            free = (
+                candidate
+                for candidate in candidates
+                if not db.execute(f"SELECT 1 FROM {table} WHERE id=?", (candidate,)).fetchone()
+            )
+            return [next(free) for _ in range(count)]
+
+        # A new customer and three IDs that no buma_pdv row uses (D-0019 case).
+        (customer,) = unused("buma_customer", "c11multirel", 1)
+        pdvs = unused("buma_pdv", "c11absentpdv", 3)
     removed = f"{article_collection}/{record}/{filename}"
     if transaction is None or not (data / "storage" / removed).is_file():
         raise AssertionError("fixture lacks a valid article relation or a present medias file")
@@ -1221,13 +1245,6 @@ def negative_diagnostics(data, root, schema, *, source_version="0.22.27"):
             "INSERT INTO buma_transaction (id,type,author,system_id) SELECT 'duplicate000001',"
             "type,author,system_id FROM buma_transaction WHERE rowid="
             + first("buma_transaction", "system_id LIKE 'idem:%'"),
-        ),
-        (
-            "unbounded_relation_target_scalar",
-            "unbounded_relation_target_scalar",
-            "pdv",
-            "INSERT INTO buma_customer (id,pdv) "
-            "VALUES ('multirel0000001','[\"pdv000000000001\",\"pdv000000000002\"]')",
         ),
         (
             "schema_drift",
@@ -1373,6 +1390,69 @@ def negative_diagnostics(data, root, schema, *, source_version="0.22.27"):
     ):
         raise AssertionError(report["files"])
     results["missing_file"] = "preserved_anomaly_not_blocking"
+
+    # D-0019: one maxSelect null list, kept element for element: an absent ID
+    # twice and one element of two absent IDs joined by a comma (never split).
+    stamp = "2024-01-01 00:00:00.000Z"
+    stored = json.dumps([pdvs[0], pdvs[0], f"{pdvs[1]},{pdvs[2]}"])
+    clone = altered(
+        "unbounded_relation_array",
+        "INSERT INTO buma_customer (id,created,updated,pdv) "
+        f"VALUES ('{customer}','{stamp}','{stamp}','{stored}')",
+    )
+    report = diagnose(clone, schema, source_version=source_version)
+    # Three references (repeated elements count), one record, two targets.
+    preserved(report, "dangling_relations", ("buma_customer", "pdv"), (3, 1, 2))
+    served = ("list_served_deduplicated_by_pocketbase", "buma_customer", "pdv")
+    if warning_counts(report).get(served, 0) - warning_counts(reference).get(served, 0) != 1:
+        raise AssertionError(("unbounded_relation_array", report["warnings"]))
+    results["unbounded_relation_array"] = "importable_preserved_anomaly_not_blocking"
+
+    def described_target(pdv):
+        # Every column exactly as the importer expects it (text without a
+        # length, optional dates nullable), except buma_customer.pdv.
+        spec = {}
+        for collection in definitions:
+            if collection["type"] != "view":
+                spec[collection["name"]] = {
+                    step.column: TargetColumn(
+                        step.column,
+                        "text" if "text" in step.types else min(step.types, default="text"),
+                        step.array,
+                        None,
+                        step.convert is not date_value,
+                        True,
+                    )
+                    for step in RowPlan(collection).steps
+                }
+        spec["buma_customer"]["pdv"] = pdv
+        return spec
+
+    converted = TargetColumn("pdv", "text", True, None, True, True)
+    unconverted = TargetColumn("pdv", "character varying", False, 15, True, True)
+    arrays = diagnose(
+        clone, schema, source_version=source_version, target_columns=described_target(converted)
+    )
+    scalar = diagnose(
+        clone, schema, source_version=source_version, target_columns=described_target(unconverted)
+    )
+    customers = next(c["rows"] for c in scalar["collections"] if c["name"] == "buma_customer")
+    expected = {
+        "code": UNBOUNDED_SCALAR,
+        "collection": "buma_customer",
+        "field": "pdv",
+        "expected": "character varying[]|text[]",
+        "actual": "character varying(15)",
+        "affected_rows": customers,
+    }
+    if (
+        arrays["blockers"] != report["blockers"]
+        or arrays["ready_for_isolated_rehearsal"] != report["ready_for_isolated_rehearsal"]
+        or [b for b in scalar["blockers"] if b not in arrays["blockers"]] != [expected]
+        or scalar["ready_for_isolated_rehearsal"]
+    ):
+        raise AssertionError(("unbounded_relation_target_scalar", scalar["blockers"]))
+    results["unbounded_relation_target_scalar"] = "blocked"
 
     # Manifest mode: data.db and the private-format manifest, no storage/ tree.
     manifest = directory_manifest(data)

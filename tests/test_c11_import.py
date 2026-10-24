@@ -16,6 +16,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import asyncpg
 import pytest
@@ -38,12 +39,24 @@ from scripts.c11_import import (
 )
 
 
-def test_multi_relations_are_never_flattened_to_target_scalar():
-    for maximum in (None, 0):
-        for value in ("[]", '["first","second"]'):
-            with pytest.raises(ImportBlocked, match="unbounded_relation_target_scalar"):
+def test_multi_relations_are_never_flattened_to_target_scalar(monkeypatch):
+    unbounded = {"type": "relation", "options": {"maxSelect": None}}
+    # D-0019: element for element, order and repeated elements kept.
+    assert field_value(unbounded, "[]") == []
+    assert field_value(unbounded, '["b","a","b"]') == ["b", "a", "b"]
+    for maximum in (0, -1, 0.0):
+        for value in ("", "[]", '["first","second"]'):
+            with pytest.raises(ImportBlocked, match="relation_max_select_not_positive"):
                 field_value({"type": "relation", "options": {"maxSelect": maximum}}, value)
+    for value in ("", '["first"]'):
+        with pytest.raises(ImportBlocked, match="relation_max_select_absent_requires_decision"):
+            field_value({"type": "relation", "options": {"collectionId": "x"}}, value)
     assert field_value({"type": "relation", "options": {"maxSelect": 3}}, '["a","b"]') == ["a", "b"]
+    # A deliberate rollback of the flag never flattens either.
+    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", False)
+    for value in ("[]", '["first","second"]'):
+        with pytest.raises(ImportBlocked, match="unbounded_relation_target_scalar"):
+            field_value(unbounded, value)
 
 
 @pytest.mark.parametrize("value", [2**53 + 1, float("nan"), float("inf"), "12"])
@@ -636,22 +649,45 @@ def test_lone_surrogates_block_and_private_reports_stay_valid_json(tmp_path, mon
     assert json.loads(public.read_text())["ready_for_isolated_rehearsal"] is False
 
 
-def test_unbounded_relations_stay_blocked_but_their_orphans_are_counted(tmp_path, monkeypatch):
+def test_unbounded_relations_are_importable_and_their_orphans_are_counted(tmp_path, monkeypatch):
     unbounded = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
     parent = {**PARENT, "schema": [*PARENT["schema"], unbounded]}
     rows = [row + ('["c1","joined,ids"]',) for row in PARENT_ROWS]
-    data, export, _ = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
-    report = c11.diagnose(data, export, source_version="0.22.27")
-    assert {"code": "unbounded_relation_target_scalar", "collection": "parent"} in [
-        {k: b.get(k) for k in ("code", "collection")} for b in report["blockers"]
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
+    reference = c11.diagnose(data, export, source_version="0.22.27")
+    # D-0019 (UNBOUNDED_RELATION_ARRAYS): no blocker or warning for the field.
+    assert reference["ready_for_isolated_rehearsal"], reference["blockers"]
+    assert not [
+        entry
+        for entry in reference["blockers"] + reference["warnings"]
+        if isinstance(entry, dict) and entry.get("field") == "tags"
     ]
     tags = next(
         f
-        for f in report["preserved_source_anomalies"]["dangling_relations"]["fields"]
+        for f in reference["preserved_source_anomalies"]["dangling_relations"]["fields"]
         if f["field"] == "tags"
     )
     # One stored element is one reference: never split on the comma.
     assert (tags["references"], tags["records"], tags["distinct_targets"]) == (3, 3, 1)
+    # The corrected PPBase target (text[]): the same diagnosis.
+    spec = spec_for(schema)
+    spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    assert report["blockers"] == reference["blockers"] and report["ready_for_isolated_rehearsal"]
+    # A varchar(15)[] column refuses a 16-character element: never truncated.
+    rows = [row + (json.dumps(["c1", "x" * 16]),) for row in PARENT_ROWS]
+    (tmp_path / "long").mkdir()
+    data, export, schema = tiny_snapshot(tmp_path / "long", monkeypatch, rows, parent)
+    spec["parent"]["tags"] = c11.TargetColumn("tags", "character varying", True, 15, True, True)
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    assert report["blockers"] == [
+        {
+            "code": "value_exceeds_target_length",
+            "collection": "parent",
+            "field": "tags",
+            "affected_rows": 3,
+        }
+    ]
 
 
 def test_unbounded_relation_is_reported_once_per_field(tmp_path, monkeypatch):
@@ -660,24 +696,26 @@ def test_unbounded_relation_is_reported_once_per_field(tmp_path, monkeypatch):
     rows = [row + ('["c1"]',) for row in PARENT_ROWS]
     data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
     spec = spec_for(schema)
+    # A scalar target (a database not converted by 1789236850): D-0019 blocker.
     spec["parent"]["tags"] = c11.TargetColumn("tags", "character varying", False, 15, True, True)
-    for target in (None, spec):
-        report = c11.diagnose(data, export, source_version="0.22.27", target_columns=target)
-        entries = [
-            entry
-            for entry in report["blockers"] + report["warnings"]
-            if isinstance(entry, dict) and entry["code"] == "unbounded_relation_target_scalar"
-        ]
-        expected = {
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    entries = [
+        entry
+        for entry in report["blockers"] + report["warnings"]
+        if isinstance(entry, dict) and entry["code"] == "unbounded_relation_target_scalar"
+    ]
+    # The preflight details and the shape refusal of each row join one blocker.
+    assert entries == [
+        {
             "code": "unbounded_relation_target_scalar",
             "collection": "parent",
             "field": "tags",
+            "expected": "character varying[]|text[]",
+            "actual": "character varying(15)",
             "affected_rows": 3,
         }
-        if target is not None:  # the preflight details join the same blocker
-            expected["expected"] = "character varying[]|text[]"
-            expected["actual"] = "character varying(15)"
-        assert entries == [expected]
+    ]
+    assert [b["code"] for b in report["blockers"]] == ["unbounded_relation_target_scalar"]
     # Empty table: the field is still reported, once, as a warning.
     (tmp_path / "empty").mkdir()
     data, export, schema = tiny_snapshot(tmp_path / "empty", monkeypatch, [], parent)
@@ -687,24 +725,131 @@ def test_unbounded_relation_is_reported_once_per_field(tmp_path, monkeypatch):
     assert report["warnings"][0]["actual"] == "character varying(15)"
 
 
-def test_unbounded_relation_arrays_are_copied_exactly_once_enabled(monkeypatch):
+def test_unbounded_relation_arrays_are_copied_exactly():
     field = {"type": "relation", "options": {"maxSelect": None}}
-    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", True)
+    assert c11.UNBOUNDED_RELATION_ARRAYS is True
     assert field_value(field, '["b","a","b"]') == ["b", "a", "b"]  # order, no dedup
     column = c11.TargetColumn("managers", "character varying", True, 15, True, True)
     element = "x" * 15 + "," + "y" * 15  # the 31-character legacy element
     with pytest.raises(ImportBlocked, match="value_exceeds_target_length"):
         c11.check_value(column, field_value(field, json.dumps([element])))
     c11.check_value(c11.TargetColumn("managers", "text", True, None, True, True), [element])
+    for value in ('["a",1]', '["a",null]', '{"a":"b"}', "a", ""):
+        with pytest.raises(ImportBlocked, match="invalid_array"):
+            field_value(field, value)  # what the source stores is a list of texts
+
+
+def test_relation_definition_problems_are_refused_whatever_the_target(tmp_path, monkeypatch):
+    zero = text_field("zero", "relation", collectionId=CHILD["id"], maxSelect=0)
+    absent = text_field("absent", "relation", collectionId=CHILD["id"])
+    parent = {**PARENT, "schema": [*PARENT["schema"], zero, absent]}
+    rows = [row + ("", '["c1"]') for row in PARENT_ROWS]
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=parent)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    refused = {
+        (b["code"], b["field"]): b["affected_rows"]
+        for b in report["blockers"]
+        if b["code"] in c11.RELATION_DEFINITION_CODES
+    }
+    # Every row, its value empty or not: the definition itself has no meaning.
+    assert refused == {
+        ("relation_max_select_not_positive_requires_decision", "zero"): 3,
+        ("relation_max_select_absent_requires_decision", "absent"): 3,
+    }
+    assert not report["ready_for_isolated_rehearsal"]
+    # Absent key: references read as 0.22.34 stored them (a list): one "c1"
+    # per row, present, so no orphan for that field.
+    dangling = report["preserved_source_anomalies"]["dangling_relations"]["fields"]
+    assert not [f for f in dangling if f["field"] in ("zero", "absent")]
+    assert report["relations_checked"] == 3 + 3  # child (scalar) + absent (list)
+    for column in (
+        c11.TargetColumn("zero", "text", False, None, True, True),
+        c11.TargetColumn("zero", "text", True, None, True, True),
+    ):
+        spec = spec_for(schema, {("parent", "zero"): column})
+        spec["parent"]["absent"] = c11.TargetColumn("absent", "text", True, None, True, True)
+        checked = c11.preflight(schema, spec, {"parent": 3})
+        assert {(b["code"], b["field"]) for b in checked["blockers"]} == {
+            ("relation_max_select_not_positive_requires_decision", "zero"),
+            ("relation_max_select_absent_requires_decision", "absent"),
+        }
+        empty = c11.preflight(schema, spec, {"parent": 0})
+        assert empty["blockers"] == [] and len(empty["warnings"]) == 2
+    (tmp_path / "empty").mkdir()
+    data, export, schema = tiny_snapshot(tmp_path / "empty", monkeypatch, [], parent)
+    report = c11.diagnose(data, export, source_version="0.22.27")
+    assert report["blockers"] == [] and {
+        (w["code"], w["field"]) for w in report["warnings"] if isinstance(w, dict)
+    } >= {
+        ("relation_max_select_not_positive_requires_decision", "zero"),
+        ("relation_max_select_absent_requires_decision", "absent"),
+    }
+
+
+def test_multiplicity_is_the_ppbase_rule_except_the_refused_absent_key():
+    from ppbase.models import field_multiplicity as rule
+
+    export = Path(
+        os.environ.get(
+            "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+        )
+    )
+    if not export.is_file():
+        pytest.skip("BUMA_SCHEMA_EXPORT is not available")
+    fields = [
+        field
+        for collection in json.loads(export.read_text())
+        if collection["type"] != "view"
+        for field in collection["schema"]
+    ]
+    relations = [f for f in fields if f["type"] == "relation"]
+    assert len(relations) == 191
+    assert (
+        sorted(f["options"]["maxSelect"] for f in relations if f["options"]["maxSelect"])
+        == [1] * 188
+    )
+    assert sum(f["options"]["maxSelect"] is None for f in relations) == 3
+    synthetic = [
+        {"type": kind, "options": {"maxSelect": maximum}}
+        for kind in ("relation", "select", "file", "text")
+        for maximum in (None, 1, 2, 99)
+    ] + [{"type": "relation", "maxSelect": None}, {"type": "select", "options": {}}]
+    for field in fields + synthetic:
+        assert c11.relation_definition_problem(field) is None
+        assert c11.source_multiple(field) is rule.field_is_multiple(field), field
+        limit = rule.relation_max_select(rule.field_options(field))
+        assert c11.relation_unbounded(field) is (field["type"] == "relation" and limit is None)
+    unbounded = {
+        (c["name"], f["name"])
+        for c in json.loads(export.read_text())
+        if c["type"] != "view"
+        for f in c["schema"]
+        if c11.relation_unbounded(f)
+    }
+    assert unbounded == {
+        ("buma_customer", "pdv"),
+        ("buma_pilotage_ticket", "tag"),
+        ("buma_wallet", "managers"),
+    }
 
 
 def test_source_version_registry_requires_passing_evidence(monkeypatch):
     assert c11.source_version_status(None) == ("source_pocketbase_version_unknown", None)
-    assert c11.source_version_status("0.22.34") == ("source_pocketbase_version_unvalidated", None)
+    assert c11.source_version_status("0.22.33") == ("source_pocketbase_version_unvalidated", None)
     assert c11.source_version_status("0.22.27") == (None, "docs/c11-rehearsal-report.json")
+    # D-0024: the WS-D comparison of the official 0.22.27 and 0.22.34 binaries.
+    assert c11.source_version_status("0.22.34") == (
+        None,
+        "docs/c11-pb-0.22.34-reference-report.json",
+    )
+    assert sorted(c11.VALIDATED_SOURCE_VERSIONS) == ["0.22.27", "0.22.34"]
     for version, entry in c11.VALIDATED_SOURCE_VERSIONS.items():
         evidence = json.loads((c11.PROJECT / entry["evidence"]).read_text())
         assert evidence["status"] == "passed", version
+        stated = evidence
+        for key in entry["version_path"]:
+            stated = stated[key]
+        assert stated == version  # a field of the evidence equal to the version
     broken = {"0.22.27": {"evidence": "docs/missing.json", "version_path": ["x"]}}
     monkeypatch.setattr(c11, "VALIDATED_SOURCE_VERSIONS", broken)
     assert c11.source_version_status("0.22.27")[0] == "source_version_evidence_invalid"
@@ -713,12 +858,51 @@ def test_source_version_registry_requires_passing_evidence(monkeypatch):
     assert c11.source_version_status("0.22.27")[0] == "source_version_evidence_invalid"
 
 
+def test_0_22_34_gate_rereads_its_evidence_and_its_conclusion(tmp_path, monkeypatch):
+    entry = c11.VALIDATED_SOURCE_VERSIONS["0.22.34"]
+    assert entry["evidence"] == "docs/c11-pb-0.22.34-reference-report.json"
+    assert entry["true_paths"] == [["conclusion", "importer_can_accept_0_22_34"]]
+    original = json.loads((c11.PROJECT / entry["evidence"]).read_text())
+    assert original["conclusion"]["importer_can_accept_0_22_34"] is True
+
+    def status_with(change):
+        evidence = json.loads(json.dumps(original))
+        change(evidence)
+        path = tmp_path / f"evidence-{len(list(tmp_path.iterdir()))}.json"
+        path.write_text(json.dumps(evidence))
+        monkeypatch.setitem(c11.VALIDATED_SOURCE_VERSIONS, "0.22.34", {**entry, "evidence": path})
+        return c11.source_version_status("0.22.34")
+
+    assert status_with(lambda e: None)[0] is None  # the same document, read again
+    invalid = "source_version_evidence_invalid"
+    for value in (False, None, "true", 1):
+
+        def conclusion(evidence, value=value):
+            evidence["conclusion"]["importer_can_accept_0_22_34"] = value
+
+        assert status_with(conclusion)[0] == invalid
+    assert status_with(lambda e: e["conclusion"].clear())[0] == invalid
+    assert status_with(lambda e: e.update(status="failed"))[0] == invalid
+
+    def other_version(evidence):
+        stated = evidence
+        for key in entry["version_path"][:-1]:
+            stated = stated[key]
+        stated[entry["version_path"][-1]] = "0.22.27"
+
+    assert status_with(other_version)[0] == invalid
+
+
 def test_unvalidated_version_blocks_the_diagnosis(tmp_path, monkeypatch):
     data, export, _ = tiny_snapshot(tmp_path, monkeypatch)
-    report = c11.diagnose(data, export, source_version="0.22.34")
+    report = c11.diagnose(data, export, source_version="0.22.33")
     assert report["blockers"] == [{"code": "source_pocketbase_version_unvalidated"}]
-    assert report["validated_source_versions"] == ["0.22.27"]
+    assert report["validated_source_versions"] == ["0.22.27", "0.22.34"]
     assert report["source_version_validated"] is False
+    report = c11.diagnose(data, export, source_version="0.22.34")
+    assert report["blockers"] == [] and report["ready_for_isolated_rehearsal"]
+    assert report["source_version_validated"] is True
+    assert report["source_version_evidence"] == "docs/c11-pb-0.22.34-reference-report.json"
 
 
 @pytest.mark.parametrize(
@@ -933,8 +1117,17 @@ def test_preflight_unbounded_relation_is_a_warning_only_when_the_table_is_empty(
     assert [b["code"] for b in full["blockers"]] == ["unbounded_relation_target_scalar"]
     assert full["blockers"][0]["expected"] == "character varying[]|text[]"
     assert full["blockers"][0]["actual"] == "character varying(15)"
-    spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
-    # An array target: the cause is this importer's flag, not the target.
+    # The corrected PPBase target (text[], or a converted varchar(15)[]).
+    for column in (
+        c11.TargetColumn("tags", "text", True, None, True, True),
+        c11.TargetColumn("tags", "character varying", True, 15, True, True),
+    ):
+        spec["parent"]["tags"] = column
+        for rows in (0, 3):
+            checked = c11.preflight([CHILD, parent], spec, {"parent": rows})
+            assert checked["blockers"] == checked["warnings"] == []
+    # A deliberate rollback of the flag names the importer, not the target.
+    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", False)
     arrays = c11.preflight([CHILD, parent], spec, {"parent": 3})
     assert [(b["code"], b["field"]) for b in arrays["blockers"]] == [
         ("unbounded_relation_arrays_not_enabled", "tags")
@@ -943,8 +1136,6 @@ def test_preflight_unbounded_relation_is_a_warning_only_when_the_table_is_empty(
     assert empty["blockers"] == [] and [w["code"] for w in empty["warnings"]] == [
         "unbounded_relation_arrays_not_enabled"
     ]
-    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", True)
-    assert c11.preflight([CHILD, parent], spec, {"parent": 3})["blockers"] == []
 
 
 def test_diagnosis_checks_values_against_a_supplied_target_spec(tmp_path, monkeypatch):
@@ -1141,33 +1332,182 @@ def test_load_requires_a_caller_transaction_before_any_statement(tmp_path, monke
     assert connection.statements == ["SELECT current_database()"]
 
 
+class ImportEngine:
+    """AsyncEngine stand-in for import_snapshot: connect() and begin() contexts.
+
+    ``events`` records each context and how it ended: an exception leaving
+    ``begin()`` is the rollback of the single import transaction.
+    """
+
+    def __init__(self, connection=None, *, hide=True):
+        self.sync_engine = SimpleNamespace(hide_parameters=hide)
+        self.connection = connection or FakeConnection()
+        self.events = []
+
+    def connect(self):
+        return self._context("connect")
+
+    def begin(self):
+        return self._context("begin")
+
+    def _context(self, kind):
+        engine = self
+
+        class Context:
+            async def __aenter__(self):
+                engine.events.append(kind)
+                return engine.connection
+
+            async def __aexit__(self, failure, *_):
+                engine.events.append(f"{kind}:{'rollback' if failure else 'end'}")
+                return False
+
+        return Context()
+
+
+def recorded_import(monkeypatch, engine, fail=None):
+    """Replace the steps of import_snapshot by recorders sharing engine.events."""
+    import scripts.c11_auth_import as auth
+
+    def step(name, value):
+        async def run(connection, *args, **kwargs):
+            engine.events.append(name)
+            if name != "check_ready":
+                assert connection is engine.connection  # the begin() connection
+            if fail == name:
+                raise ImportBlocked(f"injected_{name}_failure")
+            return value
+
+        return run
+
+    monkeypatch.setattr(auth, "check_ready", step("check_ready", None))
+    monkeypatch.setattr(c11, "load_isolated", step("load", 3))
+    monkeypatch.setattr(c11, "recount_relation_arrays", step("recount", [{"field": "tags"}]))
+    monkeypatch.setattr(auth, "import_auth", step("auth", {"imported": True}))
+
+
 def test_import_snapshot_removes_its_staging_after_any_failure(tmp_path, monkeypatch):
     data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
     report = c11.diagnose(data, export, source_version="0.22.27")
+    import scripts.c11_auth_import as auth
 
-    class Engine:
-        def begin(self):
-            engine = self
+    async def ready(connection, *args):
+        engine.events.append("check_ready")
 
-            class Context:
-                async def __aenter__(self):
-                    engine.entered = True
-                    return FakeConnection("other")
-
-                async def __aexit__(self, *exc):
-                    engine.exited = exc[0]
-                    return False
-
-            return Context()
-
-    engine = Engine()
+    monkeypatch.setattr(auth, "check_ready", ready)
+    engine = ImportEngine(FakeConnection("other"))
     destination = tmp_path / "attempt"
     with pytest.raises(ImportBlocked, match="isolated_rehearsal_database_required"):
         asyncio.run(c11.import_snapshot(engine, data, destination, report, schema))
-    assert engine.entered and engine.exited is ImportBlocked
+    assert engine.events == ["connect", "check_ready", "connect:end", "begin", "begin:rollback"]
     assert not destination.exists()
     # The same new path can be used again by a clean retry.
     assert stage_snapshot(data, destination, report) == storage_inventory(data / "storage")
+
+
+def test_import_snapshot_loads_records_then_accounts_in_one_transaction(tmp_path, monkeypatch):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    diagnostic = c11.diagnose(data, export, source_version="0.22.27")
+    engine = ImportEngine()
+    recorded_import(monkeypatch, engine)
+    evidence = {}
+    destination = tmp_path / "imported"
+    count = asyncio.run(
+        c11.import_snapshot(engine, data, destination, diagnostic, schema, report=evidence)
+    )
+    assert count == 3
+    assert engine.events == [
+        "connect",
+        "check_ready",
+        "connect:end",
+        "begin",
+        "load",
+        "recount",
+        "auth",
+        "begin:end",
+    ]
+    assert destination.is_dir()  # kept for serving after a commit
+    assert evidence["relation_arrays"] == [{"field": "tags"}]
+    assert evidence["auth"] == {"imported": True}
+    assert evidence["single_transaction"] == {
+        "records": 3,
+        "relation_arrays_recounted": 1,
+        "accounts_and_settings": True,
+        "committed": True,
+    }
+    assert set(evidence["timings_seconds"]) == {
+        "readiness_check",
+        "staging",
+        "relation_arrays",
+        "auth_import",
+        "commit",
+    }
+
+
+@pytest.mark.parametrize("failing", ["load", "recount", "auth"])
+def test_import_snapshot_failure_of_one_step_imports_nothing(tmp_path, monkeypatch, failing):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    diagnostic = c11.diagnose(data, export, source_version="0.22.27")
+    engine = ImportEngine()
+    recorded_import(monkeypatch, engine, fail=failing)
+    destination, evidence = tmp_path / "attempt", {}
+    with pytest.raises(ImportBlocked, match=f"injected_{failing}_failure"):
+        asyncio.run(
+            c11.import_snapshot(engine, data, destination, diagnostic, schema, report=evidence)
+        )
+    steps = ["load", "recount", "auth"]
+    ran = steps[: steps.index(failing) + 1]
+    # Records, recount and accounts share begin(): the failure rolls all back.
+    expected = ["connect", "check_ready", "connect:end", "begin", *ran, "begin:rollback"]
+    assert engine.events == expected
+    assert "single_transaction" not in evidence and "auth" not in evidence
+    assert not destination.exists()
+
+
+def test_import_snapshot_refuses_before_any_database_access(tmp_path, monkeypatch):
+    data, export, schema = tiny_snapshot(tmp_path, monkeypatch)
+    diagnostic = c11.diagnose(data, export, source_version="0.22.27")
+    destination = tmp_path / "attempt"
+    cases = (
+        (ImportEngine(hide=False), diagnostic, {}, "engine_hide_parameters_required"),
+        (ImportEngine(), {**diagnostic, "ready_for_isolated_rehearsal": False}, {}, "diagnostic"),
+    )
+    for engine, report, options, code in cases:
+        recorded_import(monkeypatch, engine)
+        with pytest.raises(ImportBlocked, match=code):
+            asyncio.run(c11.import_snapshot(engine, data, destination, report, schema, **options))
+        assert engine.events == [] and not destination.exists()
+    engine = ImportEngine()
+    with pytest.raises(ValueError, match="unknown failure stage"):
+        asyncio.run(
+            c11.import_snapshot(
+                engine, data, destination, diagnostic, schema, auth_fail_after="records"
+            )
+        )
+    assert engine.events == []
+    # An account or settings refusal comes before staging, not after the load.
+    recorded_import(monkeypatch, engine, fail="check_ready")
+    with pytest.raises(ImportBlocked, match="injected_check_ready_failure"):
+        asyncio.run(c11.import_snapshot(engine, data, destination, diagnostic, schema))
+    assert engine.events == ["connect", "check_ready", "connect:rollback"]
+    assert not destination.exists()
+
+
+def test_import_snapshot_keeps_the_planned_signature():
+    parameters = inspect.signature(c11.import_snapshot).parameters
+    assert list(parameters)[:5] == ["engine", "data", "destination", "diagnostic", "definitions"]
+    keyword = {
+        name: parameter.default
+        for name, parameter in parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+    assert keyword == {
+        "manifest": None,
+        "fail_after": None,
+        "report": None,
+        "batch_size": c11.DEFAULT_BATCH_SIZE,
+        "auth_fail_after": None,
+    }
 
 
 def server_hash(row) -> int:
@@ -1307,6 +1647,177 @@ def test_batch_readback_detects_a_value_changed_while_stored(tmp_path, monkeypat
     with pytest.raises(ImportBlocked, match="target_readback_mismatch") as raised:
         parent_load(tmp_path, monkeypatch, FakePostgres(trigger))
     assert raised.value.details == {"collection": "parent", "field": column}
+
+
+TAGS = text_field("tags", "relation", collectionId=CHILD["id"], maxSelect=None)
+TAGGED = {**PARENT, "schema": [*PARENT["schema"], TAGS]}
+JOINED = "c" * 15 + "," + "d" * 15  # two IDs joined by a comma: one element
+TAG_LISTS = [["c1", "c1", JOINED], [], ["absent", "c1"]]
+
+
+def tagged_snapshot(tmp_path, monkeypatch, lists=TAG_LISTS):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    rows = [
+        row + (value if isinstance(value, str) else json.dumps(value),)
+        for row, value in zip(PARENT_ROWS, lists, strict=True)
+    ]
+    return tiny_snapshot(tmp_path, monkeypatch, parent_rows=rows, parent=TAGGED)
+
+
+def tagged_load(tmp_path, monkeypatch, fake):
+    """_load_table and _final_verification of TAGGED over a text[] tags column."""
+    data, export, schema = tagged_snapshot(tmp_path, monkeypatch)
+    plan = c11.RowPlan(TAGGED)
+    spec = spec_for(schema)
+    spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
+    specs = [spec["parent"][column] for column in plan.columns]
+    state = c11._LoadState(fake, 2, None)
+    check = c11._Verification()
+    entry = {"name": "parent", "rows": 0, "copy_batches": 0}
+
+    async def run():
+        with snapshot(data, worker_threads=True) as db:
+            await c11._load_table(state, db, TAGGED, plan, specs, check, entry)
+        await c11._final_verification(state, [(entry, specs, check)], {"parent": 3}, 3)
+
+    asyncio.run(run())
+    return plan.columns.index("tags")
+
+
+def test_unbounded_relation_lists_are_loaded_element_for_element(tmp_path, monkeypatch):
+    fake = FakePostgres()
+    position = tagged_load(tmp_path / "exact", monkeypatch, fake)
+    # Order, the repeated "c1", the 31-character element and the empty list.
+    assert [row[position] for row in fake.tables["parent"]] == TAG_LISTS
+    for name, alter in (
+        ("reversed", lambda value: list(reversed(value))),
+        ("deduplicated", lambda value: list(dict.fromkeys(value))),
+        ("split", lambda value: [part for item in value for part in item.split(",")]),
+    ):
+
+        def trigger(table, row, alter=alter):
+            if table != "parent" or row[0] != "p1":
+                return row
+            return (*row[:position], alter(row[position]), *row[position + 1 :])
+
+        with pytest.raises(ImportBlocked, match="target_readback_mismatch") as raised:
+            tagged_load(tmp_path / name, monkeypatch, FakePostgres(trigger))
+        assert raised.value.details == {"collection": "parent", "field": "tags"}, name
+
+
+class ArrayDriver:
+    """asyncpg stand-in for the recount: {table: [(id, list or None)]}."""
+
+    def __init__(self, rows):
+        self.rows, self.sql = rows, []
+
+    def table(self, sql):
+        self.sql.append(sql)
+        return self.rows[re.search(r'FROM "([^"]+)"', sql).group(1)]
+
+    async def fetchrow(self, sql):
+        rows = self.table(sql)
+        return len(rows), sum(value is None for _, value in rows)
+
+    async def fetchval(self, sql):
+        return len(self.table(sql))
+
+    def cursor(self, sql, prefetch=None):
+        assert "unnest" in sql and "WITH ORDINALITY" in sql and prefetch
+        items = iter(
+            [
+                (record, position, value)
+                for record, values in self.table(sql)
+                for position, value in enumerate(values or [])
+            ]
+        )
+
+        class Cursor:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(items)
+                except StopIteration:
+                    raise StopAsyncIteration from None
+
+        return Cursor()
+
+
+class ArrayConnection:
+    def __init__(self, driver):
+        self.driver_connection = driver
+
+    async def get_raw_connection(self):
+        return self
+
+
+def test_relation_arrays_are_recounted_by_json_each_and_unnest(tmp_path, monkeypatch):
+    data, export, schema = tagged_snapshot(tmp_path / "source", monkeypatch)
+    columns = {"tags": c11.TargetColumn("tags", "text", True, None, True, True)}
+
+    async def introspect(connection, table):
+        return columns
+
+    monkeypatch.setattr(c11, "introspect_table", introspect)
+    loaded = [("p1", TAG_LISTS[0]), ("p2", []), ("p3", TAG_LISTS[2])]
+
+    def recount(rows):
+        connection = ArrayConnection(ArrayDriver({"parent": rows}))
+        return asyncio.run(c11.recount_relation_arrays(connection, data, schema))
+
+    assert recount(loaded) == [
+        {
+            "collection": "parent",
+            "field": "tags",
+            "target_column": "text[]",
+            "sqlite_json_each_equals_postgresql_unnest": True,
+            "rows": 3,
+            "rows_with_elements": 2,
+            "elements": 5,  # repeated elements count
+            "longest_element": 31,
+        }
+    ]
+    for name, rows in (
+        ("order", [("p1", ["c1", JOINED, "c1"]), *loaded[1:]]),
+        ("deduplicated", [("p1", ["c1", JOINED]), *loaded[1:]]),
+        ("split", [("p1", ["c1", "c1", *JOINED.split(",")]), *loaded[1:]]),
+        ("owner", [("p2", TAG_LISTS[0]), ("p1", []), loaded[2]]),
+        ("missing_row", loaded[:2]),
+        ("null", [*loaded[:2], ("p3", None)]),
+    ):
+        with pytest.raises(ImportBlocked, match="relation_array_recount_mismatch") as raised:
+            recount(rows)
+        assert raised.value.details == {"collection": "parent", "field": "tags"}, name
+    # A stored value that SQLite does not read as a list of texts.
+    for index, value in enumerate(('["c1",1]', '{"c1":1}', "not json")):
+        lists = [TAG_LISTS[0], [], value]
+        bad, export, schema = tagged_snapshot(tmp_path / f"bad{index}", monkeypatch, lists)
+        connection = ArrayConnection(ArrayDriver({"parent": loaded}))
+        with pytest.raises(ImportBlocked, match="relation_array_recount_mismatch"):
+            asyncio.run(c11.recount_relation_arrays(connection, bad, schema))
+    # A scalar column passes the preflight only for an empty table.
+    columns["tags"] = c11.TargetColumn("tags", "character varying", False, 15, True, True)
+    with pytest.raises(ImportBlocked, match="unbounded_relation_target_scalar"):
+        recount(loaded)
+    (tmp_path / "empty").mkdir()
+    empty, export, schema = tiny_snapshot(tmp_path / "empty", monkeypatch, [], TAGGED)
+    connection = ArrayConnection(ArrayDriver({"parent": []}))
+    result = asyncio.run(c11.recount_relation_arrays(connection, empty, schema))
+    assert result == [
+        {
+            "collection": "parent",
+            "field": "tags",
+            "target_column": "character varying(15)",
+            "empty_table_over_scalar_column": True,
+            "rows": 0,
+            "rows_with_elements": 0,
+            "elements": 0,
+            "longest_element": 0,
+        }
+    ]
+    assert connection.driver_connection.sql == ['SELECT count(*) FROM "parent"']
 
 
 def test_batch_readback_detects_missing_extra_and_duplicate_rows():
@@ -1921,6 +2432,10 @@ def test_unbounded_relation_over_an_array_target_names_the_importer_flag(tmp_pat
     spec = spec_for(schema)
     spec["parent"]["tags"] = c11.TargetColumn("tags", "text", True, None, True, True)
     report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
+    assert report["blockers"] == [] and report["ready_for_isolated_rehearsal"]
+    # A deliberate rollback of UNBOUNDED_RELATION_ARRAYS keeps its own cause.
+    monkeypatch.setattr(c11, "UNBOUNDED_RELATION_ARRAYS", False)
+    report = c11.diagnose(data, export, source_version="0.22.27", target_columns=spec)
     assert report["blockers"] == [
         {
             "code": "unbounded_relation_arrays_not_enabled",
@@ -2081,6 +2596,8 @@ def test_registry_refuses_evidence_that_did_not_pass(tmp_path, monkeypatch):
 TERMINATION_SCRIPT = r"""
 import asyncio, hashlib, json, sqlite3, sys
 from pathlib import Path
+from types import SimpleNamespace
+import scripts.c11_auth_import as auth
 import scripts.c11_import as c11
 
 root = Path(sys.argv[1])
@@ -2096,6 +2613,18 @@ report = {
 
 
 class Engine:
+    sync_engine = SimpleNamespace(hide_parameters=True)
+
+    def connect(self):
+        class Probe:
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return Probe()
+
     def begin(self):
         class Context:
             async def __aenter__(self):
@@ -2106,6 +2635,13 @@ class Engine:
                 return False
 
         return Context()
+
+
+async def ready(*args):
+    pass  # the accounts and settings preconditions (check_ready) hold
+
+
+auth.check_ready = ready
 
 
 async def main():
@@ -2127,7 +2663,14 @@ def test_termination_signals_still_remove_the_staging(tmp_path):
         process = subprocess.Popen(
             [sys.executable, str(script), str(work)],
             cwd=root,
-            env={**os.environ, "PYTHONPATH": str(root), "PYTHONDONTWRITEBYTECODE": "1"},
+            env={
+                **os.environ,
+                # This worktree first, then the caller's path (the PPBase in use).
+                "PYTHONPATH": os.pathsep.join(
+                    filter(None, [str(root), os.environ.get("PYTHONPATH")])
+                ),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

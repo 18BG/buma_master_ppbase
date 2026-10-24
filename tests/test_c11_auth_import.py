@@ -23,6 +23,7 @@ from scripts.c11_auth_import import (
     RECORD_TOKENS,
     SUPERUSER_TOKENS,
     build_plan,
+    check_ready,
     check_source,
     diagnose_auth,
     import_auth,
@@ -952,3 +953,53 @@ async def test_import_refuses_unusable_staged_manifests_before_any_write(tmp_pat
         assert db.writes() == []
     with pytest.raises(ValueError, match="unknown failure stage"):
         await import_auth(scripted(tmp_path / "b"), tmp_path / "b", DEFINITIONS, fail_after="x")
+
+
+# check_ready: the same refusals before the records are loaded (import_snapshot).
+CHECK_READY_REFUSALS = tuple(
+    (state, code)
+    for state, code in REFUSALS_BEFORE_ANY_WRITE
+    # The records only exist inside the import transaction: import_auth checks them.
+    if code not in {"records_import_required", "records_snapshot_mismatch"}
+)
+
+
+@pytest.mark.parametrize(("state", "code"), CHECK_READY_REFUSALS)
+async def test_check_ready_refuses_with_import_auth_codes_without_lock_or_write(
+    tmp_path, state, code
+):
+    staged = staged_copy(tmp_path / "data")
+    state = dict(state)
+    if state.get("collections") in {"without_agent_users", "agent_users_id_changed"}:
+        collections = scripted(staged).collections
+        if state["collections"] == "without_agent_users":
+            collections = [c for c in collections if c["name"] != "agent_users"]
+        else:
+            collections[1]["id"] = "c11otherauthid1"
+        state["collections"] = collections
+    db = scripted(staged, **state)
+    with pytest.raises(ImportBlocked, match=code):
+        await check_ready(db, staged, DEFINITIONS)
+    assert db.writes() == []
+    assert not [s for s in db.statements if s.startswith("LOCK") or "FOR UPDATE" in s]
+
+
+async def test_check_ready_reads_only_and_stops_on_source_blockers(tmp_path):
+    staged = staged_copy(tmp_path / "data")
+    db = scripted(staged)
+    await check_ready(db, staged, DEFINITIONS)
+    assert db.writes() == []
+    assert not [s for s in db.statements if s.startswith("LOCK") or "FOR UPDATE" in s]
+    # Records are not loaded yet: their archive and identities are not read.
+    assert RECORD_IDENTITIES not in db.statements
+    source = staged_copy(tmp_path / "source", external_auths=1)
+    db = scripted(source)
+    with pytest.raises(ImportBlocked, match="external_auths_present"):
+        await check_ready(db, source, DEFINITIONS)
+    assert db.statements == ["SELECT current_database()"]
+    db = scripted(staged, fail_on='SELECT COUNT(*) FROM "_superusers"')
+    with pytest.raises(ImportBlocked) as caught:
+        await check_ready(db, staged, DEFINITIONS)
+    error = caught.value
+    assert str(error) == "auth_import_database_error" and error.sqlstate == "23505"
+    assert error.__context__ is None and error.__cause__ is None
