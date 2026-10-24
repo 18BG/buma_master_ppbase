@@ -1,10 +1,15 @@
 """The 0.22.34 reference conclusion must not depend on the gate it opens."""
 
+from pathlib import Path
+
+import pytest
+
 from scripts import c11_import
 from scripts.c11_version_reference import (
     ASSESSED_VERSION,
     VERSION_GATE_BLOCKER,
     gate_closed_for,
+    importer_view,
     only_version_gate_blocks,
 )
 
@@ -34,4 +39,43 @@ def test_gate_is_measured_closed_even_without_the_published_evidence(monkeypatch
     )
     with gate_closed_for(ASSESSED_VERSION):
         assert c11_import.source_version_status(ASSESSED_VERSION) == (VERSION_GATE_BLOCKER, None)
+    assert c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION] is entry
+
+
+def gate_only_diagnose(raise_for=None):
+    """A diagnose stub whose only blocker is the importer's version gate."""
+
+    def diagnose(data, schema, *, source_version=None, **_):
+        if raise_for is not None and source_version == raise_for:
+            raise RuntimeError("diagnose failed")
+        code = c11_import.source_version_status(source_version)[0]
+        return {
+            "blockers": [{"code": code}] if code else [],
+            "warnings": [],
+            "rows": 0,
+            "relations_checked": 0,
+            "files": 0,
+            "unreferenced_files": 0,
+            "collections": [],
+            "internal_tables_not_imported": [],
+        }
+
+    return diagnose
+
+
+def test_importer_view_measures_the_assessed_version_without_the_evidence(monkeypatch):
+    entry = dict(c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION])
+    entry["evidence"] = "docs/absent-c11-reference-during-a-replay.json"
+    monkeypatch.setitem(c11_import.VALIDATED_SOURCE_VERSIONS, ASSESSED_VERSION, entry)
+    monkeypatch.setattr(c11_import, "diagnose", gate_only_diagnose())
+    view = importer_view(Path("unused"), Path("unused"), ASSESSED_VERSION)
+    assert view["with_source_version"]["blocker_codes"] == [VERSION_GATE_BLOCKER]
+    assert c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION] is entry
+
+
+def test_importer_view_restores_the_registry_when_diagnose_raises(monkeypatch):
+    entry = c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION]
+    monkeypatch.setattr(c11_import, "diagnose", gate_only_diagnose(raise_for=ASSESSED_VERSION))
+    with pytest.raises(RuntimeError, match="diagnose failed"):
+        importer_view(Path("unused"), Path("unused"), ASSESSED_VERSION)
     assert c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION] is entry

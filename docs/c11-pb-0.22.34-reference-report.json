@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-10-24T02:49:29.117478+00:00",
+  "timestamp_utc": "2026-10-24T21:53:41.824590+00:00",
   "scope": "pocketbase_0_22_34_storage_reference",
   "command": "python -m scripts.c11_version_reference --pocketbase-0-22-27 /root/buma-c11-tools/pocketbase-0.22.27/bin/pocketbase --pocketbase-0-22-34 /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --pocketbase-src /root/buma-c11-tools/pocketbase-src --schema /root/projects/buma-master-pb_schema-corrected.json --real-data /root/projects/buma-master-ppbase/backups/c11-master-20260928 --baseline-commit fb381ac --report docs/c11-pb-0.22.34-reference-report.json",
   "production_data_used": true,
@@ -175,12 +175,15 @@
       {
         "release": "v0.22.28 (backport of v0.23.10)",
         "change": "Admin UI: renew the superuser file token cache from thumb previews/downloads; rebuilt ui/dist and ui version string.",
+        "citations": [
+          "v0.22.34:CHANGELOG.md:36",
+          "v0.22.34:ui/src/components/records/RecordFileThumb.svelte:58"
+        ],
         "importer_input": "None: embedded dashboard assets.",
         "effect": "None on storage.",
         "paths": [
           "ui/**"
-        ],
-        "citations": []
+        ]
       }
     ],
     "storage_paths": [
@@ -366,7 +369,7 @@
           "tools/filesystem",
           "tools/filesystem/internal/s3lite"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
@@ -374,7 +377,7 @@
         "v0.22.34": "v1.6.7",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/config",
@@ -384,7 +387,7 @@
         "imported_by_packages": [
           "tools/filesystem"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/credentials",
@@ -394,7 +397,7 @@
         "imported_by_packages": [
           "tools/filesystem"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
@@ -402,7 +405,7 @@
         "v0.22.34": "v1.16.21",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/feature/s3/manager",
@@ -412,7 +415,7 @@
         "imported_by_packages": [
           "tools/filesystem/internal/s3lite"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/internal/configsources",
@@ -420,7 +423,7 @@
         "v0.22.34": "v1.3.25",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
@@ -428,7 +431,7 @@
         "v0.22.34": "v2.6.25",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/internal/v4a",
@@ -436,7 +439,7 @@
         "v0.22.34": "v1.3.25",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
@@ -444,7 +447,7 @@
         "v0.22.34": "v1.12.1",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/internal/checksum",
@@ -452,7 +455,7 @@
         "v0.22.34": "v1.4.6",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
@@ -460,7 +463,7 @@
         "v0.22.34": "v1.12.6",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/internal/s3shared",
@@ -468,7 +471,7 @@
         "v0.22.34": "v1.18.6",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/s3",
@@ -479,7 +482,7 @@
           "tools/filesystem",
           "tools/filesystem/internal/s3lite"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/sso",
@@ -487,7 +490,7 @@
         "v0.22.34": "v1.24.7",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
@@ -495,7 +498,7 @@
         "v0.22.34": "v1.28.6",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/aws-sdk-go-v2/service/sts",
@@ -503,7 +506,7 @@
         "v0.22.34": "v1.33.2",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/aws/smithy-go",
@@ -514,7 +517,7 @@
           "tools/filesystem",
           "tools/filesystem/internal/s3lite"
         ],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/fatih/color",
@@ -541,7 +544,7 @@
           "forms/validators",
           "tools/filesystem"
         ],
-        "assessment": "Content type stored in .attrs sidecars; identical .attrs observed for the uploaded PNG and text files."
+        "assessment": "On the local storage path three ways: content type written to the .attrs sidecar at upload (tools/filesystem/filesystem.go:195), extension given to a stored name when the client name has none (tools/filesystem/file.go:178,238) and upload MIME validation (forms/validators/file.go:65). Upstream changes 1.4.5 -> 1.4.7 not verified offline (module sources absent from this server). Observed: identical .attrs for the uploaded PNG and text files; no fixture upload lacks an extension, so detected extensions are not compared."
       },
       {
         "module": "github.com/goccy/go-json",
@@ -551,7 +554,7 @@
         "imported_by_packages": [
           "tools/rest"
         ],
-        "assessment": "HTTP response JSON encoder, not storage."
+        "assessment": "HTTP response JSON encoder (tools/rest), not storage."
       },
       {
         "module": "github.com/golang-jwt/jwt/v4",
@@ -564,7 +567,7 @@
           "tools/auth",
           "tools/security"
         ],
-        "assessment": "JWT parsing security fix (GHSA-mh63-6h87-95cp); tokens are not stored and tokens/ is identical."
+        "assessment": "JWT parsing security fix (GHSA-mh63-6h87-95cp, CHANGELOG.md:13); tokens are not stored and tokens/ is identical."
       },
       {
         "module": "github.com/golang/groupcache",
@@ -572,7 +575,7 @@
         "v0.22.34": "v0.0.0-20241129210726-2c02b8208cf8",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/googleapis/gax-go/v2",
@@ -580,7 +583,7 @@
         "v0.22.34": "v2.14.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "github.com/mattn/go-sqlite3",
@@ -590,7 +593,7 @@
         "imported_by_packages": [
           "core"
         ],
-        "assessment": "CGO driver; the official archives use the non-CGO build."
+        "assessment": "CGO driver; the official archives use the non-CGO build (.goreleaser.yaml:29,51)."
       },
       {
         "module": "github.com/pocketbase/dbx",
@@ -614,7 +617,7 @@
           "tools/migrate",
           "tools/search"
         ],
-        "assessment": "Query builder (DDL and writes); v1.11.0 only adds SelectQuery.PreFragment/PostFragment, unused by PocketBase 0.22.34."
+        "assessment": "Query builder (DDL and writes). Upstream summary consulted online by WS-D on 2026-10-24, not verified offline (module sources absent from this server): v1.11.0 only adds SelectQuery.PreFragment/PostFragment, unused by PocketBase 0.22.34. Effect covered by the binary comparison only."
       },
       {
         "module": "github.com/spf13/cast",
@@ -638,7 +641,7 @@
           "tools/subscriptions",
           "tools/types"
         ],
-        "assessment": "Casts in SchemaField.PrepareValue; v1.7.1 only fixes ToUint64E for strings above int64, not used for stored values."
+        "assessment": "Casts in SchemaField.PrepareValue. Upstream summary consulted online by WS-D on 2026-10-24, not verified offline (module sources absent from this server): v1.7.1 only fixes ToUint64E for strings above int64. Effect covered by the binary comparison only."
       },
       {
         "module": "gocloud.dev",
@@ -649,7 +652,7 @@
           "tools/filesystem",
           "tools/filesystem/internal/s3lite"
         ],
-        "assessment": "blob/fileblob local storage; the v0.40.0 blob changes concern uploads with WriterOptions.ContentMD5 (not set by PocketBase), io/fs helpers and cloud drivers; identical local storage observed."
+        "assessment": "blob/fileblob local storage (tools/filesystem/filesystem.go:89-97). Upstream release notes consulted online by WS-D on 2026-10-24, not verified offline (module sources absent from this server): the v0.40.0 blob changes concern WriterOptions.ContentMD5 (not set by PocketBase), io/fs helpers and cloud drivers. Identical local storage observed for the fixtures."
       },
       {
         "module": "golang.org/x/crypto",
@@ -661,7 +664,7 @@
           "core",
           "models"
         ],
-        "assessment": "bcrypt (cost 12) and ACME; same $2a$12$ format for both binaries, whose hashes verify the synthetic passwords."
+        "assessment": "bcrypt (cost 12) and ACME; same $2a$12$ format for both binaries, whose hashes verify the synthetic passwords (observed, not an upstream claim)."
       },
       {
         "module": "golang.org/x/image",
@@ -669,7 +672,7 @@
         "v0.22.34": "v0.23.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "Indirect, through github.com/disintegration/imaging, which System.CreateThumb uses to decode, resize and encode thumbnails (tools/filesystem/filesystem.go:474-519): on the local storage path for thumbs_ objects only. Upstream changes v0.19.0 -> v0.23.0 not verified offline (module sources absent from this server). Observed: byte-identical 100x100 thumbnails of the two synthetic PNG uploads only."
       },
       {
         "module": "golang.org/x/mod",
@@ -677,7 +680,7 @@
         "v0.22.34": "v0.22.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/net",
@@ -688,7 +691,7 @@
           "tools/mailer",
           "tools/rest"
         ],
-        "assessment": "CVE-2024-45338 fix (HTML parsing for mails), not storage."
+        "assessment": "CVE-2024-45338 fix (CHANGELOG.md:30, HTML parsing for mails), not storage."
       },
       {
         "module": "golang.org/x/oauth2",
@@ -711,7 +714,7 @@
           "apis",
           "tools/search"
         ],
-        "assessment": "Concurrency helpers, not storage."
+        "assessment": "Concurrency helpers (apis, tools/search), not storage."
       },
       {
         "module": "golang.org/x/sys",
@@ -719,7 +722,7 @@
         "v0.22.34": "v0.28.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/term",
@@ -727,7 +730,7 @@
         "v0.22.34": "v0.27.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/text",
@@ -735,7 +738,7 @@
         "v0.22.34": "v0.21.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/time",
@@ -743,7 +746,7 @@
         "v0.22.34": "v0.8.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/tools",
@@ -751,7 +754,7 @@
         "v0.22.34": "v0.28.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "golang.org/x/xerrors",
@@ -759,7 +762,7 @@
         "v0.22.34": "v0.0.0-20240903120638-7835f813f4da",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "google.golang.org/api",
@@ -767,7 +770,7 @@
         "v0.22.34": "v0.213.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "google.golang.org/genproto/googleapis/rpc",
@@ -775,7 +778,7 @@
         "v0.22.34": "v0.0.0-20241216192217-9240e9c98484",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "google.golang.org/grpc",
@@ -783,7 +786,7 @@
         "v0.22.34": "v1.69.2",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "google.golang.org/protobuf",
@@ -791,7 +794,7 @@
         "v0.22.34": "v1.36.0",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "modernc.org/gc/v3",
@@ -799,7 +802,7 @@
         "v0.22.34": "v3.0.0-20241213165251-3bc300f6d0c9",
         "indirect": true,
         "imported_by_packages": [],
-        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+        "assessment": "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, also ignore_signing_headers.go and internal/s3lite/s3lite.go) but used only on its S3 path, NewS3 (filesystem.go:39-78) and s3lite; NewLocal, the local storage used while s3 is disabled, as in the real settings, opens a fileblob bucket and calls none of it (filesystem.go:89-97). Other modules of this default note: indirect, imported by no non-test PocketBase package (imported_by_packages is empty); their transitive use and their upstream changes are not verified offline (module sources absent from this server) and covered only by the binary comparison."
       },
       {
         "module": "modernc.org/sqlite",
@@ -809,7 +812,7 @@
         "imported_by_packages": [
           "core"
         ],
-        "assessment": "Pure-Go SQLite driver of the official CGO_ENABLED=0 binaries; both binaries embed SQLite 3.46.0 (probe), same file format."
+        "assessment": "Pure-Go SQLite driver of the official CGO_ENABLED=0 binaries (core/db_nocgo.go:7); both binaries embed SQLite 3.46.0 (probe), same file format."
       }
     ],
     "importer_inputs": [
@@ -1023,7 +1026,16 @@
       "gomod_cast_new": "v0.22.34:go.mod:28",
       "gomod_gocloud_new": "v0.22.34:go.mod:30",
       "release_go_old": "v0.22.27:.github/workflows/release.yaml:24",
-      "release_go_new": "v0.22.34:.github/workflows/release.yaml:24"
+      "release_go_new": "v0.22.34:.github/workflows/release.yaml:24",
+      "changelog_ui_file_token": "v0.22.34:CHANGELOG.md:36",
+      "ui_thumb_file_token": "v0.22.34:ui/src/components/records/RecordFileThumb.svelte:58",
+      "s3_constructor": "v0.22.34:tools/filesystem/filesystem.go:39",
+      "local_constructor": "v0.22.34:tools/filesystem/filesystem.go:89",
+      "thumb_imaging_decode": "v0.22.34:tools/filesystem/filesystem.go:474",
+      "thumb_imaging_encode": "v0.22.34:tools/filesystem/filesystem.go:519",
+      "mimetype_upload_content_type": "v0.22.34:tools/filesystem/filesystem.go:195",
+      "mimetype_name_extension": "v0.22.34:tools/filesystem/file.go:238",
+      "mimetype_upload_validation": "v0.22.34:forms/validators/file.go:65"
     }
   },
   "binaries": {
@@ -1094,9 +1106,8 @@
               "blocker_codes_besides_unknown_version": [],
               "warnings": [
                 "\"internal_records_require_separate_review\"",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"details\"}",
+                "{\"affected_rows\": 2, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"users\", \"field\": \"more\"}"
               ],
               "rows": 9,
               "relations_checked": 6,
@@ -1194,9 +1205,8 @@
               "blocker_codes_besides_unknown_version": [],
               "warnings": [
                 "\"internal_records_require_separate_review\"",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"details\"}",
+                "{\"affected_rows\": 2, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"users\", \"field\": \"more\"}"
               ],
               "rows": 9,
               "relations_checked": 6,
@@ -1315,7 +1325,7 @@
           "0.22.27": {
             "bcrypt_2a_cost_12": 7,
             "bcrypt_verified_with_synthetic_password": 7,
-            "pb_datetime_now": 296,
+            "pb_datetime_now": 298,
             "pb_generated_file_name": 3,
             "random_alnum_50": 15,
             "random_id_15": 2,
@@ -1325,7 +1335,7 @@
           "0.22.34": {
             "bcrypt_2a_cost_12": 7,
             "bcrypt_verified_with_synthetic_password": 7,
-            "pb_datetime_now": 296,
+            "pb_datetime_now": 298,
             "pb_generated_file_name": 3,
             "random_alnum_50": 15,
             "random_id_15": 2,
@@ -1344,8 +1354,8 @@
             "view": 42
           },
           "tables": 77,
-          "rows": 171,
-          "values": 2323,
+          "rows": 172,
+          "values": 2336,
           "storage_objects": 15,
           "storage_attrs_sidecars": 6,
           "storage_thumbnails": 2,
@@ -1363,19 +1373,17 @@
         "importer_diagnostic": {
           "0.22.27": {
             "read": {
-              "blocker_codes_besides_unknown_version": [
-                "dangling_relation",
-                "missing_referenced_file",
-                "unbounded_relation_target_scalar"
-              ],
+              "blocker_codes_besides_unknown_version": [],
               "warnings": [
                 "\"internal_records_require_separate_review\"",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_apps_roles\", \"field\": \"info\"}",
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"specification\"}",
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_config\", \"field\": \"posConfig\"}",
+                "{\"affected_rows\": 2, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"details\"}",
+                "{\"affected_rows\": 3, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"users\", \"field\": \"more\"}"
               ],
-              "rows": 38,
-              "relations_checked": 16,
+              "rows": 39,
+              "relations_checked": 32,
               "files": 15,
               "unreferenced_files": 9,
               "identity_sha256": {
@@ -1433,7 +1441,7 @@
                 "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_pilotage_ticket": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
                 "buma_pilotage_ticket_tag": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
-                "buma_ressources": "39426a86ca37e6102c8a746540e46ddc4d3705e785f57fe82155076f6f286541",
+                "buma_ressources": "e36fa93b9afb7bf304226cb1961f459a37ab10352a07f8f83aa19bdbb2de5c3f",
                 "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1462,28 +1470,22 @@
             },
             "with_source_version": {
               "argument": "0.22.27",
-              "blocker_codes": [
-                "dangling_relation",
-                "missing_referenced_file",
-                "unbounded_relation_target_scalar"
-              ]
+              "blocker_codes": []
             }
           },
           "0.22.34": {
             "read": {
-              "blocker_codes_besides_unknown_version": [
-                "dangling_relation",
-                "missing_referenced_file",
-                "unbounded_relation_target_scalar"
-              ],
+              "blocker_codes_besides_unknown_version": [],
               "warnings": [
                 "\"internal_records_require_separate_review\"",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
-                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_apps_roles\", \"field\": \"info\"}",
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"specification\"}",
+                "{\"affected_rows\": 1, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_config\", \"field\": \"posConfig\"}",
+                "{\"affected_rows\": 2, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"buma_article\", \"field\": \"details\"}",
+                "{\"affected_rows\": 3, \"code\": \"sql_null_json_stored_as_jsonb_null\", \"collection\": \"users\", \"field\": \"more\"}"
               ],
-              "rows": 38,
-              "relations_checked": 16,
+              "rows": 39,
+              "relations_checked": 32,
               "files": 15,
               "unreferenced_files": 9,
               "identity_sha256": {
@@ -1541,7 +1543,7 @@
                 "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_pilotage_ticket": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
                 "buma_pilotage_ticket_tag": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
-                "buma_ressources": "39426a86ca37e6102c8a746540e46ddc4d3705e785f57fe82155076f6f286541",
+                "buma_ressources": "e36fa93b9afb7bf304226cb1961f459a37ab10352a07f8f83aa19bdbb2de5c3f",
                 "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
                 "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1571,10 +1573,7 @@
             "with_source_version": {
               "argument": "0.22.34",
               "blocker_codes": [
-                "dangling_relation",
-                "missing_referenced_file",
-                "source_pocketbase_version_unvalidated",
-                "unbounded_relation_target_scalar"
+                "source_pocketbase_version_unvalidated"
               ]
             }
           }
@@ -1894,6 +1893,6 @@
     "real_backup_last_writer_is_the_embedded_sqlite": true,
     "real_backup_formats_match": true,
     "importer_can_accept_0_22_34": true,
-    "statement": "PocketBase v0.22.34 changes none of the code that decides what data.db and storage/ contain (models, models/schema, tools/types, tools/security, tools/filesystem, forms, migrations, core, apis and the record/table/settings daos have identical git objects); its only daos change, daos/view.go, regenerates view schemas and gives the same fields for the 42 BUMA views. Built from the same synthetic fixtures, both official binaries store identical values, rowids, DDL and storage objects, apart from values that are random by design, which keep the same formats; the importer at this commit reads both identically and only its version gate rejects 0.22.34. The real 0.22.34 backup uses the same formats. Accepting source_version 0.22.34 in scripts/c11_import.py needs no reader change; the D-0019 and D-0021 blockers are independent of the version."
+    "statement": "PocketBase v0.22.34 changes none of the code that decides what data.db and storage/ contain (models, models/schema, tools/types, tools/security, tools/filesystem, forms, migrations, core, apis and the record/table/settings daos have identical git objects); its only daos change, daos/view.go, regenerates view schemas and gives the same fields for the 42 BUMA views. Built from the same synthetic fixtures, both official binaries store identical values, rowids, DDL and storage objects, apart from values that are random by design, which keep the same formats; the importer at this commit reads both identically and, measured with 0.22.34 removed from its registry of validated versions (so that this result never depends on the evidence it publishes), only the version gate rejects 0.22.34. The real 0.22.34 backup uses the same formats. Accepting source_version 0.22.34 in scripts/c11_import.py needs no reader change."
   }
 }

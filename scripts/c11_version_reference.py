@@ -413,9 +413,10 @@ STATEMENT = (
     "42 BUMA views. Built from the same synthetic fixtures, both official binaries store "
     "identical values, rowids, DDL and storage objects, apart from values that are random by "
     "design, which keep the same formats; the importer at this commit reads both identically "
-    "and only its version gate rejects 0.22.34. The real 0.22.34 backup uses the same formats. "
-    "Accepting source_version 0.22.34 in scripts/c11_import.py needs no reader change; the "
-    "D-0019 and D-0021 blockers are independent of the version."
+    "and, measured with 0.22.34 removed from its registry of validated versions (so that this "
+    "result never depends on the evidence it publishes), only the version gate rejects 0.22.34. "
+    "The real 0.22.34 backup uses the same formats. Accepting source_version 0.22.34 in "
+    "scripts/c11_import.py needs no reader change."
 )
 DEFAULT_DEPENDENCY_NOTE = (
     "AWS SDK modules: imported by the package tools/filesystem itself (filesystem.go:17-20, "
