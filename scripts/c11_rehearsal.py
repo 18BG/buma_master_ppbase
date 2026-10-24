@@ -1966,9 +1966,26 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
         }
         after_http = await full_state(engine, definitions)
         changes = changed_rows(before_http, after_http)
-        # The realtime probe is the only write: one supplier name, and its date.
-        assert changes == [("buma_supplier", SUPPLIER, ["firstname", "updated"])], changes
-        report["writes_during_http_probes"] = "only_the_realtime_supplier_update"
+        # The realtime probe is the only probe write: one supplier name and its
+        # date. Without any superuser (a source without admin, e.g. the default
+        # profile) PPBase's start also stores its one-time setup token in
+        # _params (ppbase/app.py:189-198, ppbase/services/setup_service.py:13-38),
+        # where PocketBase 0.22 writes nothing.
+        setup = [
+            change
+            for change in changes
+            if change[0] == "_params"
+            and change[2] == ["row"]
+            and not before_http["_superusers"]
+            and [r["key"] for r in after_http["_params"] if r["id"] == change[1]]
+            == ["_setup_token"]
+        ]
+        expected = [("buma_supplier", SUPPLIER, ["firstname", "updated"])]
+        assert [c for c in changes if c not in setup] == expected and len(setup) <= 1, changes
+        report["writes_during_http_probes"] = {
+            "realtime_supplier_update": True,
+            "ppbase_setup_token_without_superuser": bool(setup),
+        }
         assert digest(data / "data.db") == original_hash
         assert storage_inventory(data / "storage") == original_storage
         assert storage_inventory(published / "storage") == original_storage
