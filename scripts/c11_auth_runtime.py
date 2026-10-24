@@ -9,10 +9,12 @@ realtime subscription. After a clean stop the snapshot goes through diagnose,
 stage_snapshot, load_isolated and import_auth in one transaction of a
 disposable PostgreSQL 16 container (every import_auth refusal is exercised
 there and rolled back), then PPBase serves it with the BUMA hooks and the same
-probes run again, realtime and secret exposure included. PocketBase is finally
-restarted on its untouched source (the rollback path) to probe the sessions
-PPBase issued. There is no --db/--data argument: no supplied backup or
-database is touched.
+probes run again, realtime and secret exposure included, then the session
+revocation paths (per account, global settings rotation, collection API and
+the emergency SQL rotation of the runbook). PocketBase is finally restarted on
+its untouched source (the rollback path) to probe the sessions PPBase issued,
+then runs the same revocation paths as the reference. There is no --db/--data
+argument: no supplied backup or database is touched.
 
 python -m scripts.c11_auth_runtime --pocketbase /path/to/pocketbase-0.22.34 \
     --schema /path/to/export.json --report /new/report.json
@@ -166,6 +168,15 @@ PROBES = ACCEPTED_PROBES + REFUSED_PROBES
 ACCEPTED = {label for label, *_rest in ACCEPTED_PROBES}
 TOKEN_KEY_RENEWAL_PROBES = {label for label, *_rest in REFUSED_PROBES if "_before_" in label}
 REALTIME_TOPIC = f"buma_supplier/{SUPPLIER}"
+# js-sdk v0.21.5 RecordService.subscribe("*") topic (src/services/RecordService.ts:130-134),
+# checked against the list rule by v0.22.34 apis/realtime.go:383-386.
+REALTIME_COLLECTION_TOPIC = "buma_supplier/*"
+# The JS SDK POSTs /api/realtime only for the first listener of a new topic
+# (js-sdk v0.21.5 src/services/RealtimeService.ts:85-94) and, on unsubscribe(),
+# only while other topics remain (:138-143; the last topic only closes the
+# stream). Each POST carries every remaining topic and the current token
+# (:258-283), so "new topic" sends both topics and "unsubscribe" the other one.
+BOTH_TOPICS = (REALTIME_TOPIC, REALTIME_COLLECTION_TOPIC)
 # Same outcome required on both servers.
 REALTIME_SAME = (
     "subscribe_with_legacy_users_token",
@@ -174,28 +185,33 @@ REALTIME_SAME = (
     "event_delivered_to_legacy_token_subscriber",
     "event_delivered_to_anonymous_subscriber",
     "legacy_users_token_refresh_status",
+    "protected_update_after_refresh_status",
+    "event_after_refresh_delivered_on_first_topic",
     "native_subscribe",
-    "native_resubscribe_same_client_after_refresh",
+    "native_subscribe_new_topic_same_client_after_refresh",
     "guest_subscribe",
-    "legacy_token_then_guest_same_client",
+    "legacy_token_then_guest_new_topic_same_client",
     "admin_subscribe_with_legacy_token",
     "admin_refresh_status",
-    "admin_resubscribe_same_client_after_refresh",
+    "admin_subscribe_new_topic_same_client_after_refresh",
 )
 # PocketBase compares the auth identity only (v0.22.34 apis/realtime.go:187-191
 # and extractAuthIdFromGetter :539-551; v0.40.6 apis/realtime.go:218-221 and
 # isSameAuth :843-853). PPBase keys it with the token type
 # (ppbase/api/realtime.py:45-52, :167-175) and fixes it at the first subscription.
 REALTIME_KNOWN_DIVERGENCES = {
-    "resubscribe_same_client_after_refresh": (
+    "subscribe_new_topic_same_client_after_refresh": (
         "mixed tokens after the import: the 0.22 token (type=authRecord) is refreshed "
         "by PPBase into type=auth, so ppbase/api/realtime.py:45-52 builds another key"
     ),
-    "unsubscribe_same_client_after_refresh": (
-        "same key change: the SDK unsubscribe also POSTs /api/realtime (js-sdk "
-        "v0.21.5 src/services/RealtimeService.ts:258-283)"
+    "event_after_refresh_delivered_on_new_topic": (
+        "consequence: the refused POST never adds the new topic (realtime.py:168-172 "
+        "answers before replace_subscriptions :235-238)"
     ),
-    "guest_then_legacy_token_same_client": (
+    "unsubscribe_one_of_two_topics_same_client_after_refresh": (
+        "same key change on the POST the SDK sends for the remaining topic"
+    ),
+    "guest_then_legacy_token_new_topic_same_client": (
         "pre-existing PPBase behaviour, independent of the import: "
         "ppbase/api/realtime.py:168-175 records the guest key at the first subscription"
     ),
@@ -208,6 +224,77 @@ EXPOSURE_PATHS = (
     ("superusers_collection", "/api/collections/_superusers"),
 )
 SECRET_MASK = "******"  # v0.22.34 models/settings/settings.go:19-21
+REVOKED_PASSWORD = "C11-auth-password-revoked"
+# scope, PocketBase 0.22 settings key, then (label, method, path, credential).
+GLOBAL_REVOCATION_CHECKS = (
+    (
+        "record",
+        "recordAuthToken",
+        (
+            ("users_refresh", "POST", USERS_REFRESH, "users"),
+            ("agent_refresh", "POST", AGENTS_REFRESH, "agent"),
+            ("users_protected_read", "GET", SUPPLIER_PATH, "users"),
+        ),
+    ),
+    ("admin", "adminAuthToken", (("admin_lists_admins", "GET", "/api/admins", "admin"),)),
+)
+# Probes whose PocketBase status must be reproduced by PPBase.
+REVOCATION_SAME = (
+    "account_password_change_by_admin",
+    "account_previous_token_refresh",
+    "account_login_with_new_password",
+    "admin_account_password_change",
+    "admin_account_previous_token_lists_admins",
+    "admin_account_login_with_new_password",
+    "open_stream_subscribe",
+    "open_stream_update_status",
+    # Neither server cuts an open stream: both keep the subscriber's auth state
+    # (v0.22.34 apis/realtime.go:202-203, ppbase/api/realtime.py:223-231).
+    "open_stream_event_after_settings_record_rotation",
+)
+# PPBase stores the 0.22 keys in _params.settings (ppbase/api/settings.py:440-448)
+# but verifies with _collections.options (ppbase/api/deps.py:85-90, :130-136).
+REVOCATION_KNOWN_DIVERGENCES = {
+    **{
+        f"{name}_after_settings_{scope}_rotation": (
+            f"PATCH /api/settings {key} answers 200 without effect: nothing in PPBase "
+            "reads it after the import moved the secret into the collection options"
+        )
+        for scope, key, checks in GLOBAL_REVOCATION_CHECKS
+        for name, *_rest in checks
+    },
+    "open_stream_post_after_settings_record_rotation": (
+        "same cause: the token is still valid on PPBase, so the identity check of "
+        "ppbase/api/realtime.py:167-172 passes (PocketBase: anonymous, 403 at "
+        "apis/realtime.go:187-191)"
+    ),
+}
+# PPBase collection -> session check (method, path, session label).
+COLLECTION_ROTATION_CHECKS = {
+    "users": ("POST", USERS_REFRESH, "users"),
+    "agent_users": ("POST", AGENTS_REFRESH, "agent"),
+    "_superusers": ("GET", "/api/admins", "admin"),
+}
+COLLECTION_PATCH_SHAPES = {
+    # Current PocketBase API: auth options at the top level of the collection
+    # (v0.40.6 core/collection_model_auth_options.go:139).
+    "flat_current_pocketbase_shape": lambda secret: {"authToken": {"secret": secret}},
+    # PPBase's own update model nests them (ppbase/models/collection.py:101-117).
+    "nested_ppbase_options": lambda secret: {"options": {"authToken": {"secret": secret}}},
+}
+# Emergency revocation for the runbook (WS-F), proven by ppbase_revocation_paths:
+# after the import PocketBase 0.22's global "Invalidate all previously issued
+# tokens" has no effective PPBase API path for record sessions. One new random
+# secret per auth collection, read by PPBase on the next request; gen_random_uuid()
+# draws from pg_strong_random (PostgreSQL >= 13), so the secret never leaves the
+# database. Narrow the IN list to revoke only record ('users', 'agent_users') or
+# admin ('_superusers') sessions; expect one row per name, secret_length 64.
+EMERGENCY_SESSION_REVOCATION_SQL = """UPDATE "_collections"
+   SET "options" = jsonb_set("options", '{authToken,secret}',
+         to_jsonb(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))),
+       "updated" = now()
+ WHERE "type" = 'auth' AND "name" IN ('users', 'agent_users', '_superusers')
+RETURNING "name", length("options" -> 'authToken' ->> 'secret') AS secret_length"""
 # Independent of the import (same on any PPBase database); proposed fixes in
 # docs/contracts/c11-auth-import.md. Any other status difference fails the run.
 KNOWN_PPBASE_DIVERGENCES = {
@@ -682,10 +769,19 @@ async def refresh(base_url: str, path: str, token: str) -> dict:
     }
 
 
+async def update_supplier(base_url: str, admin: str, firstname: str) -> int:
+    async with fresh_client(base_url) as client:
+        update = await client.patch(
+            SUPPLIER_PATH, headers={"Authorization": admin}, json={"firstname": firstname}
+        )
+    return update.status_code
+
+
 async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tuple[dict, dict]:
     """Same calls on PocketBase 0.22.34 (before) and PPBase (after the import).
 
-    Returns (statuses and booleans, tokens kept in memory for the rollback probes).
+    The POST bodies are those the JS SDK 0.21 sends (see BOTH_TOPICS). Returns
+    (statuses and booleans, tokens kept in memory for the rollback probes).
     """
     users, admin, results = credentials["users"], credentials["admin"], {}
     async with RealtimeClient(base_url) as subscriber, RealtimeClient(base_url) as anonymous:
@@ -693,13 +789,9 @@ async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tupl
             [REALTIME_TOPIC], users
         )
         results["anonymous_subscribe"] = await anonymous.subscribe([REALTIME_TOPIC])
-        async with fresh_client(base_url) as client:
-            update = await client.patch(
-                SUPPLIER_PATH,
-                headers={"Authorization": admin},
-                json={"firstname": f"C11 realtime {marker}"},
-            )
-        results["protected_update_status"] = update.status_code
+        results["protected_update_status"] = await update_supplier(
+            base_url, admin, f"C11 realtime {marker}"
+        )
         results["event_delivered_to_legacy_token_subscriber"] = await subscriber.wait_for(
             REALTIME_TOPIC, "update", SUPPLIER
         )
@@ -708,12 +800,25 @@ async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tupl
         refreshed = await refresh(base_url, USERS_REFRESH, users)
         results["legacy_users_token_refresh_status"] = refreshed["status"]
         results["refreshed_token_type"] = refreshed["type"]
-        results["resubscribe_same_client_after_refresh"] = await subscriber.subscribe(
-            [REALTIME_TOPIC], refreshed["token"]
+        # pb.collection("buma_supplier").subscribe("*") after the refresh.
+        results["subscribe_new_topic_same_client_after_refresh"] = await subscriber.subscribe(
+            BOTH_TOPICS, refreshed["token"]
         )
-        results["unsubscribe_same_client_after_refresh"] = await subscriber.subscribe(
-            [], refreshed["token"]
+        # Measured, not inferred: what the open stream still receives afterwards.
+        results["protected_update_after_refresh_status"] = await update_supplier(
+            base_url, admin, f"C11 realtime {marker} again"
         )
+        results["event_after_refresh_delivered_on_first_topic"] = await subscriber.wait_for(
+            REALTIME_TOPIC, "update", SUPPLIER
+        )
+        await asyncio.sleep(1)
+        results["event_after_refresh_delivered_on_new_topic"] = subscriber.received(
+            REALTIME_COLLECTION_TOPIC
+        )
+        # pb.collection("buma_supplier").unsubscribe("*") while the record topic remains.
+        results[
+            "unsubscribe_one_of_two_topics_same_client_after_refresh"
+        ] = await subscriber.subscribe([REALTIME_TOPIC], refreshed["token"])
     async with RealtimeClient(base_url) as client:
         native = await pocketbase_tokens(
             base_url, records=(("native", "users", "c11authuser", PASSWORD),)
@@ -722,17 +827,21 @@ async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tupl
         results["native_token_type"] = claims_shape(token)["type"]
         results["native_subscribe"] = await client.subscribe([REALTIME_TOPIC], token)
         renewed = await refresh(base_url, USERS_REFRESH, token)
-        results["native_resubscribe_same_client_after_refresh"] = await client.subscribe(
-            [REALTIME_TOPIC], renewed["token"]
+        results["native_subscribe_new_topic_same_client_after_refresh"] = await client.subscribe(
+            BOTH_TOPICS, renewed["token"]
         )
     async with RealtimeClient(base_url) as client:
+        # Subscribed before the login, then a new topic once authenticated.
         results["guest_subscribe"] = await client.subscribe([REALTIME_TOPIC])
-        results["guest_then_legacy_token_same_client"] = await client.subscribe(
-            [REALTIME_TOPIC], users
+        results["guest_then_legacy_token_new_topic_same_client"] = await client.subscribe(
+            BOTH_TOPICS, users
         )
     async with RealtimeClient(base_url) as client:
+        # authStore cleared (logout), then a new topic on the same stream.
         await client.subscribe([REALTIME_TOPIC], users)
-        results["legacy_token_then_guest_same_client"] = await client.subscribe([REALTIME_TOPIC])
+        results["legacy_token_then_guest_new_topic_same_client"] = await client.subscribe(
+            BOTH_TOPICS
+        )
     async with RealtimeClient(base_url) as client:
         results["admin_subscribe_with_legacy_token"] = await client.subscribe(
             [REALTIME_TOPIC], admin
@@ -740,8 +849,8 @@ async def realtime_probes(base_url: str, credentials: dict, marker: str) -> tupl
         admin_refreshed = await refresh(base_url, "/api/admins/auth-refresh", admin)
         results["admin_refresh_status"] = admin_refreshed["status"]
         results["admin_refreshed_token_type"] = admin_refreshed["type"]
-        results["admin_resubscribe_same_client_after_refresh"] = await client.subscribe(
-            [REALTIME_TOPIC], admin_refreshed["token"]
+        results["admin_subscribe_new_topic_same_client_after_refresh"] = await client.subscribe(
+            BOTH_TOPICS, admin_refreshed["token"]
         )
     return results, {"users_refreshed": refreshed["token"]}
 
@@ -765,6 +874,208 @@ async def secret_exposure(base_url: str, admin_token: str, values: list[str]) ->
                 )
                 result["smtp_password_masked"] = body["smtp"].get("password") == SECRET_MASK
             results[label] = result
+    return results
+
+
+def settings_response_exposure(response, sent_secret: str, secret_values: list[str]) -> dict:
+    """PATCH /api/settings answer: does it echo a secret? Booleans and counts only."""
+    result = {
+        "status": response.status_code,
+        "response_serves_sent_secret": sent_secret in response.text,
+        "response_serves_imported_secret": any(value in response.text for value in secret_values),
+    }
+    body = body_of(response)
+    if response.status_code == 200 and isinstance(body, dict):
+        configs = [body[key] for key in TOKEN_KEYS if isinstance(body.get(key), dict)]
+        smtp = body.get("smtp") if isinstance(body.get("smtp"), dict) else {}
+        result["token_configs_in_response"] = len(configs)
+        result["token_configs_masked"] = sum(c.get("secret") == SECRET_MASK for c in configs)
+        result["smtp_password_masked"] = smtp.get("password") == SECRET_MASK
+    return result
+
+
+def new_secret() -> str:
+    # PocketBase's own secret shape (security.RandomString(50)); memory only.
+    return secrets.token_urlsafe(48)[:50]
+
+
+async def revocation_probes(base_url: str, credentials: dict, secret_values: list[str]) -> dict:
+    """Session revocation paths a PocketBase 0.22.34 administrator has.
+
+    Same calls on PocketBase 0.22.34 (rollback server, last use of its source)
+    and on PPBase after the import: per account through a password change, then
+    globally through the dashboard's "Invalidate all previously issued tokens",
+    which sends a new random secret through PATCH /api/settings (v0.22.34
+    ui/src/components/settings/TokenField.svelte:16-29, PageTokenOptions.svelte:50-66;
+    apis/settings.go:48-85, forms/settings_upsert.go:56-73, read back by
+    apis/middlewares.go:229-249). Statuses and booleans only.
+    """
+    results = {}
+    async with fresh_client(base_url) as client:
+
+        async def status(method: str, path: str, credential: str, **kwargs) -> int:
+            headers = {"Authorization": credentials[credential]}
+            return (await client.request(method, path, headers=headers, **kwargs)).status_code
+
+        async def login(path: str, identity: str) -> int:
+            body = {"identity": identity, "password": REVOKED_PASSWORD}
+            return (await client.post(path, json=body)).status_code
+
+        # Per account: a password change renews the tokenKey (v0.22.34
+        # forms/record_upsert.go:682-685 -> models/record.go:942-962, no oldPassword
+        # with manage access :544-548; models/admin.go:45-61). PPBase: record_service.py
+        # :1039-1044, admin_service.py:129-135.
+        change = {"password": REVOKED_PASSWORD, "passwordConfirm": REVOKED_PASSWORD}
+        results["account_password_change_by_admin"] = await status(
+            "PATCH", f"/api/collections/users/records/{REF}", "admin", json=change
+        )
+        results["account_previous_token_refresh"] = await status(
+            "POST", USERS_REFRESH, "ref_after_changes"
+        )
+        results["account_login_with_new_password"] = await login(USERS_LOGIN, "c11authref")
+        results["admin_account_password_change"] = await status(
+            "PATCH", f"/api/admins/{credentials['admin_ref_id']}", "admin", json=change
+        )
+        results["admin_account_previous_token_lists_admins"] = await status(
+            "GET", "/api/admins", "admin_ref_after_reset"
+        )
+        results["admin_account_login_with_new_password"] = await login(
+            ADMINS_LOGIN, ADMIN_REF_EMAIL
+        )
+        # Globally: record sessions, then admin sessions (the admin token stays valid
+        # until its own secret changes). A realtime stream opened with the record
+        # token before the rotation shows whether revocation cuts open streams.
+        async with RealtimeClient(base_url) as stream:
+            results["open_stream_subscribe"] = await stream.subscribe(
+                [REALTIME_TOPIC], credentials["users"]
+            )
+            for scope, key, checks in GLOBAL_REVOCATION_CHECKS:
+                secret = new_secret()
+                response = await client.patch(
+                    "/api/settings",
+                    headers={"Authorization": credentials["admin"]},
+                    json={key: {"secret": secret}},
+                )
+                results[f"settings_rotate_{scope}_secret"] = settings_response_exposure(
+                    response, secret, secret_values
+                )
+                for name, method, path, credential in checks:
+                    results[f"{name}_after_settings_{scope}_rotation"] = await status(
+                        method, path, credential
+                    )
+                if scope == "record":
+                    results["open_stream_update_status"] = await update_supplier(
+                        base_url, credentials["admin"], "C11 stream after settings rotation"
+                    )
+                    results[
+                        "open_stream_event_after_settings_record_rotation"
+                    ] = await stream.wait_for(REALTIME_TOPIC, "update", SUPPLIER)
+                    # The SDK's next POST on that stream still carries the old token.
+                    results[
+                        "open_stream_post_after_settings_record_rotation"
+                    ] = await stream.subscribe(BOTH_TOPICS, credentials["users"])
+    return results
+
+
+async def ppbase_revocation_paths(base_url: str, engine, credentials: dict) -> dict:
+    """PPBase only, after revocation_probes: the per-collection secrets the import wrote.
+
+    PocketBase 0.22 has no per-collection token option; PPBase keeps the secret in
+    _collections.options (ppbase/api/deps.py:85-90, :130-136). Probes the collection
+    API in both shapes, then the emergency SQL rotation, without restarting PPBase.
+    """
+    results = {"collection_api": {}, "emergency_sql": {}}
+
+    async def sessions() -> dict:
+        return await pocketbase_tokens(
+            base_url,
+            admin=(ADMIN_EMAIL, ADMIN_PASSWORD),
+            records=(
+                ("users", "users", "c11authuser", PASSWORD),
+                ("agent", "agent_users", EMAILS[AGENT], PASSWORD),
+            ),
+        )
+
+    async with fresh_client(base_url) as client:
+
+        async def status(method: str, path: str, token: str) -> int:
+            response = await client.request(method, path, headers={"Authorization": token})
+            return response.status_code
+
+        # Sessions verified with the collection secret right before each PATCH;
+        # _superusers last, nested shape last: an effective rotation revokes the
+        # admin session sending the PATCH.
+        live = await sessions()
+        for name, (method, path, label) in COLLECTION_ROTATION_CHECKS.items():
+            for shape, body in COLLECTION_PATCH_SHAPES.items():
+                secret = new_secret()
+                before = await status(method, path, live[label]["token"])
+                response = await client.patch(
+                    f"/api/collections/{name}",
+                    headers={"Authorization": live["admin"]["token"]},
+                    json=body(secret),
+                )
+                answer = body_of(response)
+                results["collection_api"][f"{name}_{shape}"] = {
+                    "status": response.status_code,
+                    "message": answer.get("message")
+                    if response.status_code >= 400 and isinstance(answer, dict)
+                    else None,
+                    "response_serves_sent_secret": secret in response.text,
+                    "session_status_before": before,
+                    "session_status_after": await status(method, path, live[label]["token"]),
+                }
+
+        fresh = await sessions()
+        targets = {
+            "legacy_users_refresh": ("POST", USERS_REFRESH, credentials["users"]),
+            "legacy_users_is_connected": ("GET", "/isConnected", credentials["users"]),
+            "legacy_agent_refresh": ("POST", AGENTS_REFRESH, credentials["agent"]),
+            "ppbase_users_refresh": ("POST", USERS_REFRESH, fresh["users"]["token"]),
+            "ppbase_agent_refresh": ("POST", AGENTS_REFRESH, fresh["agent"]["token"]),
+            "ppbase_admin_lists_admins": ("GET", "/api/admins", fresh["admin"]["token"]),
+        }
+        before = {label: await status(*target) for label, target in targets.items()}
+        read = text(
+            "SELECT name, options -> 'authToken' ->> 'secret' AS secret FROM _collections "
+            "WHERE type = 'auth' ORDER BY name"
+        )
+        async with RealtimeClient(base_url) as stream:
+            stream_status = await stream.subscribe([REALTIME_TOPIC], fresh["users"]["token"])
+            async with engine.begin() as conn:
+                old = {r["name"]: r["secret"] for r in (await conn.execute(read)).mappings()}
+                rows = (await conn.execute(text(EMERGENCY_SESSION_REVOCATION_SQL))).mappings().all()
+                new = {r["name"]: r["secret"] for r in (await conn.execute(read)).mappings()}
+            after = {label: await status(*target) for label, target in targets.items()}
+            # Raises unless the original passwords still log in.
+            logins = await sessions()
+            # A value never written before: an update must really change the record.
+            stream_update = await update_supplier(
+                base_url, logins["admin"]["token"], "C11 stream after emergency rotation"
+            )
+            stream_event = await stream.wait_for(REALTIME_TOPIC, "update", SUPPLIER)
+            # The SDK's next POST on that stream still carries the revoked token.
+            stream_post = await stream.subscribe(BOTH_TOPICS, fresh["users"]["token"])
+        follow_up = {
+            "users_refresh": await status("POST", USERS_REFRESH, logins["users"]["token"]),
+            "agent_refresh": await status("POST", AGENTS_REFRESH, logins["agent"]["token"]),
+            "admin_lists_admins": await status("GET", "/api/admins", logins["admin"]["token"]),
+        }
+    results["emergency_sql"] = {
+        "ppbase_restarted": False,
+        "rows_updated": sorted(row["name"] for row in rows),
+        "secret_lengths": sorted({row["secret_length"] for row in rows}),
+        "every_secret_changed": set(old) == set(new) and all(old[n] != new[n] for n in old),
+        "secrets_distinct_per_collection": len(set(new.values())) == len(new),
+        "status_before": before,
+        "status_after": after,
+        "original_passwords_log_in_after": True,
+        "new_sessions_accepted_after": follow_up,
+        "open_stream_subscribe_before": stream_status,
+        "open_stream_update_status": stream_update,
+        "open_stream_event_after_rotation": stream_event,
+        "open_stream_post_with_revoked_token": stream_post,
+    }
     return results
 
 
@@ -1182,6 +1493,11 @@ async def purpose_probes(base_url: str, purpose: dict) -> dict:
     return results
 
 
+def pb_date(value: datetime) -> str:
+    """PostgreSQL timestamptz back to PocketBase's stored text (UTC, milliseconds)."""
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
+
+
 async def compare_imported(engine, data: Path) -> dict:
     """Readback against the synthetic source, booleans only in the report."""
     with sqlite3.connect(
@@ -1189,9 +1505,12 @@ async def compare_imported(engine, data: Path) -> dict:
     ) as db:
         db.row_factory = sqlite3.Row
         admins = [dict(r) for r in db.execute("SELECT _rowid_ AS rid, * FROM _admins")]
-        settings = json.loads(
-            db.execute("SELECT value FROM _params WHERE key='settings'").fetchone()[0]
+        param = dict(
+            db.execute(
+                "SELECT id, value, created, updated FROM _params WHERE key='settings'"
+            ).fetchone()
         )
+        settings = json.loads(param["value"])
         users = {
             r["id"]: dict(r) for r in db.execute("SELECT id, tokenKey, passwordHash FROM users")
         }
@@ -1212,9 +1531,16 @@ async def compare_imported(engine, data: Path) -> dict:
             .mappings()
             .all()
         }
-        stored = (
-            await conn.execute(text("SELECT value FROM _params WHERE key='settings'"))
-        ).scalar_one()
+        stored_row = (
+            (
+                await conn.execute(
+                    text("SELECT id, value, created, updated FROM _params WHERE key='settings'")
+                )
+            )
+            .mappings()
+            .one()
+        )
+        stored = stored_row["value"]
         archive = (await conn.execute(text(f'SELECT * FROM "{ARCHIVE_TABLE}"'))).mappings().all()
         imported_users = {
             r["id"]: dict(r)
@@ -1249,10 +1575,13 @@ async def compare_imported(engine, data: Path) -> dict:
             and targets[a["id"]]["token_key"] == a["tokenKey"]
             and targets[a["id"]]["email"] == a["email"]
             and targets[a["id"]]["avatar"] == a["avatar"]
-            and targets[a["id"]]["created"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
-            == a["created"]
+            and pb_date(targets[a["id"]]["created"]) == a["created"]
+            and pb_date(targets[a["id"]]["updated"]) == a["updated"]
             for a in admins
         ),
+        "settings_row_id_and_dates_identical": stored_row["id"] == param["id"]
+        and pb_date(stored_row["created"]) == param["created"]
+        and pb_date(stored_row["updated"]) == param["updated"],
         "admin_last_reset_sent_at_not_activated": all(
             t["last_reset_sent_at"] is None for t in targets.values()
         ),
@@ -1278,8 +1607,12 @@ async def compare_imported(engine, data: Path) -> dict:
             not in {settings[key]["secret"] for key in record_pairs.values()}
             for kind in ("verificationToken", "emailChangeToken")
         ),
-        "settings_meta_logs_smtp_mapped": stored["meta"]["appName"] == settings["meta"]["appName"]
+        "settings_meta_logs_smtp_mapped": all(
+            stored["meta"][k] == settings["meta"][k]
+            for k in ("appName", "senderName", "senderAddress", "hideControls")
+        )
         and stored["meta"]["appURL"] == settings["meta"]["appUrl"].removesuffix("/")
+        and all(stored["logs"][k] == settings["logs"][k] for k in ("maxDays", "minLevel"))
         and stored["logs"]["logIP"] == settings["logs"]["logIp"]
         and all(stored["smtp"][k] == v for k, v in settings["smtp"].items()),
         "settings_s3_and_backups_left_at_ppbase_defaults": stored["s3"]["enabled"] is False
@@ -1599,11 +1932,17 @@ async def postgres_phase(root, url, data, schema, credentials, purpose, secret_v
                     ("agent", "agent_users", EMAILS[AGENT], PASSWORD),
                 ),
             )
+            # State left by the probes above, before the revocation probes change
+            # passwords, settings and collection secrets on purpose.
+            after = await database_state(engine, definitions)
+            after_import["revocation"] = await revocation_probes(base, credentials, secret_values)
+            after_import["revocation_ppbase_only"] = await ppbase_revocation_paths(
+                base, engine, credentials
+            )
             report["ppbase_after_import"] = after_import
         finally:
             stop(process)
             log.close()
-        after = await database_state(engine, definitions)
         probe_before = next(r for r in imported_state["users"] if r["id"] == PROBE)
         probe_after = next(r for r in after["users"] if r["id"] == PROBE)
         admin_before = {r["id"]: r for r in imported_state["_superusers"]}
@@ -1659,7 +1998,10 @@ async def rollback_phase(binary, data, root, migrations, credentials, issued, se
                     "token_type": claims_shape(token)["type"],
                 }
         exposure = await secret_exposure(pb.base_url, credentials["admin"], secret_values)
-    return {"probes": probes, "secret_exposure": exposure}
+        # Last use of the source: the reference for the revocation paths changes
+        # passwords and settings secrets on purpose.
+        revocation = await revocation_probes(pb.base_url, credentials, secret_values)
+    return {"probes": probes, "secret_exposure": exposure, "revocation": revocation}
 
 
 def compare_probes(report: dict) -> tuple[dict, list, list]:
@@ -1710,19 +2052,23 @@ def compare_realtime(report: dict) -> tuple[dict, list]:
     assert pocketbase["subscribe_with_legacy_users_token"] == 204, pocketbase
     assert pocketbase["event_delivered_to_legacy_token_subscriber"] is True, pocketbase
     assert pocketbase["event_delivered_to_anonymous_subscriber"] is False, pocketbase
-    assert pocketbase["resubscribe_same_client_after_refresh"] == 204, pocketbase
-    assert pocketbase["guest_then_legacy_token_same_client"] == 204, pocketbase
-    assert pocketbase["legacy_token_then_guest_same_client"] == 403, pocketbase
+    assert pocketbase["subscribe_new_topic_same_client_after_refresh"] == 204, pocketbase
+    assert pocketbase["event_after_refresh_delivered_on_first_topic"] is True, pocketbase
+    assert pocketbase["event_after_refresh_delivered_on_new_topic"] is True, pocketbase
+    assert pocketbase["unsubscribe_one_of_two_topics_same_client_after_refresh"] == 204
+    assert pocketbase["guest_then_legacy_token_new_topic_same_client"] == 204, pocketbase
+    assert pocketbase["legacy_token_then_guest_new_topic_same_client"] == 403, pocketbase
     for key in REALTIME_SAME:
         assert pocketbase[key] == ppbase[key], (key, pocketbase[key], ppbase[key])
     divergences = []
     for key, cause in REALTIME_KNOWN_DIVERGENCES.items():
-        assert ppbase[key] in (204, 403), (key, ppbase[key])
+        allowed = (True, False) if isinstance(pocketbase[key], bool) else (204, 403)
+        assert ppbase[key] in allowed, (key, ppbase[key])
         divergences.append(
             {
                 "probe": key,
-                "pocketbase_status": pocketbase[key],
-                "ppbase_status": ppbase[key],
+                "pocketbase": pocketbase[key],
+                "ppbase": ppbase[key],
                 "resolved": pocketbase[key] == ppbase[key],
                 "cause": cause,
             }
@@ -1741,7 +2087,7 @@ def compare_exposure(report: dict) -> dict:
     settings = pocketbase["settings"]
     assert settings["token_configs_in_settings"] == settings["token_configs_masked"] == 8
     assert settings["smtp_password_masked"] is True
-    return {
+    exposure = {
         label: {
             "status": {
                 "pocketbase": pocketbase[label]["status"],
@@ -1754,6 +2100,87 @@ def compare_exposure(report: dict) -> dict:
         }
         for label, _path in EXPOSURE_PATHS
     }
+    # PATCH /api/settings answers RedactClone too (v0.22.34 apis/settings.go:75-80);
+    # PPBase returns the merged document (ppbase/api/settings.py:463).
+    pb_revocation = report["pocketbase_restarted_on_source"]["revocation"]
+    pp_revocation = report["ppbase_after_import"]["revocation"]
+    for scope, _key, _checks in GLOBAL_REVOCATION_CHECKS:
+        label = f"settings_rotate_{scope}_secret"
+        reference = pb_revocation[label]
+        assert reference["status"] == 200 and reference["token_configs_masked"] == 8, reference
+        assert reference["smtp_password_masked"] is True, reference
+        assert not reference["response_serves_sent_secret"], reference
+        assert not reference["response_serves_imported_secret"], reference
+        exposure[f"patch_{label}"] = {
+            key: {"pocketbase": reference.get(key), "ppbase": pp_revocation[label].get(key)}
+            for key in (
+                "status",
+                "response_serves_sent_secret",
+                "response_serves_imported_secret",
+                "token_configs_in_response",
+                "token_configs_masked",
+                "smtp_password_masked",
+            )
+        }
+    return exposure
+
+
+def compare_revocation(report: dict) -> tuple[dict, list, dict]:
+    """Revocation paths: PocketBase 0.22.34 reference, PPBase measured."""
+    pocketbase = report["pocketbase_restarted_on_source"]["revocation"]
+    ppbase = report["ppbase_after_import"]["revocation"]
+    only = report["ppbase_after_import"]["revocation_ppbase_only"]
+    assert pocketbase["account_password_change_by_admin"] == 200, pocketbase
+    assert pocketbase["account_previous_token_refresh"] == 401, pocketbase
+    assert pocketbase["account_login_with_new_password"] == 200, pocketbase
+    assert pocketbase["admin_account_password_change"] == 200, pocketbase
+    assert pocketbase["admin_account_previous_token_lists_admins"] == 401, pocketbase
+    assert pocketbase["admin_account_login_with_new_password"] == 200, pocketbase
+    for key in REVOCATION_SAME:
+        assert pocketbase[key] == ppbase[key], (key, pocketbase[key], ppbase[key])
+    divergences = []
+    assert pocketbase["open_stream_subscribe"] == 204, pocketbase
+    assert pocketbase["open_stream_event_after_settings_record_rotation"] is True, pocketbase
+    for key, cause in REVOCATION_KNOWN_DIVERGENCES.items():
+        # The rotated secret really revoked the sessions on PocketBase.
+        assert pocketbase[key] in (401, 403, 404), (key, pocketbase[key])
+        assert ppbase[key] in (200, 204, pocketbase[key]), (key, ppbase[key])
+        divergences.append(
+            {
+                "probe": key,
+                "pocketbase_status": pocketbase[key],
+                "ppbase_status": ppbase[key],
+                "resolved": pocketbase[key] == ppbase[key],
+                "cause": cause,
+            }
+        )
+    collection_api = only["collection_api"]
+    for label, result in collection_api.items():
+        assert result["session_status_before"] == 200, (label, result)
+    emergency = only["emergency_sql"]
+    assert emergency["rows_updated"] == ["_superusers", "agent_users", "users"], emergency
+    assert emergency["secret_lengths"] == [64], emergency
+    assert emergency["every_secret_changed"] and emergency["secrets_distinct_per_collection"]
+    for label in ("ppbase_users_refresh", "ppbase_agent_refresh", "ppbase_admin_lists_admins"):
+        assert emergency["status_before"][label] == 200, (label, emergency)
+    # Every session verified with the old secrets is refused, without a restart
+    # (/isConnected keeps its C3 contract: 400 {"message": "false"}).
+    expected_after = {label: 401 for label in emergency["status_after"]}
+    expected_after["legacy_users_is_connected"] = 400
+    assert emergency["status_after"] == expected_after, emergency
+    assert set(emergency["new_sessions_accepted_after"].values()) == {200}, emergency
+    # Same as PocketBase after its own global revocation (revocation_probes): the
+    # open stream keeps its events, its next POST with the revoked token gets 403.
+    assert emergency["open_stream_subscribe_before"] == 204, emergency
+    assert emergency["open_stream_update_status"] == 200, emergency
+    assert emergency["open_stream_event_after_rotation"] is True, emergency
+    assert emergency["open_stream_post_with_revoked_token"] == 403, emergency
+    assert pocketbase["open_stream_post_after_settings_record_rotation"] == 403, pocketbase
+    comparison = {
+        key: {"pocketbase": pocketbase[key], "ppbase": ppbase[key]}
+        for key in (*REVOCATION_SAME, *REVOCATION_KNOWN_DIVERGENCES)
+    }
+    return comparison, divergences, only
 
 
 def compare(report: dict) -> None:
@@ -1806,6 +2233,8 @@ def compare(report: dict) -> None:
     }
     token_type["resolved"] = token_type["pocketbase_refresh"] == token_type["ppbase_refresh"]
     exposure = compare_exposure(report)
+    revocation, revocation_divergences, revocation_ppbase = compare_revocation(report)
+    collection_api = revocation_ppbase["collection_api"]
     rollback = report["pocketbase_restarted_on_source"]["probes"]
     assert rollback["pre_import_users_token_refresh"]["status"] == 200, rollback
     assert rollback["pre_import_admin_token_lists_admins"]["status"] == 200, rollback
@@ -1840,8 +2269,15 @@ def compare(report: dict) -> None:
             key: {"status": value["status"], "token_type": value["token_type"]}
             for key, value in rollback.items()
         },
+        "session_revocation": revocation,
+        "session_revocation_known_divergences": revocation_divergences,
+        "session_revocation_ppbase_collection_api": collection_api,
+        "session_revocation_emergency_sql": revocation_ppbase["emergency_sql"],
     }
     realtime_pp = report["ppbase_after_import"]["realtime"]
+    effective = {
+        label: result["session_status_after"] == 401 for label, result in collection_api.items()
+    }
     report["summary"] = {
         "pre_import_tokens_accepted_after_import": {
             "admin": all(comparison[k]["ppbase"] == 200 for k in ACCEPTED if k.startswith("admin")),
@@ -1871,16 +2307,30 @@ def compare(report: dict) -> None:
         "purpose_tokens_issued_before_import_continued": False,
         "buma_legacy_probes_match_contract": True,
         "realtime_legacy_token_subscription_and_delivery_match_pocketbase": True,
-        "realtime_resubscribe_after_ppbase_refresh_matches_pocketbase": realtime_pp[
-            "resubscribe_same_client_after_refresh"
+        "realtime_new_topic_after_ppbase_refresh_matches_pocketbase": realtime_pp[
+            "subscribe_new_topic_same_client_after_refresh"
         ]
         == 204,
+        "realtime_open_subscription_still_delivers_after_refused_post": realtime_pp[
+            "event_after_refresh_delivered_on_first_topic"
+        ],
         "js_sdk_0_21_isAuthRecord_after_ppbase_refresh": token_type[
             "js_sdk_0_21_isAuthRecord_after_refresh"
         ]["ppbase"],
         "ppbase_serves_imported_secrets_to_superusers": any(
-            value["serves_imported_secret"]["ppbase"] for value in exposure.values()
+            exposure[label]["serves_imported_secret"]["ppbase"] for label, _path in EXPOSURE_PATHS
         ),
+        "ppbase_settings_patch_response_serves_secrets": any(
+            exposure[f"patch_settings_rotate_{scope}_secret"][key]["ppbase"]
+            for scope, _key, _checks in GLOBAL_REVOCATION_CHECKS
+            for key in ("response_serves_sent_secret", "response_serves_imported_secret")
+        ),
+        "per_account_revocation_matches_pocketbase": True,
+        "global_revocation_by_settings_patch_matches_pocketbase": all(
+            item["resolved"] for item in revocation_divergences
+        ),
+        "collection_api_rotation_effective": effective,
+        "emergency_sql_revocation_immediate_without_restart": True,
         "rollback_pocketbase_accepts_ppbase_record_tokens": False,
         "rollback_pocketbase_accepts_ppbase_admin_token": rollback[
             "ppbase_admin_token_lists_admins"

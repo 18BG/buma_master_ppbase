@@ -94,8 +94,14 @@ def pocketbase_settings():
     return settings
 
 
-def write_source(root, settings=None, *, admins=(ADMIN,), params=(), external_auths=0):
-    """PocketBase 0.22 internal tables (migrations/1640988000_init.go DDL)."""
+def write_source(
+    root, settings=None, *, admins=(ADMIN,), params=(), external_auths=0, extra_sql=()
+):
+    """PocketBase 0.22 internal tables (migrations/1640988000_init.go DDL).
+
+    ``extra_sql`` alters the closed source afterwards (unexpected columns,
+    unrepresentable settings rows), before any digest is taken.
+    """
     root.mkdir(exist_ok=True)
     with sqlite3.connect(root / "data.db") as db:
         db.executescript(
@@ -135,6 +141,8 @@ def write_source(root, settings=None, *, admins=(ADMIN,), params=(), external_au
                 "'2023-01-01 00:00:00.000Z')",
                 (f"c11ext{index:09d}", USERS_ID, "c11user00000001", "google", str(index)),
             )
+        for statement in extra_sql:
+            db.execute(statement)
     return root
 
 
@@ -300,6 +308,118 @@ def test_unknown_internal_rows_and_columns_are_refused(tmp_path):
         db.execute("DROP TABLE _externalAuths")
     with pytest.raises(ImportBlocked, match="missing_internal_table"):
         build_plan(source_of(root), DEFINITIONS)
+
+
+SETTINGS_ROW = "UPDATE _params SET {} WHERE key = 'settings'"
+SOURCE_STRUCTURE_REFUSALS = (
+    # Record tokens name their collection: without an auth collection there is
+    # nothing to carry the record secrets to.
+    (DEFINITIONS[2:], (), {"code": "source_auth_collections_missing"}),
+    (
+        DEFINITIONS,
+        ("ALTER TABLE _params ADD COLUMN extra TEXT DEFAULT ''",),
+        {"code": "unmapped_param_columns"},
+    ),
+    # _params.id is VARCHAR(15) in PPBase (ppbase/db/system_tables.py ParamRecord).
+    (
+        DEFINITIONS,
+        (SETTINGS_ROW.format("id = 'c11param00000001'"),),
+        {"code": "param_value_not_representable", "field": "id"},
+    ),
+    (
+        DEFINITIONS,
+        (SETTINGS_ROW.format("id = 'c11param' || char(0) || '000001'"),),
+        {"code": "nul_in_postgresql_text", "field": "id"},
+    ),
+    (
+        DEFINITIONS,
+        (SETTINGS_ROW.format("created = ''"),),
+        {"code": "param_value_not_representable", "field": "created"},
+    ),
+    (
+        DEFINITIONS,
+        (SETTINGS_ROW.format("created = '2023-01-01 00:00:00.000'"),),
+        {"code": "param_value_not_representable", "field": "created"},
+    ),
+    (
+        DEFINITIONS,
+        (SETTINGS_ROW.format("updated = 'c11-not-a-date'"),),
+        {"code": "param_value_not_representable", "field": "updated"},
+    ),
+)
+
+
+@pytest.mark.parametrize(("definitions", "extra_sql", "blocker"), SOURCE_STRUCTURE_REFUSALS)
+async def test_source_structure_refusals_stop_before_any_lock_or_write(
+    tmp_path, definitions, extra_sql, blocker
+):
+    source = source_of(write_source(tmp_path / "a", pocketbase_settings(), extra_sql=extra_sql))
+    blockers, _warnings = check_source(source, definitions)
+    assert blockers == [blocker]  # by location only, never by value
+    with pytest.raises(ImportBlocked, match=blocker["code"]):
+        build_plan(source, definitions)
+
+    staged = staged_copy(tmp_path / "b", extra_sql=extra_sql)
+    db = scripted(staged)
+    with pytest.raises(ImportBlocked, match=blocker["code"]):
+        await import_auth(db, staged, definitions)
+    assert db.statements == ["SELECT current_database()"]
+
+
+async def test_warnings_do_not_block_keep_stored_values_and_are_reported_without_values(
+    tmp_path,
+):
+    settings = pocketbase_settings()
+    # Stored values PocketBase 0.22 itself would refuse on save
+    # (models/settings/settings.go:379-384) but still signs and verifies with.
+    settings["recordFileToken"]["secret"] = "c11-short-secret"
+    settings["adminFileToken"]["duration"] = 63072001
+    settings["backups"]["s3"]["enabled"] = True
+    settings["c11FutureKey"] = {"enabled": False}
+    settings["c11OtherKey"] = 1
+    source = source_of(write_source(tmp_path / "a", settings))
+    blockers, warnings = check_source(source, DEFINITIONS)
+    assert blockers == []
+    for warning in (
+        {"code": "token_config_outside_pocketbase_limits", "setting": "recordFileToken"},
+        {"code": "token_config_outside_pocketbase_limits", "setting": "adminFileToken"},
+        {"code": "backup_s3_target_not_imported"},
+        {"code": "unknown_settings_keys_ignored", "keys": 2},
+    ):
+        assert warning in warnings
+    plan = build_plan(source, DEFINITIONS)
+    # Imported as stored: a different secret would invalidate live file tokens.
+    assert plan["tokens"]["users"]["fileToken"]["secret"] == "c11-short-secret"
+    assert plan["tokens"]["_superusers"]["fileToken"]["duration"] == 63072001
+    from ppbase.api.settings import _DEFAULT_SETTINGS
+
+    value = plan["settings_row"]["value"]
+    assert value["backups"] == _DEFAULT_SETTINGS["backups"]
+    assert "c11FutureKey" not in value and "c11OtherKey" not in value
+    with snapshot(tmp_path / "a") as db:
+        diagnosis = diagnose_auth(db, DEFINITIONS)
+    assert diagnosis["ready_for_auth_import"] is True
+    assert diagnosis["token_configs"]["recordFileToken"] == {
+        "present": True,
+        "secret_present": True,
+        "secret_length_within_pocketbase_limits": False,
+        "duration_within_pocketbase_limits": True,
+    }
+    assert not diagnosis["token_configs"]["adminFileToken"]["duration_within_pocketbase_limits"]
+
+    staged = staged_copy(tmp_path / "b", settings)
+    db = scripted(staged)
+    report = await import_auth(db, staged, DEFINITIONS)
+    assert db.options(USERS_ID)["fileToken"]["secret"] == "c11-short-secret"
+    assert db.options(SUPERUSERS_ID)["fileToken"]["duration"] == 63072001
+    assert {(w["code"], w.get("setting")) for w in report["warnings"]} >= {
+        ("token_config_outside_pocketbase_limits", "recordFileToken"),
+        ("token_config_outside_pocketbase_limits", "adminFileToken"),
+        ("backup_s3_target_not_imported", None),
+        ("unknown_settings_keys_ignored", None),
+    }
+    rendered = json.dumps([report, diagnosis])
+    assert "c11-short-secret" not in rendered and "c11FutureKey" not in rendered
 
 
 def test_reports_carry_no_secret_identity_or_hash_value(tmp_path):
