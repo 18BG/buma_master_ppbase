@@ -639,7 +639,18 @@ async def main() -> None:
             unknown_pdv = await get("buma_pdv", unknown_return["pdv"])
             assert unknown_customer["firstname"] == "Client Inconnu"
             assert unknown_customer["kind"] == "CUSTOMER_PDV" and unknown_customer["due"] == 4
-            assert unknown_customer["pdv"] == unknown_pdv["id"]
+            # buma_customer.pdv is a maxSelect-null, hence multiple, relation (D-0019).
+            # On PocketBase 0.22.34 customer.getString("pdv") is "" for a list
+            # (models/record.go l.367-368, cast.ToString), so linkCustomerToPdv
+            # always runs customer.set("pdv", pdv.id) (master.retour.functions.ts
+            # l.96-97) and PrepareValue stores the one-element list
+            # (models/schema/schema_field.go l.375-386): '["<pdv id>"]', as observed on
+            # 0.22.27 and 0.22.34 by tests/test_c11_relation_columns.py.
+            assert unknown_customer["pdv"] == [unknown_pdv["id"]]
+            api_customer = await request(
+                "GET", f"/api/collections/buma_customer/records/{unknown_customer['id']}"
+            )
+            assert api_customer["pdv"] == [unknown_pdv["id"]], api_customer["pdv"]
             assert unknown_pdv["client"] == unknown_customer["id"]
             assert (await get("buma_sim", unknown_tx["sim"]))["network"] == "PAANI"
             assert await post("/master/retour/new", unknown_payload) == unknown
