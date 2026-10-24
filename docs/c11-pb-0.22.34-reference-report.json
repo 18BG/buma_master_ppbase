@@ -1,0 +1,1899 @@
+{
+  "timestamp_utc": "2026-10-24T02:49:29.117478+00:00",
+  "scope": "pocketbase_0_22_34_storage_reference",
+  "command": "python -m scripts.c11_version_reference --pocketbase-0-22-27 /root/buma-c11-tools/pocketbase-0.22.27/bin/pocketbase --pocketbase-0-22-34 /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --pocketbase-src /root/buma-c11-tools/pocketbase-src --schema /root/projects/buma-master-pb_schema-corrected.json --real-data /root/projects/buma-master-ppbase/backups/c11-master-20260928 --baseline-commit fb381ac --report docs/c11-pb-0.22.34-reference-report.json",
+  "production_data_used": true,
+  "production_data_published": false,
+  "status": "passed",
+  "schema_sha256": "9d99e7b54118c41e0a303dd4805b900c7ee7b526b0cc63c83d044b7305b2313d",
+  "source": {
+    "repository": "https://github.com/pocketbase/pocketbase",
+    "tags": {
+      "v0.22.27": "b83f924c7d35e6108ba6192d0724d67f29deb0c9",
+      "v0.22.34": "ea7320746f5127b5e5ea360280003682ff41c2e1"
+    },
+    "command": "git diff --stat v0.22.27 v0.22.34",
+    "changed_files": 52,
+    "changed_ui_files": 41,
+    "changed_code_files": [
+      {
+        "path": ".github/workflows/release.yaml",
+        "added": 1,
+        "removed": 1
+      },
+      {
+        "path": "CHANGELOG.md",
+        "added": 41,
+        "removed": 0
+      },
+      {
+        "path": "daos/view.go",
+        "added": 4,
+        "removed": 4
+      },
+      {
+        "path": "daos/view_test.go",
+        "added": 13,
+        "removed": 3
+      },
+      {
+        "path": "go.mod",
+        "added": 46,
+        "removed": 46
+      },
+      {
+        "path": "go.sum",
+        "added": 120,
+        "removed": 116
+      },
+      {
+        "path": "plugins/jsvm/binds.go",
+        "added": 4,
+        "removed": 4
+      },
+      {
+        "path": "plugins/jsvm/jsvm.go",
+        "added": 21,
+        "removed": 5
+      },
+      {
+        "path": "tools/auth/oidc.go",
+        "added": 3,
+        "removed": 2
+      },
+      {
+        "path": "tools/logger/batch_handler.go",
+        "added": 68,
+        "removed": 6
+      },
+      {
+        "path": "tools/logger/batch_handler_test.go",
+        "added": 34,
+        "removed": 1
+      }
+    ],
+    "changes": [
+      {
+        "release": "v0.22.30 (backport of v0.24.4)",
+        "paths": [
+          "daos/view.go",
+          "daos/view_test.go"
+        ],
+        "change": "View field extraction strips SQL comments before replacing JOIN and WHERE/GROUP BY/... keywords; the internal markers become __pb_join__/__pb_discard__.",
+        "citations": [
+          "v0.22.27:daos/view.go:465",
+          "v0.22.27:daos/view.go:467",
+          "v0.22.34:daos/view.go:465",
+          "v0.22.34:daos/view.go:466"
+        ],
+        "importer_input": "_collections.schema of view collections, regenerated when a view is saved. The importer imports no view row and compares view definitions with the export without their random field IDs.",
+        "effect": "None for BUMA: 4 of the 42 views contain '--' comments, but both binaries extract identical view schemas (binary comparison) that match the export."
+      },
+      {
+        "release": "v0.22.31 (backport of v0.25.5)",
+        "paths": [
+          "plugins/jsvm/binds.go",
+          "plugins/jsvm/jsvm.go"
+        ],
+        "change": "JS migrations, hooks, cron and route handlers are compiled with <cwd>/pb.js as script path so that require() walks parent node_modules.",
+        "citations": [
+          "v0.22.34:plugins/jsvm/jsvm.go:40",
+          "v0.22.34:plugins/jsvm/jsvm.go:206"
+        ],
+        "importer_input": "None: module resolution of JS code, not stored data.",
+        "effect": "None on storage; fixtures migrations run unchanged on both binaries."
+      },
+      {
+        "release": "v0.22.33 (backport of v0.26.3)",
+        "paths": [
+          "tools/logger/batch_handler.go",
+          "tools/logger/batch_handler_test.go"
+        ],
+        "change": "Normalized serialization of error attributes in log entries.",
+        "citations": [
+          "v0.22.34:tools/logger/batch_handler.go:263"
+        ],
+        "importer_input": "logs.db only, which is never imported.",
+        "effect": "None on data.db and storage."
+      },
+      {
+        "release": "v0.22.34 (backport of v0.26.6)",
+        "paths": [
+          "tools/auth/oidc.go"
+        ],
+        "change": "OIDC userinfo email_verified accepted as int or boolean string.",
+        "citations": [
+          "v0.22.34:tools/auth/oidc.go:74"
+        ],
+        "importer_input": "None: OAuth2 login only (_externalAuths is empty and no OAuth2 provider is enabled in the real settings).",
+        "effect": "None on storage."
+      },
+      {
+        "release": "v0.22.28 to v0.22.32",
+        "paths": [
+          "go.mod",
+          "go.sum"
+        ],
+        "change": "Dependency upgrades, see dependency_changes.",
+        "citations": [
+          "v0.22.27:go.mod:35",
+          "v0.22.34:go.mod:35",
+          "v0.22.34:go.mod:31",
+          "v0.22.34:go.mod:26",
+          "v0.22.34:go.mod:28",
+          "v0.22.34:go.mod:30"
+        ],
+        "importer_input": "Indirect: SQLite engine, query builder, value casting, bcrypt, local blob storage and MIME detection.",
+        "effect": "None observed: identical storage in the binary comparison; both binaries embed SQLite 3.46.0."
+      },
+      {
+        "release": "v0.22.30",
+        "paths": [
+          ".github/workflows/release.yaml"
+        ],
+        "change": "Release workflow requires Go >= 1.23.5 instead of >= 1.22.8.",
+        "citations": [
+          "v0.22.27:.github/workflows/release.yaml:24",
+          "v0.22.34:.github/workflows/release.yaml:24"
+        ],
+        "importer_input": "Toolchain of the official binaries.",
+        "effect": "None observed in the binary comparison."
+      },
+      {
+        "release": "v0.22.28 to v0.22.34",
+        "paths": [
+          "CHANGELOG.md"
+        ],
+        "change": "Release notes of the seven backport releases.",
+        "citations": [
+          "v0.22.34:CHANGELOG.md:34",
+          "v0.22.34:CHANGELOG.md:1"
+        ],
+        "importer_input": "None.",
+        "effect": "None."
+      },
+      {
+        "release": "v0.22.28 (backport of v0.23.10)",
+        "change": "Admin UI: renew the superuser file token cache from thumb previews/downloads; rebuilt ui/dist and ui version string.",
+        "importer_input": "None: embedded dashboard assets.",
+        "effect": "None on storage.",
+        "paths": [
+          "ui/**"
+        ],
+        "citations": []
+      }
+    ],
+    "storage_paths": [
+      {
+        "path": "models",
+        "git_object": "0b98c4acc156c1ce24ecdb6986d6d6ab2d341c94",
+        "identical": true
+      },
+      {
+        "path": "models/schema",
+        "git_object": "b9683c57a3f7a15ea89247aa63a28dc0097af54e",
+        "identical": true
+      },
+      {
+        "path": "models/settings",
+        "git_object": "b99c574cf59055f5d4a7fff98150a275b6550796",
+        "identical": true
+      },
+      {
+        "path": "daos/base.go",
+        "git_object": "5698c42100188e7e49b494f598fc1619b8ce8f86",
+        "identical": true
+      },
+      {
+        "path": "daos/record.go",
+        "git_object": "9e2f532a0b165059d2dba7cd28b627604c9148ba",
+        "identical": true
+      },
+      {
+        "path": "daos/record_table_sync.go",
+        "git_object": "83f45370bf816493ac638b1c5ab78d67b97f737d",
+        "identical": true
+      },
+      {
+        "path": "daos/collection.go",
+        "git_object": "6a241e74c054847b70febeb5d781801ea7b76134",
+        "identical": true
+      },
+      {
+        "path": "daos/settings.go",
+        "git_object": "f4830e7be7f22d52c9d0de1377dbd6aca2cb0fdc",
+        "identical": true
+      },
+      {
+        "path": "daos/param.go",
+        "git_object": "23ba07dd497c534436dcaa7d8f2296a8b04981da",
+        "identical": true
+      },
+      {
+        "path": "daos/admin.go",
+        "git_object": "5b80882b9238004022c7b5800a666d9b7564b7ae",
+        "identical": true
+      },
+      {
+        "path": "daos/table.go",
+        "git_object": "1c2c2ac34051bb1b0ca7c239236b4823f03836e7",
+        "identical": true
+      },
+      {
+        "path": "tools/types",
+        "git_object": "e1fdc64b6a644c30c2813c08bc44ef83403b33be",
+        "identical": true
+      },
+      {
+        "path": "tools/security",
+        "git_object": "acc7eec2b293f8ca52e75e73d4fb2d527747d148",
+        "identical": true
+      },
+      {
+        "path": "tools/filesystem",
+        "git_object": "5ce6634dcad9cb323eff16b58789a715bc58bfd5",
+        "identical": true
+      },
+      {
+        "path": "tools/list",
+        "git_object": "a31b970cdbd78fd7177c01da3ab38dff8277fdf8",
+        "identical": true
+      },
+      {
+        "path": "tools/inflector",
+        "git_object": "030613482db5b1b9e2801cf8927c7c8f8ac339df",
+        "identical": true
+      },
+      {
+        "path": "tools/migrate",
+        "git_object": "a21aab64c66b70f799cda4d74e5c407301612c3d",
+        "identical": true
+      },
+      {
+        "path": "forms",
+        "git_object": "7b01edd2244dc606a58f56a0374a6858cf710f17",
+        "identical": true
+      },
+      {
+        "path": "migrations",
+        "git_object": "e3dfcc908cffa8dc2414ac80324b17eb3450c9a3",
+        "identical": true
+      },
+      {
+        "path": "core",
+        "git_object": "f1a04935b7527fbad106857060982150224bec4b",
+        "identical": true
+      },
+      {
+        "path": "apis",
+        "git_object": "585c58e9738109b24df7458321a510648af6457d",
+        "identical": true
+      },
+      {
+        "path": "tokens",
+        "git_object": "db7521e4be32e7b012785f286b81f59db81db9f0",
+        "identical": true
+      },
+      {
+        "path": "resolvers",
+        "git_object": "17b69dc3aecd7c19998190b0912f576e101224e2",
+        "identical": true
+      },
+      {
+        "path": "plugins/migratecmd",
+        "git_object": "605f7da38f559302e89c33d946fe137cf28b5790",
+        "identical": true
+      },
+      {
+        "path": "cmd",
+        "git_object": "f2f451cf85df120e4753f07a956994032dcc788b",
+        "identical": true
+      },
+      {
+        "path": "pocketbase.go",
+        "git_object": "9b68c25423c195645cbe8df728b41871b7b83c3a",
+        "identical": true
+      },
+      {
+        "path": "examples/base/main.go",
+        "git_object": "13371422004ce120f20b33613c4dfea100e870a7",
+        "identical": true
+      },
+      {
+        "path": ".goreleaser.yaml",
+        "git_object": "4d6c49f91050a9f807c5da4d9435a85fc62b390b",
+        "identical": true
+      }
+    ],
+    "storage_paths_identical": [
+      "models",
+      "models/schema",
+      "models/settings",
+      "daos/base.go",
+      "daos/record.go",
+      "daos/record_table_sync.go",
+      "daos/collection.go",
+      "daos/settings.go",
+      "daos/param.go",
+      "daos/admin.go",
+      "daos/table.go",
+      "tools/types",
+      "tools/security",
+      "tools/filesystem",
+      "tools/list",
+      "tools/inflector",
+      "tools/migrate",
+      "forms",
+      "migrations",
+      "core",
+      "apis",
+      "tokens",
+      "resolvers",
+      "plugins/migratecmd",
+      "cmd",
+      "pocketbase.go",
+      "examples/base/main.go",
+      ".goreleaser.yaml"
+    ],
+    "storage_paths_changed": [],
+    "dependency_changes": [
+      {
+        "module": "github.com/aws/aws-sdk-go-v2",
+        "v0.22.27": "v1.32.2",
+        "v0.22.34": "v1.32.6",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem",
+          "tools/filesystem/internal/s3lite"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
+        "v0.22.27": "v1.6.4",
+        "v0.22.34": "v1.6.7",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/config",
+        "v0.22.27": "v1.27.31",
+        "v0.22.34": "v1.28.6",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/credentials",
+        "v0.22.27": "v1.17.30",
+        "v0.22.34": "v1.17.47",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
+        "v0.22.27": "v1.16.12",
+        "v0.22.34": "v1.16.21",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/feature/s3/manager",
+        "v0.22.27": "v1.17.15",
+        "v0.22.34": "v1.17.43",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem/internal/s3lite"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/internal/configsources",
+        "v0.22.27": "v1.3.16",
+        "v0.22.34": "v1.3.25",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
+        "v0.22.27": "v2.6.16",
+        "v0.22.34": "v2.6.25",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/internal/v4a",
+        "v0.22.27": "v1.3.16",
+        "v0.22.34": "v1.3.25",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
+        "v0.22.27": "v1.11.4",
+        "v0.22.34": "v1.12.1",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/internal/checksum",
+        "v0.22.27": "v1.3.18",
+        "v0.22.34": "v1.4.6",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
+        "v0.22.27": "v1.11.18",
+        "v0.22.34": "v1.12.6",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/internal/s3shared",
+        "v0.22.27": "v1.17.16",
+        "v0.22.34": "v1.18.6",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/s3",
+        "v0.22.27": "v1.60.1",
+        "v0.22.34": "v1.71.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem",
+          "tools/filesystem/internal/s3lite"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/sso",
+        "v0.22.27": "v1.22.5",
+        "v0.22.34": "v1.24.7",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
+        "v0.22.27": "v1.26.5",
+        "v0.22.34": "v1.28.6",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/aws-sdk-go-v2/service/sts",
+        "v0.22.27": "v1.30.5",
+        "v0.22.34": "v1.33.2",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/aws/smithy-go",
+        "v0.22.27": "v1.22.0",
+        "v0.22.34": "v1.22.1",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem",
+          "tools/filesystem/internal/s3lite"
+        ],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/fatih/color",
+        "v0.22.27": "v1.17.0",
+        "v0.22.34": "v1.18.0",
+        "indirect": false,
+        "imported_by_packages": [
+          ".",
+          "apis",
+          "cmd",
+          "core",
+          "plugins/ghupdate",
+          "plugins/jsvm",
+          "tools/migrate"
+        ],
+        "assessment": "Terminal colors, not storage."
+      },
+      {
+        "module": "github.com/gabriel-vasile/mimetype",
+        "v0.22.27": "v1.4.5",
+        "v0.22.34": "v1.4.7",
+        "indirect": false,
+        "imported_by_packages": [
+          "forms/validators",
+          "tools/filesystem"
+        ],
+        "assessment": "Content type stored in .attrs sidecars; identical .attrs observed for the uploaded PNG and text files."
+      },
+      {
+        "module": "github.com/goccy/go-json",
+        "v0.22.27": "v0.10.3",
+        "v0.22.34": "v0.10.4",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/rest"
+        ],
+        "assessment": "HTTP response JSON encoder, not storage."
+      },
+      {
+        "module": "github.com/golang-jwt/jwt/v4",
+        "v0.22.27": "v4.5.0",
+        "v0.22.34": "v4.5.2",
+        "indirect": false,
+        "imported_by_packages": [
+          "forms",
+          "tokens",
+          "tools/auth",
+          "tools/security"
+        ],
+        "assessment": "JWT parsing security fix (GHSA-mh63-6h87-95cp); tokens are not stored and tokens/ is identical."
+      },
+      {
+        "module": "github.com/golang/groupcache",
+        "v0.22.27": "v0.0.0-20210331224755-41bb18bfe9da",
+        "v0.22.34": "v0.0.0-20241129210726-2c02b8208cf8",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/googleapis/gax-go/v2",
+        "v0.22.27": "v2.13.0",
+        "v0.22.34": "v2.14.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "github.com/mattn/go-sqlite3",
+        "v0.22.27": "v1.14.22",
+        "v0.22.34": "v1.14.24",
+        "indirect": false,
+        "imported_by_packages": [
+          "core"
+        ],
+        "assessment": "CGO driver; the official archives use the non-CGO build."
+      },
+      {
+        "module": "github.com/pocketbase/dbx",
+        "v0.22.27": "v1.10.1",
+        "v0.22.34": "v1.11.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "apis",
+          "core",
+          "daos",
+          "forms",
+          "forms/validators",
+          "migrations",
+          "migrations/logs",
+          "models",
+          "plugins/jsvm",
+          "plugins/jsvm/internal/types",
+          "plugins/migratecmd",
+          "resolvers",
+          "tests",
+          "tools/migrate",
+          "tools/search"
+        ],
+        "assessment": "Query builder (DDL and writes); v1.11.0 only adds SelectQuery.PreFragment/PostFragment, unused by PocketBase 0.22.34."
+      },
+      {
+        "module": "github.com/spf13/cast",
+        "v0.22.27": "v1.7.0",
+        "v0.22.34": "v1.7.1",
+        "indirect": false,
+        "imported_by_packages": [
+          "apis",
+          "core",
+          "daos",
+          "forms",
+          "models",
+          "models/schema",
+          "plugins/jsvm",
+          "resolvers",
+          "tools/auth",
+          "tools/list",
+          "tools/migrate",
+          "tools/rest",
+          "tools/search",
+          "tools/subscriptions",
+          "tools/types"
+        ],
+        "assessment": "Casts in SchemaField.PrepareValue; v1.7.1 only fixes ToUint64E for strings above int64, not used for stored values."
+      },
+      {
+        "module": "gocloud.dev",
+        "v0.22.27": "v0.39.0",
+        "v0.22.34": "v0.40.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/filesystem",
+          "tools/filesystem/internal/s3lite"
+        ],
+        "assessment": "blob/fileblob local storage; the v0.40.0 blob changes concern uploads with WriterOptions.ContentMD5 (not set by PocketBase), io/fs helpers and cloud drivers; identical local storage observed."
+      },
+      {
+        "module": "golang.org/x/crypto",
+        "v0.22.27": "v0.28.0",
+        "v0.22.34": "v0.31.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "apis",
+          "core",
+          "models"
+        ],
+        "assessment": "bcrypt (cost 12) and ACME; same $2a$12$ format for both binaries, whose hashes verify the synthetic passwords."
+      },
+      {
+        "module": "golang.org/x/image",
+        "v0.22.27": "v0.19.0",
+        "v0.22.34": "v0.23.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/mod",
+        "v0.22.27": "v0.21.0",
+        "v0.22.34": "v0.22.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/net",
+        "v0.22.27": "v0.30.0",
+        "v0.22.34": "v0.33.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "tools/mailer",
+          "tools/rest"
+        ],
+        "assessment": "CVE-2024-45338 fix (HTML parsing for mails), not storage."
+      },
+      {
+        "module": "golang.org/x/oauth2",
+        "v0.22.27": "v0.22.0",
+        "v0.22.34": "v0.24.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "apis",
+          "forms",
+          "tools/auth"
+        ],
+        "assessment": "OAuth2 providers, unused by the real backup, not storage."
+      },
+      {
+        "module": "golang.org/x/sync",
+        "v0.22.27": "v0.8.0",
+        "v0.22.34": "v0.10.0",
+        "indirect": false,
+        "imported_by_packages": [
+          "apis",
+          "tools/search"
+        ],
+        "assessment": "Concurrency helpers, not storage."
+      },
+      {
+        "module": "golang.org/x/sys",
+        "v0.22.27": "v0.26.0",
+        "v0.22.34": "v0.28.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/term",
+        "v0.22.27": "v0.25.0",
+        "v0.22.34": "v0.27.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/text",
+        "v0.22.27": "v0.19.0",
+        "v0.22.34": "v0.21.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/time",
+        "v0.22.27": "v0.6.0",
+        "v0.22.34": "v0.8.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/tools",
+        "v0.22.27": "v0.26.0",
+        "v0.22.34": "v0.28.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "golang.org/x/xerrors",
+        "v0.22.27": "v0.0.0-20240716161551-93cc26a95ae9",
+        "v0.22.34": "v0.0.0-20240903120638-7835f813f4da",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "google.golang.org/api",
+        "v0.22.27": "v0.194.0",
+        "v0.22.34": "v0.213.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "google.golang.org/genproto/googleapis/rpc",
+        "v0.22.27": "v0.0.0-20240827150818-7e3bb234dfed",
+        "v0.22.34": "v0.0.0-20241216192217-9240e9c98484",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "google.golang.org/grpc",
+        "v0.22.27": "v1.65.0",
+        "v0.22.34": "v1.69.2",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "google.golang.org/protobuf",
+        "v0.22.27": "v1.34.2",
+        "v0.22.34": "v1.36.0",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "modernc.org/gc/v3",
+        "v0.22.27": "v3.0.0-20240801135723-a856999a2e4a",
+        "v0.22.34": "v3.0.0-20241213165251-3bc300f6d0c9",
+        "indirect": true,
+        "imported_by_packages": [],
+        "assessment": "S3/AWS, Google API or indirect dependency, not on the local storage path."
+      },
+      {
+        "module": "modernc.org/sqlite",
+        "v0.22.27": "v1.32.0",
+        "v0.22.34": "v1.34.3",
+        "indirect": false,
+        "imported_by_packages": [
+          "core"
+        ],
+        "assessment": "Pure-Go SQLite driver of the official CGO_ENABLED=0 binaries; both binaries embed SQLite 3.46.0 (probe), same file format."
+      }
+    ],
+    "importer_inputs": [
+      {
+        "input": "_collections rows compared with the export (views without field IDs)",
+        "citations": [
+          "v0.22.34:models/schema/schema.go:116",
+          "v0.22.34:daos/view.go:465"
+        ],
+        "binary_evidence": "/tables/_collections identical; view_schemas equal to the export",
+        "real_evidence": "collections_rows; 114 definitions matched on 2026-09-28"
+      },
+      {
+        "input": "sqlite_master table SQL and PRAGMA table_info (no WITHOUT ROWID, no rowid alias)",
+        "citations": [
+          "v0.22.34:daos/record_table_sync.go:26",
+          "v0.22.34:daos/record_table_sync.go:27",
+          "v0.22.34:daos/record_table_sync.go:36"
+        ],
+        "binary_evidence": "/sqlite_master and /tables/*/columns identical",
+        "real_evidence": "ddl_compared_with_0_22_34_real_shape_fixture"
+      },
+      {
+        "input": "SELECT _rowid_, * per collection: integer rowids",
+        "citations": [
+          "v0.22.34:core/db_nocgo.go:7"
+        ],
+        "binary_evidence": "rowids of every row identical",
+        "real_evidence": "value_formats.rowid"
+      },
+      {
+        "input": "date, created and updated: 'YYYY-MM-DD HH:MM:SS.mmmZ' (UTC) or ''",
+        "citations": [
+          "v0.22.34:tools/types/datetime.go:12",
+          "v0.22.34:tools/types/datetime.go:52",
+          "v0.22.34:daos/record_table_sync.go:27",
+          "v0.22.34:daos/base.go:317"
+        ],
+        "binary_evidence": "fixed dates identical, generated dates pb_datetime_now",
+        "real_evidence": "value_formats.date, created_updated, auth_legacy_dates"
+      },
+      {
+        "input": "bool as integer 0/1, number as integer or real",
+        "citations": [
+          "v0.22.34:models/schema/schema_field.go:155",
+          "v0.22.34:models/schema/schema_field.go:153"
+        ],
+        "binary_evidence": "values and SQLite storage classes identical",
+        "real_evidence": "value_formats.bool, value_formats.number"
+      },
+      {
+        "input": "json as JSON text or SQL NULL",
+        "citations": [
+          "v0.22.34:models/schema/schema_field.go:157",
+          "v0.22.34:tools/types/json_raw.go:47"
+        ],
+        "binary_evidence": "JSON texts identical (object, text null, SQL NULL)",
+        "real_evidence": "value_formats.json"
+      },
+      {
+        "input": "multiple select/file/relation (relation maxSelect null) as JSON string arrays",
+        "citations": [
+          "v0.22.34:models/schema/schema_field.go:716",
+          "v0.22.34:models/schema/schema_field.go:160",
+          "v0.22.34:tools/types/json_array.go:27"
+        ],
+        "binary_evidence": "array texts identical, order kept",
+        "real_evidence": "value_formats.multiple_relation, multiple_file"
+      },
+      {
+        "input": "single select/file/relation and text fields as text",
+        "citations": [
+          "v0.22.34:models/schema/schema_field.go:163",
+          "v0.22.34:models/schema/schema_field.go:376"
+        ],
+        "binary_evidence": "texts identical (orphans, custom IDs, undeclared values)",
+        "real_evidence": "value_formats.single_*, shape_inventory"
+      },
+      {
+        "input": "auth passwordHash, tokenKey, emailVisibility, verified, username, email",
+        "citations": [
+          "v0.22.34:models/record.go:952",
+          "v0.22.34:models/record.go:862",
+          "v0.22.34:tools/security/random.go:10"
+        ],
+        "binary_evidence": "bcrypt_2a_cost_12 verified, random_alnum_50",
+        "real_evidence": "value_formats.auth_*"
+      },
+      {
+        "input": "storage/<collectionId>/<recordId>/<file>, .attrs sidecars, thumbs_ directories",
+        "citations": [
+          "v0.22.34:tools/filesystem/file.go:199",
+          "v0.22.34:tools/filesystem/filesystem.go:97",
+          "v0.22.34:tools/filesystem/filesystem.go:211",
+          "v0.22.34:apis/file.go:27",
+          "v0.22.34:apis/file.go:175"
+        ],
+        "binary_evidence": "/storage paths (random part masked), sizes and SHA-256 identical",
+        "real_evidence": "storage_manifest, value_formats.file_names"
+      },
+      {
+        "input": "internal tables counted; _admins and _params read by WS-C",
+        "citations": [
+          "v0.22.34:models/admin.go:51",
+          "v0.22.34:models/admin.go:65",
+          "v0.22.34:migrations/1640988000_init.go:98",
+          "v0.22.34:models/settings/settings.go:101",
+          "v0.22.34:models/settings/settings.go:76"
+        ],
+        "binary_evidence": "/tables/_admins, _params, _migrations identical by format",
+        "real_evidence": "admins, params, migrations, external_auths"
+      }
+    ],
+    "changelog": [
+      {
+        "version": "v0.22.34",
+        "entries": [
+          "(_Backported from v0.26.6_) Allow OIDC `email_verified` to be int or boolean string since some OIDC providers like AWS Cognito has non-standard userinfo response"
+        ]
+      },
+      {
+        "version": "v0.22.33",
+        "entries": [
+          "(_Backported from v0.26.3_) Fixed and normalized logs error serialization across common types for more consistent logs error output"
+        ]
+      },
+      {
+        "version": "v0.22.32",
+        "entries": [
+          "(_Backported from v0.26.2_) Updated `golang-jwt/jwt` dependency because it comes with a [minor security fix](https://github.com/golang-jwt/jwt/security/advisories/GHSA-mh63-6h87-95cp)."
+        ]
+      },
+      {
+        "version": "v0.22.31",
+        "entries": [
+          "(_Backported from v0.25.5_) Set the current working directory as a default goja script path when executing inline JS strings to allow `require(m)` traversing parent `node_modules` directories."
+        ]
+      },
+      {
+        "version": "v0.22.30",
+        "entries": [
+          "(_Backported from v0.24.4_) Fixed fields extraction for view queries with nested comments",
+          "Bumped GitHub action min Go version to 1.23.5 as it comes with some [minor security fixes](https://github.com/golang/go/issues?q=milestone%3AGo1.23.5)."
+        ]
+      },
+      {
+        "version": "v0.22.29",
+        "entries": [
+          "(_Backported from v0.23.11_) Upgraded `golang.org/x/net` to 0.33.0 to fix [CVE-2024-45338](https://www.cve.org/CVERecord?id=CVE-2024-45338)."
+        ]
+      },
+      {
+        "version": "v0.22.28",
+        "entries": [
+          "(_Backported from v0.23.10_) Renew the superuser file token cache when clicking on the thumb preview or download link",
+          "(_Backported from v0.23.10_) Upgraded `modernc.org/sqlite` to 1.34.3 to fix \"disk io\" error on arm64 systems."
+        ]
+      }
+    ],
+    "citations": {
+      "relation_is_multiple": "v0.22.34:models/schema/schema_field.go:716",
+      "multiple_column": "v0.22.34:models/schema/schema_field.go:160",
+      "single_column": "v0.22.34:models/schema/schema_field.go:163",
+      "number_column": "v0.22.34:models/schema/schema_field.go:153",
+      "bool_column": "v0.22.34:models/schema/schema_field.go:155",
+      "json_column": "v0.22.34:models/schema/schema_field.go:157",
+      "relation_prepare_value": "v0.22.34:models/schema/schema_field.go:376",
+      "system_columns": "v0.22.34:daos/record_table_sync.go:26",
+      "created_column": "v0.22.34:daos/record_table_sync.go:27",
+      "token_key_column": "v0.22.34:daos/record_table_sync.go:36",
+      "date_layout": "v0.22.34:tools/types/datetime.go:12",
+      "date_utc": "v0.22.34:tools/types/datetime.go:52",
+      "json_array_value": "v0.22.34:tools/types/json_array.go:27",
+      "json_raw_value": "v0.22.34:tools/types/json_raw.go:47",
+      "record_bcrypt_cost": "v0.22.34:models/record.go:952",
+      "record_token_key": "v0.22.34:models/record.go:862",
+      "admin_bcrypt_cost": "v0.22.34:models/admin.go:51",
+      "admin_token_key": "v0.22.34:models/admin.go:65",
+      "id_length": "v0.22.34:models/base.go:11",
+      "id_alphabet": "v0.22.34:models/base.go:14",
+      "random_alphabet": "v0.22.34:tools/security/random.go:10",
+      "view_field_id": "v0.22.34:models/schema/schema.go:116",
+      "file_name_random": "v0.22.34:tools/filesystem/file.go:199",
+      "local_fileblob": "v0.22.34:tools/filesystem/filesystem.go:97",
+      "upload_metadata": "v0.22.34:tools/filesystem/filesystem.go:211",
+      "thumb_sizes": "v0.22.34:apis/file.go:27",
+      "thumb_path": "v0.22.34:apis/file.go:175",
+      "created_kept": "v0.22.34:daos/base.go:317",
+      "settings_defaults_saved": "v0.22.34:migrations/1640988000_init.go:98",
+      "settings_app_name": "v0.22.34:models/settings/settings.go:76",
+      "settings_secret": "v0.22.34:models/settings/settings.go:101",
+      "migrations_one_transaction": "v0.22.34:tools/migrate/runner.go:126",
+      "command_error_exit_zero": "v0.22.34:pocketbase.go:170",
+      "official_noncgo_archive": "v0.22.34:.goreleaser.yaml:51",
+      "noncgo_build": "v0.22.34:.goreleaser.yaml:29",
+      "noncgo_driver": "v0.22.34:core/db_nocgo.go:7",
+      "view_parse_old": "v0.22.27:daos/view.go:465",
+      "view_comments_old": "v0.22.27:daos/view.go:467",
+      "view_parse_new": "v0.22.34:daos/view.go:465",
+      "view_join_new": "v0.22.34:daos/view.go:466",
+      "jsvm_script_path": "v0.22.34:plugins/jsvm/jsvm.go:40",
+      "jsvm_migration_script": "v0.22.34:plugins/jsvm/jsvm.go:206",
+      "oidc_email_verified": "v0.22.34:tools/auth/oidc.go:74",
+      "logs_serialization": "v0.22.34:tools/logger/batch_handler.go:263",
+      "changelog_v0_22_28": "v0.22.34:CHANGELOG.md:34",
+      "changelog_v0_22_34": "v0.22.34:CHANGELOG.md:1",
+      "gomod_sqlite_old": "v0.22.27:go.mod:35",
+      "gomod_sqlite_new": "v0.22.34:go.mod:35",
+      "gomod_crypto_new": "v0.22.34:go.mod:31",
+      "gomod_dbx_new": "v0.22.34:go.mod:26",
+      "gomod_cast_new": "v0.22.34:go.mod:28",
+      "gomod_gocloud_new": "v0.22.34:go.mod:30",
+      "release_go_old": "v0.22.27:.github/workflows/release.yaml:24",
+      "release_go_new": "v0.22.34:.github/workflows/release.yaml:24"
+    }
+  },
+  "binaries": {
+    "binaries": {
+      "0.22.27": {
+        "sha256": "ca2232688b5cfa07f5eae91171db64afaceea82d23b5b9d256fb7f2e6135fd8b",
+        "embedded_sqlite_version": "3.46.0"
+      },
+      "0.22.34": {
+        "sha256": "f164a6333e674fec53fbaf49fffba884654de3a6e712f220d0bbe1c54f2ee04d",
+        "embedded_sqlite_version": "3.46.0"
+      }
+    },
+    "profiles": {
+      "default": {
+        "storage_identical": true,
+        "differences": [],
+        "random_value_classes": {
+          "0.22.27": {
+            "bcrypt_2a_cost_12": 3,
+            "bcrypt_verified_with_synthetic_password": 3,
+            "pb_datetime_now": 246,
+            "random_alnum_50": 11,
+            "random_id_15": 1,
+            "random_view_field_id_8": 498,
+            "unix_microseconds": 15
+          },
+          "0.22.34": {
+            "bcrypt_2a_cost_12": 3,
+            "bcrypt_verified_with_synthetic_password": 3,
+            "pb_datetime_now": 246,
+            "random_alnum_50": 11,
+            "random_id_15": 1,
+            "random_view_field_id_8": 498,
+            "unix_microseconds": 15
+          }
+        },
+        "unexpected_formats": {
+          "0.22.27": [],
+          "0.22.34": []
+        },
+        "summary": {
+          "sqlite_master_entries": {
+            "index": 98,
+            "table": 77,
+            "view": 42
+          },
+          "tables": 77,
+          "rows": 139,
+          "values": 1782,
+          "storage_objects": 3,
+          "storage_attrs_sidecars": 0,
+          "storage_thumbnails": 0,
+          "header": {
+            "page_size": 4096,
+            "file_format_write_version": 1,
+            "file_format_read_version": 1,
+            "schema_format": 4,
+            "text_encoding": "UTF-8",
+            "user_version": 0,
+            "application_id": 0,
+            "last_writer_sqlite_version": 3045001
+          }
+        },
+        "importer_diagnostic": {
+          "0.22.27": {
+            "read": {
+              "blocker_codes_besides_unknown_version": [],
+              "warnings": [
+                "\"internal_records_require_separate_review\"",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+              ],
+              "rows": 9,
+              "relations_checked": 6,
+              "files": 3,
+              "unreferenced_files": 0,
+              "identity_sha256": {
+                "agent_users": "23bda41537f11723c7a692a95679841d7a3bbf614f206a927579cf4317beff34",
+                "users": "87758a22a668160f4bf7b10076d77ac6fb08c1d3beea5da7f7bcbfa7b12dc8f2",
+                "buma_agent": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_apps_roles": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article": "02127677264971fbe3f240870f15e91b883cb84e2d8d718d8812ea280bfbe755",
+                "buma_article_categorie": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_components": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_designation": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_session": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stockage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_unite": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_bw": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_access": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+                "buma_caisse_expense_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_open_close": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_group": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_product": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_conversion": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_number": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_old": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_solder_history": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_position": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment_method": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket_tag": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ressources": "67bcb4e354b45f0a5fb8d679aaf0f625a0e3dae56df1c424bce023f06b4a424c",
+                "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sale": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim_balance_activity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_stockage_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_supplier": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+                "buma_supplier_article": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transaction": "30f8ce334fdfc40c83d0a3177f9795c2e7ae671712265f9933e7854be2c40800",
+                "buma_transfer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transfer_transaction": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_user_bank_uv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ussd_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "roles": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69"
+              },
+              "internal_tables_not_imported": {
+                "_migrations": 15,
+                "_admins": 0,
+                "_collections": 114,
+                "_params": 1,
+                "_externalAuths": 0
+              }
+            },
+            "with_source_version": {
+              "argument": "0.22.27",
+              "blocker_codes": []
+            }
+          },
+          "0.22.34": {
+            "read": {
+              "blocker_codes_besides_unknown_version": [],
+              "warnings": [
+                "\"internal_records_require_separate_review\"",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+              ],
+              "rows": 9,
+              "relations_checked": 6,
+              "files": 3,
+              "unreferenced_files": 0,
+              "identity_sha256": {
+                "agent_users": "23bda41537f11723c7a692a95679841d7a3bbf614f206a927579cf4317beff34",
+                "users": "87758a22a668160f4bf7b10076d77ac6fb08c1d3beea5da7f7bcbfa7b12dc8f2",
+                "buma_agent": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_apps_roles": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article": "02127677264971fbe3f240870f15e91b883cb84e2d8d718d8812ea280bfbe755",
+                "buma_article_categorie": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_components": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_designation": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_session": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stockage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_unite": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_bw": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_access": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+                "buma_caisse_expense_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_open_close": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_group": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_product": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_config": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_conversion": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_number": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_old": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_solder_history": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_position": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment_method": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket_tag": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ressources": "67bcb4e354b45f0a5fb8d679aaf0f625a0e3dae56df1c424bce023f06b4a424c",
+                "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sale": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim_balance_activity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_stockage_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_supplier": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+                "buma_supplier_article": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transaction": "30f8ce334fdfc40c83d0a3177f9795c2e7ae671712265f9933e7854be2c40800",
+                "buma_transfer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transfer_transaction": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_user_bank_uv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ussd_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "roles": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69"
+              },
+              "internal_tables_not_imported": {
+                "_migrations": 15,
+                "_admins": 0,
+                "_collections": 114,
+                "_params": 1,
+                "_externalAuths": 0
+              }
+            },
+            "with_source_version": {
+              "argument": "0.22.34",
+              "blocker_codes": [
+                "source_pocketbase_version_unvalidated"
+              ]
+            }
+          }
+        },
+        "importer_diagnostic_differences": [],
+        "view_schemas": {
+          "0.22.27": {
+            "views": 42,
+            "equal_to_export_without_field_ids": 42,
+            "views_with_sql_comments": 4,
+            "commented_views_equal_to_export": 4
+          },
+          "0.22.34": {
+            "views": 42,
+            "equal_to_export_without_field_ids": 42,
+            "views_with_sql_comments": 4,
+            "commented_views_equal_to_export": 4
+          }
+        }
+      },
+      "real_shape": {
+        "storage_identical": true,
+        "differences": [],
+        "random_value_classes": {
+          "0.22.27": {
+            "bcrypt_2a_cost_12": 7,
+            "bcrypt_verified_with_synthetic_password": 7,
+            "pb_datetime_now": 296,
+            "pb_generated_file_name": 3,
+            "random_alnum_50": 15,
+            "random_id_15": 2,
+            "random_view_field_id_8": 498,
+            "unix_microseconds": 17
+          },
+          "0.22.34": {
+            "bcrypt_2a_cost_12": 7,
+            "bcrypt_verified_with_synthetic_password": 7,
+            "pb_datetime_now": 296,
+            "pb_generated_file_name": 3,
+            "random_alnum_50": 15,
+            "random_id_15": 2,
+            "random_view_field_id_8": 498,
+            "unix_microseconds": 17
+          }
+        },
+        "unexpected_formats": {
+          "0.22.27": [],
+          "0.22.34": []
+        },
+        "summary": {
+          "sqlite_master_entries": {
+            "index": 98,
+            "table": 77,
+            "view": 42
+          },
+          "tables": 77,
+          "rows": 171,
+          "values": 2323,
+          "storage_objects": 15,
+          "storage_attrs_sidecars": 6,
+          "storage_thumbnails": 2,
+          "header": {
+            "page_size": 4096,
+            "file_format_write_version": 1,
+            "file_format_read_version": 1,
+            "schema_format": 4,
+            "text_encoding": "UTF-8",
+            "user_version": 0,
+            "application_id": 0,
+            "last_writer_sqlite_version": 3045001
+          }
+        },
+        "importer_diagnostic": {
+          "0.22.27": {
+            "read": {
+              "blocker_codes_besides_unknown_version": [
+                "dangling_relation",
+                "missing_referenced_file",
+                "unbounded_relation_target_scalar"
+              ],
+              "warnings": [
+                "\"internal_records_require_separate_review\"",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+              ],
+              "rows": 38,
+              "relations_checked": 16,
+              "files": 15,
+              "unreferenced_files": 9,
+              "identity_sha256": {
+                "agent_users": "6228d5cd0f670bc778cd2b5be9eaa43d451016c0901d622bc6a8cf3d166a1971",
+                "users": "6c2130741bf1260ed661777daf54127d7bdaa5ec66aa3e49f20ca856714642f3",
+                "buma_agent": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_apps_roles": "4191efe9b2471e45d96d45f69af4e9bd75bfa77d156512a632b1c3e76767ca80",
+                "buma_article": "5442a78efbc0251b7b111fe50cf00ce9771785c54376ed770f8c3c4f4d735788",
+                "buma_article_categorie": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_components": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_designation": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_session": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stockage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_unite": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_bw": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_access": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+                "buma_caisse_expense_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_open_close": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_group": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_product": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_config": "b037e01aa4e1062f4713e358a6db21555a9ae47fa81291425721a25e558c7e85",
+                "buma_conversion": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer": "22ec6aad7827f3c98451567ab93b6c49e46a8e2dc554623a45ca16c61ba1b504",
+                "buma_customer_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_number": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_old": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_solder_history": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_position": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment": "6be22fe5d00840e3083057d8d18a03cd878e1a1b7d46f08035aea039f101cb60",
+                "buma_payment_method": "e66195be86ab5ad8fcb2328d2155e797a139d4a645dcb9fcfc24d524f9de794f",
+                "buma_pdv": "b933b23133be0f6da1dcfea4f35475b8a98abab9178cf8c1b8fd6af00ce606f2",
+                "buma_pdv_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
+                "buma_pilotage_ticket_tag": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
+                "buma_ressources": "39426a86ca37e6102c8a746540e46ddc4d3705e785f57fe82155076f6f286541",
+                "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sale": "a6acbdde313027a0c0b2d4e159ba07bce375880e5759eb1cbb588930ea581f86",
+                "buma_sim": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim_balance_activity": "a902214beabfa4f3b8c8bc23e7ee1778d78be7101f7dca03dfbb1e978bf94cf4",
+                "buma_stockage_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_supplier": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+                "buma_supplier_article": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transaction": "f93792ec008eaba780efc84ec94ddf79645930998cf970ef723cb99c6144b9f2",
+                "buma_transfer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transfer_transaction": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_user_bank_uv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ussd_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet": "937d602277a4734a1585a831e5c057197e87ca753eb2b55676a2c79fa5c1c9ce",
+                "buma_wallet_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "roles": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69"
+              },
+              "internal_tables_not_imported": {
+                "_migrations": 17,
+                "_admins": 1,
+                "_collections": 114,
+                "_params": 1,
+                "_externalAuths": 0
+              }
+            },
+            "with_source_version": {
+              "argument": "0.22.27",
+              "blocker_codes": [
+                "dangling_relation",
+                "missing_referenced_file",
+                "unbounded_relation_target_scalar"
+              ]
+            }
+          },
+          "0.22.34": {
+            "read": {
+              "blocker_codes_besides_unknown_version": [
+                "dangling_relation",
+                "missing_referenced_file",
+                "unbounded_relation_target_scalar"
+              ],
+              "warnings": [
+                "\"internal_records_require_separate_review\"",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_customer\", \"field\": \"pdv\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_pilotage_ticket\", \"field\": \"tag\"}",
+                "{\"code\": \"unbounded_relation_target_scalar\", \"collection\": \"buma_wallet\", \"field\": \"managers\"}"
+              ],
+              "rows": 38,
+              "relations_checked": 16,
+              "files": 15,
+              "unreferenced_files": 9,
+              "identity_sha256": {
+                "agent_users": "6228d5cd0f670bc778cd2b5be9eaa43d451016c0901d622bc6a8cf3d166a1971",
+                "users": "6c2130741bf1260ed661777daf54127d7bdaa5ec66aa3e49f20ca856714642f3",
+                "buma_agent": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_agent_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_apps_roles": "4191efe9b2471e45d96d45f69af4e9bd75bfa77d156512a632b1c3e76767ca80",
+                "buma_article": "5442a78efbc0251b7b111fe50cf00ce9771785c54376ed770f8c3c4f4d735788",
+                "buma_article_categorie": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_components": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_designation": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stock_session": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_stockage": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_article_unite": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_buy_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_bw": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_access": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
+                "buma_caisse_expense_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_open_close": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_caisse_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_customer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_group": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_commission_product": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_config": "b037e01aa4e1062f4713e358a6db21555a9ae47fa81291425721a25e558c7e85",
+                "buma_conversion": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer": "22ec6aad7827f3c98451567ab93b6c49e46a8e2dc554623a45ca16c61ba1b504",
+                "buma_customer_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_number": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_old": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_pdv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_solder_history": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_customer_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_contract_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_debt_payment": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_document_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_employee_position": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_invoice_item": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_payment": "6be22fe5d00840e3083057d8d18a03cd878e1a1b7d46f08035aea039f101cb60",
+                "buma_payment_method": "e66195be86ab5ad8fcb2328d2155e797a139d4a645dcb9fcfc24d524f9de794f",
+                "buma_pdv": "b933b23133be0f6da1dcfea4f35475b8a98abab9178cf8c1b8fd6af00ce606f2",
+                "buma_pdv_doc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pdv_doc_type": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_person_entity": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_pilotage_ticket": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
+                "buma_pilotage_ticket_tag": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
+                "buma_ressources": "39426a86ca37e6102c8a746540e46ddc4d3705e785f57fe82155076f6f286541",
+                "buma_return": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_return_regexp": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_rupture": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sale": "a6acbdde313027a0c0b2d4e159ba07bce375880e5759eb1cbb588930ea581f86",
+                "buma_sim": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_sim_balance_activity": "a902214beabfa4f3b8c8bc23e7ee1778d78be7101f7dca03dfbb1e978bf94cf4",
+                "buma_stockage_user": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_supplier": "2fb1c7bc4c5245873292da0149056802a69c9c22351700a9dc1bc680e0a103fe",
+                "buma_supplier_article": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transaction": "f93792ec008eaba780efc84ec94ddf79645930998cf970ef723cb99c6144b9f2",
+                "buma_transfer": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_transfer_transaction": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_user_bank_uv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_ussd_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "buma_wallet": "937d602277a4734a1585a831e5c057197e87ca753eb2b55676a2c79fa5c1c9ce",
+                "buma_wallet_transactions": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "roles": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69"
+              },
+              "internal_tables_not_imported": {
+                "_migrations": 17,
+                "_admins": 1,
+                "_collections": 114,
+                "_params": 1,
+                "_externalAuths": 0
+              }
+            },
+            "with_source_version": {
+              "argument": "0.22.34",
+              "blocker_codes": [
+                "dangling_relation",
+                "missing_referenced_file",
+                "source_pocketbase_version_unvalidated",
+                "unbounded_relation_target_scalar"
+              ]
+            }
+          }
+        },
+        "importer_diagnostic_differences": [],
+        "view_schemas": {
+          "0.22.27": {
+            "views": 42,
+            "equal_to_export_without_field_ids": 42,
+            "views_with_sql_comments": 4,
+            "commented_views_equal_to_export": 4
+          },
+          "0.22.34": {
+            "views": 42,
+            "equal_to_export_without_field_ids": 42,
+            "views_with_sql_comments": 4,
+            "commented_views_equal_to_export": 4
+          }
+        }
+      }
+    },
+    "default_profile_vs_fb381ac": {
+      "0.22.27": {
+        "identical": true,
+        "differences": []
+      },
+      "0.22.34": {
+        "identical": true,
+        "differences": []
+      }
+    }
+  },
+  "real_backup_formats": {
+    "admins": {
+      "columns_identical_to_fixture": true,
+      "formats": {
+        "avatar_integer": 1,
+        "created_updated_pb_datetime": 1,
+        "email_non_empty": 1,
+        "id_pb_id_15": 1,
+        "last_reset_empty": 1,
+        "password_hash_bcrypt_2a_12": 1,
+        "token_key_alnum_50": 1
+      },
+      "rows": 1
+    },
+    "collections_rows": 114,
+    "data_db_sha256_matches_published": true,
+    "data_db_unchanged": true,
+    "ddl_compared_with_0_22_34_real_shape_fixture": {
+      "column_declaration_differences": [],
+      "entries_only_in_real": [],
+      "indexes": {
+        "identical_sql": 17
+      },
+      "tables": {
+        "identical_sql": 25,
+        "same_column_declarations_other_order": 49,
+        "same_columns_same_order_other_sql_text": 3
+      },
+      "view_queries_in_collections_equal_export": 42,
+      "views": {
+        "different_sql_only_quote_characters": 5,
+        "identical_sql": 37
+      },
+      "without_rowid_tables": 0
+    },
+    "external_auths": 0,
+    "header": {
+      "application_id": 0,
+      "file_format_read_version": 2,
+      "file_format_write_version": 2,
+      "last_writer_sqlite_version": 3046000,
+      "page_size": 4096,
+      "schema_format": 4,
+      "text_encoding": "UTF-8",
+      "user_version": 0
+    },
+    "integrity_check": "ok",
+    "migrations": {
+      "application_migrations": 1322,
+      "applied_unix_microseconds": 1336,
+      "pocketbase_system_migrations": 14,
+      "pocketbase_system_migrations_equal_fixture": true,
+      "rows": 1336
+    },
+    "mode": "read_only_aggregates_mode_ro_immutable",
+    "multiple_value_lengths": {
+      "file:0": 1,
+      "file:1": 2808,
+      "relation:0": 5505,
+      "relation:1": 336
+    },
+    "params": {
+      "app_name_equals_pocketbase_default": true,
+      "keys_equal_fixture": true,
+      "non_secret_paths_differing_from_pocketbase_defaults": [
+        "/backups/cron",
+        "/logs/maxDays",
+        "/logs/minLevel"
+      ],
+      "oauth2_providers_enabled": 0,
+      "rows": 1,
+      "settings_key_order_equal_fixture": true,
+      "settings_key_paths": 264,
+      "settings_key_paths_and_types_equal_fixture": true,
+      "settings_plain_json_object": true,
+      "smtp_s3_backups_s3_enabled": [
+        false,
+        false,
+        false
+      ],
+      "token_configs": 8,
+      "token_durations_equal_pocketbase_defaults": 8,
+      "token_secrets_alnum_50": 8
+    },
+    "shape_inventory": {
+      "custom_record_ids": {
+        "buma_apps_roles": {
+          "len3:lower": 2,
+          "len4:lower": 1,
+          "len5:lower": 1,
+          "len6:lower": 3,
+          "len7:lower": 3,
+          "len8:lower": 7,
+          "len9:lower": 1
+        },
+        "buma_article_stockage": {
+          "len15:upper+other": 1
+        },
+        "buma_config": {
+          "len15:upper+digit+other": 1
+        },
+        "buma_customer": {
+          "len15:upper+other": 1
+        },
+        "buma_payment_method": {
+          "len15:upper+digit+other": 3,
+          "len15:upper+other": 1
+        },
+        "buma_supplier": {
+          "len15:upper+other": 1
+        }
+      },
+      "relation_values_not_pb_ids": {
+        "buma_article.categorie": {
+          "len1:digit:target_absent": 7
+        },
+        "buma_article_stock.stockage": {
+          "len15:upper+other:target_present": 38
+        },
+        "buma_customer.type": {
+          "len8:upper:target_absent": 1
+        },
+        "buma_payment.method": {
+          "len15:upper+digit+other:target_present": 398
+        },
+        "buma_sim_balance_activity.author": {
+          "len1:digit:target_absent": 80461
+        },
+        "buma_wallet.managers": {
+          "len31:lower+digit+other:target_absent": 1
+        }
+      },
+      "undeclared_select_values": {
+        "buma_article_stockage.type": {
+          "distinct_values": 1,
+          "rows": 1
+        },
+        "buma_customer_solder_history.type": {
+          "distinct_values": 1,
+          "rows": 49794
+        },
+        "buma_sale.kind": {
+          "distinct_values": 1,
+          "rows": 1342
+        },
+        "buma_transaction.type": {
+          "distinct_values": 2,
+          "rows": 8
+        }
+      }
+    },
+    "storage_manifest": {
+      "objects": {
+        "attrs_sidecar": 601,
+        "attrs_with_original": 601,
+        "original": 601,
+        "original_pb_0_22_name": 601,
+        "outside_storage": 8,
+        "thumb_attrs_sidecar": 40,
+        "thumbnail": 40
+      },
+      "record_directories": {
+        "known_collection:custom_id_len15:upper+digit+other:record_present": 8,
+        "known_collection:pb_id:record_absent": 10,
+        "known_collection:pb_id:record_present": 1264
+      }
+    },
+    "value_formats": {
+      "auth_bool": {
+        "integer_0_1": 46
+      },
+      "auth_email": {
+        "empty": 23
+      },
+      "auth_legacy_dates": {
+        "empty": 69
+      },
+      "auth_password_hash": {
+        "bcrypt_2a_12": 23
+      },
+      "auth_token_key": {
+        "alnum_50": 23
+      },
+      "auth_username": {
+        "non_empty": 23
+      },
+      "bool": {
+        "integer_0_1": 2196979
+      },
+      "created_updated": {
+        "pb_datetime": 2376494
+      },
+      "date": {
+        "empty": 335972,
+        "pb_datetime": 638158
+      },
+      "file_names": {
+        "pb_0_22_pattern": 2899
+      },
+      "id": {
+        "other": 26,
+        "pb_id_15": 1188221
+      },
+      "json": {
+        "json_dict": 30,
+        "json_null": 4,
+        "sql_null": 100
+      },
+      "multiple_file": {
+        "go_compact_string_array": 2809
+      },
+      "multiple_relation": {
+        "go_compact_string_array": 5841
+      },
+      "number": {
+        "integer": 6419796,
+        "real": 2
+      },
+      "relation_items": {
+        "other": 1,
+        "pb_id_15": 335
+      },
+      "rowid": {
+        "integer": 1188247
+      },
+      "single_editor": {
+        "empty": 56,
+        "text": 3
+      },
+      "single_email": {
+        "empty": 17,
+        "text": 2
+      },
+      "single_file": {
+        "empty": 339073
+      },
+      "single_relation": {
+        "empty": 6156922,
+        "other": 80905,
+        "pb_id_15": 4814894
+      },
+      "single_select": {
+        "declared_value": 946641,
+        "empty": 123523,
+        "other": 51145
+      },
+      "single_text": {
+        "empty": 1984887,
+        "text": 1661146
+      },
+      "single_url": {
+        "text": 1
+      }
+    },
+    "assessment": {
+      "checks": {
+        "integrity_ok": true,
+        "same_sqlite_header_format": true,
+        "no_without_rowid_table": true,
+        "rowids_integer": true,
+        "dates_pocketbase_layout_or_empty": true,
+        "bools_integer_0_1": true,
+        "numbers_integer_or_real": true,
+        "json_valid_or_null": true,
+        "multiple_values_go_json_string_arrays": true,
+        "auth_bcrypt_2a_12": true,
+        "auth_token_keys_alnum_50": true,
+        "admins_formats": true,
+        "settings_structure_equal_fixture": true,
+        "system_migrations_equal_fixture": true,
+        "source_unchanged": true
+      },
+      "all_match": true
+    }
+  },
+  "conclusion": {
+    "storage_paths_identical_in_source": true,
+    "binary_storage_identical_except_random_values": true,
+    "random_values_same_formats": true,
+    "view_schemas_equal_export_for_both_binaries": true,
+    "importer_reads_both_identically": true,
+    "only_version_gate_blocks_0_22_34_default_fixture": true,
+    "same_embedded_sqlite": true,
+    "default_profile_vs_fb381ac_identical": true,
+    "real_backup_last_writer_is_the_embedded_sqlite": true,
+    "real_backup_formats_match": true,
+    "importer_can_accept_0_22_34": true,
+    "statement": "PocketBase v0.22.34 changes none of the code that decides what data.db and storage/ contain (models, models/schema, tools/types, tools/security, tools/filesystem, forms, migrations, core, apis and the record/table/settings daos have identical git objects); its only daos change, daos/view.go, regenerates view schemas and gives the same fields for the 42 BUMA views. Built from the same synthetic fixtures, both official binaries store identical values, rowids, DDL and storage objects, apart from values that are random by design, which keep the same formats; the importer at this commit reads both identically and only its version gate rejects 0.22.34. The real 0.22.34 backup uses the same formats. Accepting source_version 0.22.34 in scripts/c11_import.py needs no reader change; the D-0019 and D-0021 blockers are independent of the version."
+  }
+}
