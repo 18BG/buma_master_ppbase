@@ -2671,3 +2671,76 @@ complet. Le plan reprend ces chemins, précise qu'un seul venv BUMA installe
 aussi PPBase en editable, interdit d'installer des paquets système et de
 modifier les autres projets ou services, et signale le refus possible du mode
 sans validation en root.
+
+## Session serveur — phase 0, départ vérifié — 2026-10-24
+
+Serveur `vmi3661571`, root, `/root/projects`. L'utilisateur demande
+d'exécuter `docs/server-session-plan.md` jusqu'au bout en orchestrant
+workflows et sous-agents. Procédure de handoff d'AGENTS relue (baseline,
+plan, tasklist, ledger, README des contrats, inventaire source et manifeste),
+puis décisions D-0019 à D-0023, `c11-preparation.md` et code C11. Inventaire
+non régénéré. Aucune action sur la production.
+
+### Environnement et provenance
+
+- Python 3.12.3, Docker 29.9.1, xz 5.4.5, Node 24.22.0 ; 4 CPU, 7,8 Gio de
+  RAM, 61 Go libres. Venv BUMA existant : PPBase 0.3.2 et BUMA editable.
+  `BUMA_SCHEMA_EXPORT` non défini dans le shell : passé à chaque commande.
+- Source gelée `530018cd20c2acbe88f38b3639e500b5271e2eb2`, propre. PPBase
+  `c6821aa` (`pocketbase-auth-parity-v0404`), propre et à jour. BUMA
+  `fb381ac` (`features/auth`), seul `buma_master_ppbase.egg-info/` non suivi.
+- SHA-256 : export `9d99e7b5…b2313d` conforme ; paquet base de données
+  `6dae14cd…eef0e` conforme, **présent** dès le départ.
+
+### Commandes et résultats
+
+- `PYTHONDONTWRITEBYTECODE=1 .venv/bin/pytest -p no:cacheprovider -q` avec
+  l'export : **175 passed**, dont les deux tests du vérificateur adaptés à
+  D-0022, exécutés pour la première fois avec l'export.
+- Ruff check et format (`app tests scripts`) : passants, 111 fichiers ;
+  migration `1789236849` passante. Les 88 erreurs Ruff et six fichiers à
+  reformater des anciennes migrations générées (hors périmètre habituel)
+  sont antérieurs et non modifiés.
+- `docker pull postgres:16-alpine` (`sha256:f4610795…`) ; banc
+  `scripts.c11_idempotency_runtime` → passant en 37 s, rapport identique à
+  `docs/c11-idempotency-runtime-report.json` hors horodatage ; aucun
+  conteneur restant.
+- Binaires officiels PocketBase linux_amd64, hors dépôt dans
+  `/root/buma-c11-tools/pocketbase-<version>/`, ZIP vérifiés contre le
+  `checksums.txt` de chaque release : 0.22.27 ZIP `4de47b33…0bd7`, binaire
+  `ca223268…fd8b` ; 0.22.34 ZIP `50450ee1…36da`, binaire `f164a633…e04d`.
+- `scripts.c11_rehearsal` avec 0.22.27, avant toute modification : **passant**
+  en 23 s. Écarts avec le rapport de référence limités à la fixture régénérée
+  (empreintes), 10 migrations au lieu de 9 (D-0022) et l'horodatage.
+- Paquet extrait sans les quatre métadonnées macOS `._*` (163 octets chacune),
+  dans `backups/c11-master-20260928/` (0700/0600, ignoré par Git) : `data.db`
+  `3539f3eb…afd` conforme, manifeste et relevé privés, README.
+- `scripts.c11_idempotency_source_check` en Python `-I` sur la copie :
+  rapport **identique** à `docs/c11-idempotency-source-check.json`.
+- Agrégats en lecture seule sur la copie, sans valeur publiée : export sans
+  `maxSelect: 0` ; seules les trois relations D-0019 sont à `null` ; une
+  seule valeur relationnelle dépasse 15 caractères (élément de 31 caractères
+  de `buma_wallet.managers`). `_admins` : 1 ligne ; `_params` : la seule clé
+  `settings` ; `_externalAuths` : vide.
+- PPBase de référence, avant modification :
+  `pytest -p no:cacheprovider -q tests` → **830 passed, 71 skipped,
+  10 failed** en 160 s. Échecs antérieurs à cette session, tous auth ou
+  routage : durée de jeton attendue 604800 au lieu de 432000 (3 tests), 403
+  au lieu de 401 au refresh croisé (4), collision de route et routeur hooks
+  (2), un test de jeton forgé qui passe seul (dépendance d'ordre). Hors
+  périmètre D-0019 ; aucune régression supplémentaire ne sera acceptée.
+
+### Organisation de la vague 2
+
+- PPBase : branche locale `fix/d0019-relation-maxselect` créée depuis
+  `c6821aa`, sous-branche `c11/ws-a` dans `/root/buma-c11-work/ppbase-ws-a`.
+- BUMA : sous-branches `c11/ws-b`, `c11/ws-b2` (extraction vérifiée, partie
+  de WS-B), `c11/ws-c`, `c11/ws-d`, `c11/ws-f` depuis `fb381ac`, worktrees
+  dans `/root/buma-c11-work/`. Liens `ppbase`, `buma_master_hooks` et export
+  à côté, pour les chemins relatifs. Résolution vérifiée : un worktree charge
+  son propre `app`/`scripts` ; `PYTHONPATH` sélectionne le PPBase de WS-A.
+  175 tests passants dans un worktree.
+
+Décision : phase 0 réussie, aucun écart sur le code, la source ou l'export.
+Vague 2 lancée : WS-A, WS-B (hors tableaux), WS-C, WS-D et WS-F en parallèle,
+chacun relu par un agent indépendant avant intégration. C11 reste ouvert.
