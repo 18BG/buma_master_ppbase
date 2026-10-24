@@ -378,7 +378,8 @@ KNOWN_DIVERGENCES["customers_pdv_name_every"] = {
 }
 # Answer differences that exist on any PPBase database, independently of the
 # import, by class: each difference path must match one narrow rule of
-# divergence_class(); anything else fails the rehearsal.
+# divergence_class(); anything else fails the rehearsal. PPBase lines cited
+# here and above: commit 526397a (branch fix/d0019-relation-maxselect).
 DIVERGENCE_CLASSES = {
     "error_envelope_code_vs_status": (
         "documented (docs/contracts/c11-auth-import.md section 5): PocketBase v0.22.34 "
@@ -389,7 +390,7 @@ DIVERGENCE_CLASSES = {
     ),
     "failed_login_identity_detail": (
         "PPBase adds data.identity validation_invalid_credentials to the 400 of a failed "
-        "login (ppbase/api/record_auth.py:353-358, ppbase/api/admins.py:172); PocketBase "
+        "login (ppbase/api/record_auth.py:352-357, ppbase/api/admins.py:172); PocketBase "
         "v0.22.34 answers data {}"
     ),
     "empty_date_served_null": (
