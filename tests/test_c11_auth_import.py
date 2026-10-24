@@ -173,6 +173,8 @@ def test_mapping_follows_pocketbase_upgrade_and_ppbase_representation(tmp_path):
     assert admin["row"]["token_key"] == ADMIN["tokenKey"]
     assert admin["row"]["avatar"] == 3 and admin["row"]["id"] == ADMIN["id"]
     assert admin["row"]["created"].isoformat() == "2023-01-02T03:04:05.678000+00:00"
+    # Imported for the 0.22 admin reset throttle, and archived as source text.
+    assert admin["row"]["last_reset_sent_at"].isoformat() == "2024-05-01T10:00:00.123000+00:00"
     assert admin["legacy"] == {"lastResetSentAt": ADMIN["lastResetSentAt"]}
     assert admin["rowid"] == 1
 
@@ -283,6 +285,9 @@ def test_unrepresentable_settings_are_refused(tmp_path, change, code):
         ({**ADMIN, "email": "e" * 256}, "admin_value_not_representable"),
         ({**ADMIN, "avatar": 2**31}, "admin_value_not_representable"),
         ({**ADMIN, "created": "2023-01-02 03:04:05"}, "admin_value_not_representable"),
+        # Imported into last_reset_sent_at: never read as PocketBase's zero time.
+        ({**ADMIN, "lastResetSentAt": "2024-05-01 10:00:00"}, "admin_value_not_representable"),
+        ({**ADMIN, "lastResetSentAt": "2024-02-30 10:00:00.000Z"}, "admin_value_not_representable"),
     ],
 )
 def test_unrepresentable_admins_are_refused_never_repaired(tmp_path, admin, code):
@@ -738,7 +743,7 @@ class _ScriptedDatabase:
             self.archive.append({**params, "legacy": json.loads(params["legacy"])})
             return _Rows()
         if sql.startswith('INSERT INTO "_superusers"'):
-            row = {**params, "last_reset_sent_at": None}
+            row = dict(params)
             if self.tamper == "superusers":
                 row["avatar"] += 1
             self.superusers.append(row)
@@ -795,7 +800,7 @@ async def test_import_writes_the_plan_in_order_and_reports_without_values(tmp_pa
     assert admin["password_hash"] == ADMIN["passwordHash"]
     assert admin["token_key"] == ADMIN["tokenKey"]
     assert (admin["id"], admin["email"], admin["avatar"]) == (ADMIN["id"], ADMIN["email"], 3)
-    assert admin["last_reset_sent_at"] is None
+    assert admin["last_reset_sent_at"].isoformat() == "2024-05-01T10:00:00.123000+00:00"
     assert sorted((row["table"], row["id"], row["rowid"]) for row in db.archive) == [
         ("_admins", ADMIN["id"], 1),
         ("_params", "c11param0000001", 1),
@@ -847,6 +852,32 @@ REFUSALS_BEFORE_ANY_WRITE = (
     ({"collections": "without_agent_users"}, "target_auth_collections_mismatch"),
     ({"collections": "agent_users_id_changed"}, "target_auth_collection_id_mismatch"),
 )
+
+
+async def test_admin_reset_throttle_is_imported_empty_as_null(tmp_path):
+    """lastResetSentAt feeds the 120 s throttle of the 0.22 admin reset route.
+
+    v0.22.34 forms/admin_password_reset_request.go:73-76 refuses a new e-mail
+    within 120 s of lastResetSentAt; "" is the zero DateTime, never a throttle.
+    """
+    other = {
+        **ADMIN,
+        "id": "c11admin0000002",
+        "email": "c11-admin-2@example.invalid",
+        "tokenKey": "U" * 50,
+        "lastResetSentAt": "",
+    }
+    staged = staged_copy(tmp_path / "data", admins=[ADMIN, other])
+    db = scripted(staged)
+    report = await import_auth(db, staged, DEFINITIONS)
+    imported = {row["id"]: row["last_reset_sent_at"] for row in db.superusers}
+    assert imported[ADMIN["id"]].isoformat() == "2024-05-01T10:00:00.123000+00:00"
+    assert imported[other["id"]] is None
+    legacy = {row["id"]: row["legacy"] for row in db.archive if row["table"] == "_admins"}
+    assert legacy[other["id"]] == {"lastResetSentAt": ""}
+    assert report["admins"]["imported_as_last_reset_sent_at"] == ["lastResetSentAt"]
+    assert report["admins"]["with_last_reset_sent_at"] == 1
+    assert "archived_without_activation" not in report["admins"]
 
 
 @pytest.mark.parametrize(("state", "code"), REFUSALS_BEFORE_ANY_WRITE)

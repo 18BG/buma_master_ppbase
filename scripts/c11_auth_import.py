@@ -53,8 +53,10 @@ PARAM_COLUMNS = frozenset({"id", "key", "value", "created", "updated"})
 # PPBase ppbase/db/system_tables.py:96-132 (_superusers) column limits.
 ADMIN_TEXT_LIMITS = {"id": 15, "email": 255, "tokenKey": 255, "passwordHash": 255}
 INT32 = (-(2**31), 2**31 - 1)
-# Archived without activation: PPBase has the column but no reader, and the only
-# PocketBase 0.22 reader is the /api/admins/request-password-reset throttle.
+# Imported into _superusers.last_reset_sent_at ("" -> NULL, the zero DateTime),
+# read by the 120 s throttle of /api/admins/request-password-reset like v0.22.34
+# forms/admin_password_reset_request.go:73-76 (PPBase admin_service.py
+# request_password_reset); its source text is also archived with the rowid.
 ADMIN_ARCHIVED = ("lastResetSentAt",)
 # Copied byte for byte (PocketBase's own upgrade: migrate.go:115-118, plus avatar,
 # which PPBase still serialises in /api/admins exactly like PocketBase 0.22).
@@ -288,6 +290,12 @@ def check_source(source: dict, definitions: list[dict]) -> tuple[list[dict], lis
             elif problem := _text_problem(admin["lastResetSentAt"]):
                 # Written into the archive's jsonb column.
                 block(problem, field="lastResetSentAt")
+            else:
+                try:
+                    date_value(admin["lastResetSentAt"])
+                except ImportBlocked:
+                    # Never read as the zero time PocketBase's cast would give.
+                    block("admin_value_not_representable", field="lastResetSentAt")
             for field in ("created", "updated"):
                 try:
                     date_value(admin[field], required=True)
@@ -434,6 +442,7 @@ def build_plan(source: dict, definitions: list[dict]) -> dict:
                 "email": admin["email"],
                 "token_key": admin["tokenKey"],
                 "password_hash": admin["passwordHash"],
+                "last_reset_sent_at": date_value(admin["lastResetSentAt"]),
                 "created": date_value(admin["created"], required=True),
                 "updated": date_value(admin["updated"], required=True),
             },
@@ -528,7 +537,12 @@ def public_report(plan: dict, *, imported: bool) -> dict:
             "imported_rows": len(plan["admins"]) if imported else 0,
             "target": SUPERUSERS,
             "copied_unchanged": list(ADMIN_COPIED),
-            "archived_without_activation": list(ADMIN_ARCHIVED),
+            # Same instant, "" as NULL; the source text is archived too.
+            "imported_as_last_reset_sent_at": list(ADMIN_ARCHIVED),
+            "archived_source_text": list(ADMIN_ARCHIVED),
+            "with_last_reset_sent_at": sum(
+                admin["row"]["last_reset_sent_at"] is not None for admin in plan["admins"]
+            ),
             "passwords_regenerated": 0,
         },
         "token_configs": tokens,
@@ -754,12 +768,12 @@ async def _import_on_connection(connection, data, definitions, diagnostic, fail_
         f'INSERT INTO "{ARCHIVE_TABLE}" VALUES (:table, :id, :rowid, CAST(:legacy AS jsonb))'
     )
     for admin in plan["admins"]:
-        # last_reset_sent_at stays NULL: archived only, never activated.
         await connection.execute(
             text(
                 'INSERT INTO "_superusers" ("id", "avatar", "email", "token_key", '
                 '"password_hash", "last_reset_sent_at", "created", "updated") VALUES '
-                "(:id, :avatar, :email, :token_key, :password_hash, NULL, :created, :updated)"
+                "(:id, :avatar, :email, :token_key, :password_hash, :last_reset_sent_at, "
+                ":created, :updated)"
             ),
             admin["row"],
         )
@@ -784,9 +798,7 @@ async def _import_on_connection(connection, data, definitions, diagnostic, fail_
         .mappings()
         .all()
     )
-    expected = {
-        admin["row"]["id"]: {**admin["row"], "last_reset_sent_at": None} for admin in plan["admins"]
-    }
+    expected = {admin["row"]["id"]: dict(admin["row"]) for admin in plan["admins"]}
     if {row["id"]: dict(row) for row in readback} != expected:
         raise ImportBlocked("superusers_readback_mismatch")
     if fail_after == "admins":
