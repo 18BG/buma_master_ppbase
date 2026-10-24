@@ -1,12 +1,13 @@
 # Runbook C11 — bascule et retour arrière (brouillon)
 
-**Brouillon WS-F du 2026-10-24, non exécuté.** Ce document décrit la bascule
-des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers PPBase et
-PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
-production et la bascule exigent une autorisation distincte de l'utilisateur,
-un backup frais et une fenêtre de maintenance (`docs/server-session-plan.md`,
-sections 1 et 8). `AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a
-été exécutée, ni sur la production ni ailleurs.
+**Brouillon WS-F du 2026-10-24, non exécuté, révisé après une première
+relecture indépendante.** Ce document décrit la bascule des clients BUMA
+Master de PocketBase 0.22.34 (SQLite) vers PPBase et PostgreSQL, puis le
+retour arrière. Il n'autorise rien : l'import de production et la bascule
+exigent une autorisation distincte de l'utilisateur, un backup frais et une
+fenêtre de maintenance (`docs/server-session-plan.md`, sections 1 et 8).
+`AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a été exécutée, ni
+sur la production ni ailleurs.
 
 ## Conventions
 
@@ -18,16 +19,22 @@ sections 1 et 8). `AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a
 - **[commande à confirmer à l'intégration]** : outil encore en cours
   d'écriture (WS-B, WS-B2, WS-C, WS-D, WS-E, WS-G). Seule l'intention est
   décrite ; la syntaxe sera fixée à l'intégration.
+- **[à confirmer à l'intégration]** : fait ou comportement que le chantier
+  cité doit établir ; le runbook ne le tient pas pour acquis.
 - **[outil non attribué]** : contrôle nécessaire pour lequel aucun outil
   n'existe et aucun chantier n'est responsable ; à décider (section 10).
-- `<…>` : valeur fournie le jour J. `I1` à `I21` renvoient aux informations
+- `<…>` : valeur fournie le jour J. `I1` à `I24` renvoient aux informations
   de la section 3, `G0` à `G6` aux portes de la section 7, `C-01` à `C-43`
   aux contrôles décrits en section 6.
 - `<privé>` : dossier privé de la bascule (dossiers 0700, fichiers 0600), hors
   de tout dépôt Git ou dans `backups/` (ignoré par Git). Les rapports publics
   ne contiennent que des agrégats et des empreintes de fichiers : jamais d'ID,
   de nom, d'email, de mot de passe ou de hash de mot de passe, de jeton, de
-  secret, de montant, ni d'URL contenant des identifiants.
+  secret, de montant, ni d'URL contenant des identifiants. Une capture ou un
+  backup de production contient les `tokenKey` et les secrets des jetons et
+  du SMTP : qui les lit peut signer des jetons acceptés par la production
+  (clé `tokenKey` + secret, `tokens/record.go:13-27`). Ils se protègent comme
+  la production.
 - Les commandes du dépôt se lancent depuis la racine du checkout BUMA de
   release, avec son venv (`.venv/bin/python`), jamais depuis le dossier de la
   capture ; les chemins de données sont passés en arguments.
@@ -39,7 +46,9 @@ sections 1 et 8). `AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a
    porte G4. Pas de bascule partielle des clients, pas de double écriture.
 2. **PocketBase reste intact** : `pb_data`, binaire, hooks, migrations et
    ligne de commande ne sont ni modifiés, ni restaurés, ni nettoyés, ni mis à
-   jour (`pocketbase update`). Toute analyse porte sur une copie.
+   jour (`pocketbase update`). Toute analyse porte sur une copie. Un
+   démarrage de PocketBase écrit dans `data.db` (6.3) : il n'a lieu que
+   selon la règle de redémarrage de 6.3 ou en retour arrière.
 3. **Copie à l'identique** : aucun doublon supprimé, aucune liste aplatie,
    aucune cible, aucun ID, rowid ou fichier inventé, aucune référence
    supprimée ou redirigée (D-0019, D-0021, D-0022, D-0023). Choix par défaut
@@ -67,10 +76,22 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 
 - l'import de production et la bascule, nommément, pour une fenêtre donnée ;
 - la fenêtre de maintenance (début, fin au plus tard, fuseau) et son annonce ;
+- le gel du schéma de production depuis l'export corrigé et la règle
+  `buma_sql_table` (2.4), ou à défaut la procédure de ré-export et de
+  revalidation ;
+- le diagnostic à blanc d'un backup récent (6.1) : copie, machine,
+  conservation et destruction ;
+- le staging (6.9) : machine, accès, données réelles chargées, conservation,
+  destruction et règles d'isolement. Le plan de la session serveur n'autorise
+  l'import de données réelles que dans un PostgreSQL jetable du serveur de
+  session (`docs/server-session-plan.md`, section 2) : un staging ailleurs
+  exige cette autorisation ;
 - les méthodes de gel (6.2), de capture (6.3) et de bascule d'URL (6.10) ;
 - le plan de retour arrière : durée de la période de retour arrière et sort
   des écritures reçues par PPBase en cas de retour (8.3) ;
 - les seuils d'arrêt de la section 7 ;
+- le sort de chaque constat de la section 10 : correction, ou divergence
+  acceptée avec son impact client et son test de régression (`AGENTS.md`) ;
 - les personnes de chaque rôle (section 4).
 
 ### 2.2 Prérequis techniques acquis avant le jour J
@@ -81,19 +102,52 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - Répétition réelle WS-G passante (rapport `docs/c11-real-rehearsal-*.json`)
   et durées reportées en section 5 [commande à confirmer à l'intégration].
 - Commits de release figés pour BUMA et PPBase ; sur ces commits, la porte
-  de l'annexe A passe intégralement.
-- Production identifiée (I1, I2) : PocketBase **0.22.34**. Le ZIP de
-  septembre ne contenait aucune indication de version : la preuve vient du
-  binaire en service (`pocketbase --version` et SHA-256 comparés au binaire
-  officiel de la release, annexe B). Hooks déployés construits depuis la
-  source gelée `530018c`. `_migrations` limité aux 325 migrations source
-  appliquées en septembre : toutes sauf `1785599959`
-  (`docs/c11-idempotency-source-check.json`). Une autre version, un build
-  personnalisé ou une autre révision arrête la préparation : la parité n'est
-  établie que pour cette référence.
-- Tests desktop, mobile et administration passants sur staging (6.9) : base
-  jetable chargée depuis un backup réel, comptes de test créés dans cette
-  seule base.
+  de l'annexe A passe intégralement, analyse des échecs PPBase comprise.
+- Version de la production (I1, I2) : PocketBase **0.22.34**. La preuve
+  vient du binaire en service : `pocketbase --version` et SHA-256 comparés au
+  binaire officiel (annexe B), contrôle C-02 fait une première fois avant le
+  jour J. Le ZIP de septembre ne désigne pas la version. Il en donne deux
+  indices compatibles avec 0.22.34, qui ne sont pas des preuves : son
+  `types.d.ts`, que le binaire réécrit au démarrage s'il diffère du sien
+  (`plugins/jsvm/jsvm.go:150-157`, `:475-504`), est identique à celui des
+  tags `v0.22.23` à `v0.22.57` ; `_migrations` contient les 14 migrations
+  système du tag `v0.22.34`. Une autre version ou un build personnalisé
+  arrête la préparation : la parité n'est établie que pour cette référence.
+- Révision des hooks déployés (I2) : `530018c`. `_migrations` ne la prouve
+  pas : il ne contient que des noms de migrations, et `1785599959`, dernière
+  migration de la source (datée du 2026-08-01), n'y figurait pas en
+  septembre (D-0022). Soit le dossier de migrations déployé ne la contient
+  pas, soit PocketBase n'a pas redémarré depuis son dépôt ; dans le second
+  cas, le prochain démarrage l'appliquerait (`apis/serve.go:66-69`,
+  `plugins/jsvm/jsvm.go:175-213`). Preuve attendue, sur une copie en lecture
+  des dossiers `--hooksDir` et `--migrationsDir` déployés
+  [outil non attribué] :
+  - hooks comparés fichier par fichier (taille, SHA-256) à un build de
+    `530018c` fait sur la machine de préparation avec la commande de la
+    source (`tsup src/entries/**/*.ts -d ./dist`, `package.json`) et ses
+    lockfiles : 0 fichier manquant, en trop ou différent ;
+  - migrations déployées comparées à `migrationsDir/` de la source et à
+    `_migrations` : 0 migration en attente, sinon décision avant G0.
+
+  Toute différence, y compris d'outil de build, est examinée par le
+  vérificateur et décidée ; une autre révision arrête la préparation.
+- `_migrations`, référence du contrôle C-08 : 1 336 lignes en septembre
+  (`docs/c11-master-initial-diagnostic.json:720`), soit
+  - 325 des 326 migrations source, toutes sauf `1785599959`
+    (`docs/c11-idempotency-source-check.json`) ;
+  - les 14 migrations système (`.go`) du tag `v0.22.34` ;
+  - 252 lignes `*_updated_buma_sql_table.js` laissées par la console
+    (2.4), du 2025-01-14 au 2025-11-21 ;
+  - 745 automigrations du tableau de bord absentes de la source (91
+    `created_`, 651 `updated_`, 3 `deleted_`), du 2024-02-25 au 2026-09-12.
+
+  Agrégats WS-F en lecture seule sur la copie privée de septembre, empreinte
+  de `data.db` inchangée, sans nom de migration publié.
+- Gel du schéma respecté depuis l'export (2.4) et diagnostic à blanc
+  conforme (6.1).
+- Tests desktop, mobile et administration passants sur staging (6.9), sous
+  l'autorisation et les règles d'isolement prévues.
+- Constats de la section 10 corrigés ou décidés.
 - PostgreSQL de production en version 16, celle des répétitions ; une autre
   version majeure impose une répétition supplémentaire.
 - Horloges synchronisées (NTP) sur l'hôte PPBase et sur le serveur
@@ -118,8 +172,63 @@ réévaluer sur le backup frais :
   moins deux fois la taille de `pb_data` (`core/base_backup.go:38-39`,
   v0.22.34).
 - Machine de bascule : capture, extraction, copie de staging de l'importeur,
-  `storage/` de PPBase et PostgreSQL (données, index, WAL) [taille : mesurée
-  par WS-G].
+  `storage/` de PPBase et PostgreSQL (données, index, WAL)
+  [taille : mesurée par WS-G].
+
+### 2.4 Gel du schéma de production et règle `buma_sql_table`
+
+L'outillage compare les 114 définitions de la capture à l'export corrigé,
+dont l'empreinte est figée (`scripts/c11_import.py:22`) : une collection en
+plus ou en moins, ou toute différence de règles, d'index, d'options ou de
+champs, bloque (`scripts/c11_import.py:285-319`, C-07). Les migrations de
+référence de PPBase sont générées depuis cet export
+(`pb_migrations/1789236840_buma_master_schema_baseline.py`,
+`pb_migrations/1789236842_buma_master_views.py`). Or la production modifie
+ses collections hors de la source :
+
+- tableau de bord : l'automigration, active par défaut dans le binaire
+  officiel (`examples/base/main.go:57-63`), ajoute une ligne à `_migrations`
+  et écrit un fichier de migration à chaque changement de collection
+  (`plugins/migratecmd/migratecmd.go:84-100`,
+  `plugins/migratecmd/automigrate.go:65-87`) ; 745 lignes de ce type en
+  septembre, la dernière le 2026-09-12 ;
+- console `POST /master/article/executeSql` : réécrit la requête et les
+  champs de la vue `buma_sql_table`, puis tente de supprimer les fichiers
+  `*_updated_buma_sql_table.js` ; la ligne de `_migrations` reste
+  (`master.article.ts:30-63`, D-0018) ; 252 lignes en septembre, la dernière
+  le 2025-11-21 ;
+- `POST /master/article/deleteSql`, route publique, supprime la collection
+  nommée (`master.article.ts:65-75`, `:91-93` ;
+  `docs/contracts/legacy-sql.md`).
+
+Sans automigration, ces changements ne laissent aucune ligne dans
+`_migrations` : C-07 reste le contrôle décisif, C-08 un indice.
+
+Règles proposées, à valider par l'utilisateur (2.1, I22) :
+
+1. **Gel du schéma depuis l'export** : aucune modification de collection
+   par le tableau de bord, aucun appel à `deleteSql`. Une modification
+   impose un nouvel export, de nouvelles migrations de référence relues dans
+   le dépôt, la porte de release (annexe A) et une nouvelle répétition WS-G
+   avant une nouvelle fenêtre ; rien de cela ne se fait pendant la fenêtre.
+2. **Console gelée par défaut** : aucun `executeSql` en production depuis
+   l'export. Ce gel est praticable : en septembre, la dernière ligne console
+   datait du 2025-11-21 et `buma_sql_table` était égale à l'export. C-07
+   attend alors 0 dérive, `buma_sql_table` comprise.
+3. **Si la console a servi malgré tout**, la dérive de `buma_sql_table`
+   (`options` et `schema`) est attendue, mais l'outillage actuel la bloque.
+   Deux issues, à trancher avant G0 :
+   - NO-GO et report ;
+   - ou décision D-XXXX acceptant une dérive limitée à cette vue, la cible
+     gardant la requête de l'export, avec prise en charge par l'importeur
+     et test de régression [outil non attribué]. Impact client : jusqu'au
+     premier `executeSql` après la bascule, une lecture native de
+     `buma_sql_table` renvoie le résultat de la requête de l'export, et non
+     celui de la dernière requête console de production, écrite en SQL
+     SQLite (D-0018). Le parcours desktop, qui appelle `executeSql` avant de
+     lire la vue, n'est pas touché.
+4. Le diagnostic à blanc (6.1) vérifie ces règles sur un backup récent,
+   avant la fenêtre.
 
 ## 3. Informations à fournir par l'utilisateur
 
@@ -130,10 +239,13 @@ Infrastructure de production :
 - **I2** — Binaire officiel ou build personnalisé, et ligne de commande
   exacte de PocketBase : `--dir`, `--encryptionEnv`, `--hooksDir`,
   `--hooksWatch`, `--migrationsDir`, `--automigrate`, `--publicDir`,
-  `--queryTimeout`, `serve` avec ou sans domaines, `--http`, `--https`,
-  `--origins` (v0.22.34 : `pocketbase.go:187-207`,
-  `examples/base/main.go:25-87`, `cmd/serve.go:20-75`) ; preuve de la
-  version et de la révision des hooks (2.2).
+  `--indexFallback`, `--queryTimeout`, `serve` avec ou sans domaines,
+  `--http`, `--https`, `--origins` (v0.22.34 : `pocketbase.go:187-207`,
+  `examples/base/main.go:25-87`, `cmd/serve.go:20-75`). Copie en lecture des
+  dossiers `--hooksDir` et `--migrationsDir` déployés, pour la preuve de
+  révision (2.2). Présence d'un `pb_public` servi : par défaut, le binaire
+  officiel sert le dossier `pb_public` voisin de l'exécutable
+  (`examples/base/main.go:65-71`, `:129-137`).
 - **I3** — Paramètres chiffrés (`--encryptionEnv`) ? Si oui, WS-C a besoin de
   la clé, transmise hors dépôt. Les paramètres du backup de septembre étaient
   lisibles en JSON : l'audit y a lu l'état S3.
@@ -169,7 +281,10 @@ Gel et fenêtre :
 - **I12** — Fenêtre, annonce aux utilisateurs, consigne de synchronisation
   des mobiles avant le gel.
 - **I13** — Sauvegardes automatiques PocketBase (`backups.cron`,
-  `backups.cronMaxKeep`) et tâches externes qui écrivent dans PocketBase.
+  `backups.cronMaxKeep`) ; stockage des sauvegardes : si `backups.s3` est
+  actif, la sauvegarde de la méthode A part dans le bucket et non dans
+  `pb_data/backups/` (`core/base.go:538-552`), alors qu'il était inactif en
+  septembre ; tâches externes qui écrivent dans PocketBase.
 
 Accès et comptes :
 
@@ -178,9 +293,18 @@ Accès et comptes :
   ticket ou messagerie.
 - **I15** — Comptes de contrôle : un compte `users`, un compte `agent_users`
   et l'administrateur PocketBase ; mots de passe détenus par leurs
-  titulaires ; accord pour conserver un jeton émis avant le gel.
-- **I16** — SMTP actif dans PocketBase ? Une fois les paramètres repris,
-  PPBase pourra envoyer des emails réels.
+  titulaires ; accord pour conserver un jeton émis avant le gel, détruit
+  après C-34.
+- **I16** — SMTP. PocketBase 0.22.34 envoie ses emails par le SMTP de ses
+  paramètres s'il est actif, sinon par `sendmail` (`core/base.go:495-509`).
+  PPBase `c6821aa` envoie ses emails d'authentification avec le SMTP de son
+  environnement (`PPBASE_SMTP_*`, `ppbase/config.py:86-91` ;
+  `ppbase/api/record_auth.py:1483`). Sans `PPBASE_SMTP_HOST`, il écrit les
+  jetons de vérification, de réinitialisation et de changement d'email dans
+  ses journaux (`ppbase/services/mail_service.py:15-31`, `:72-73`,
+  `:95-96`, `:118-119`) [à confirmer à l'intégration, WS-C]. À fournir :
+  paramètres SMTP de PPBase en production, ou décision de ne pas en avoir,
+  et politique d'accès aux journaux.
 
 Sauvegardes, rétention et décisions :
 
@@ -198,6 +322,18 @@ Sauvegardes, rétention et décisions :
 - **I21** — Durée de la surveillance renforcée et de la période de retour
   arrière ; validation des seuils de la section 7.
 
+Préparation hors fenêtre :
+
+- **I22** — Gel du schéma (2.4) : date de l'export corrigé, consigne donnée
+  aux administrateurs (tableau de bord, console, `deleteSql`), personne qui
+  la fait respecter, usages de la console depuis l'export.
+- **I23** — Staging (6.9) : machine, réseau et exposition, accès, PostgreSQL
+  jetable, conservation et destruction des données, SMTP et secrets de
+  jetons retenus.
+- **I24** — Backup récent du diagnostic à blanc (6.1) : méthode (dernière
+  sauvegarde automatique, ou sauvegarde native à un moment creux), date,
+  transfert et emplacement privé.
+
 ## 4. Rôles et responsabilités
 
 | Rôle | Responsabilités | Personne |
@@ -205,7 +341,7 @@ Sauvegardes, rétention et décisions :
 | Décideur (utilisateur) | autorisations ; go/no-go à chaque porte ; déclenchement et fin du retour arrière ; sort des écritures reçues par PPBase | I19 |
 | Opérateur de bascule | exécute les étapes, tient le journal, n'improvise aucune correction | I19 |
 | Vérificateur | relit les preuves de chaque porte, sans les avoir produites | I19 |
-| Infrastructure | proxy, DNS, TLS, services, accès, sauvegardes | I19 |
+| Infrastructure | proxy, DNS, TLS, services, accès, sauvegardes, staging | I19 |
 | Référents métier | contrôles desktop, mobile et caisse ; premières opérations réelles | I19 |
 | Communication | annonce, information pendant la fenêtre, ouverture ou retour | I19 |
 | Agents Claude | préparation, outillage et relecture hors production ; aucune action sur la production | — |
@@ -231,11 +367,13 @@ Sauvegardes, rétention et décisions :
 
 En mode paquet (sans `storage/`), WS-G ne mesure ni le hachage des fichiers
 de l'étape 6 ni les étapes 4, 5 et 11 : elles demandent la répétition avec le
-ZIP complet, devant l'utilisateur. L'étape 11 peut se dérouler en parallèle
-des étapes 6 à 10 si les disques de la machine de bascule le permettent ; à
-décider après mesure. La fenêtre de maintenance couvre au moins les étapes 1
-à 13, plus une marge fixée par le décideur, et doit laisser le temps de
-l'étape 14 avant sa fin.
+ZIP complet, devant l'utilisateur. Le diagnostic à blanc (6.1), hors
+fenêtre, mesure aussi les étapes 4 à 6 sur un backup réel récent. L'étape 11
+peut se dérouler en parallèle des étapes 6 à 10 si les disques de la machine
+de bascule le permettent ; à décider après mesure. Un redémarrage de
+PocketBase sous gel (6.3) refait les étapes 2 et suivantes. La fenêtre de
+maintenance couvre au moins les étapes 1 à 13, plus une marge fixée par le
+décideur, et doit laisser le temps de l'étape 14 avant sa fin.
 
 ## 6. Procédure
 
@@ -249,12 +387,34 @@ l'étape 14 avant sa fin.
    lecture seule de la source gelée `530018c` (contrôle C-08).
 2. Préparer un fichier d'environnement de production 0600, hors dépôt :
    `PPBASE_DATABASE_URL`, `PPBASE_DATA_DIR`, `PPBASE_HOST`, `PPBASE_PORT`,
-   `PPBASE_MIGRATIONS_DIR`, `PPBASE_AUTO_MIGRATE=false`,
+   `PPBASE_MIGRATIONS_DIR`, `PPBASE_AUTO_MIGRATE=false`, `PPBASE_DEV=false`,
    `PPBASE_STORAGE_BACKEND=local` et `BUMA_MASTER_ENABLE_INTERNAL_JOBS=false`
    (la source gelée n'a aucun cron actif : le seul `cronAdd`, dans
-   `master.rupture.ts:222`, est commenté). Reprendre l'équivalent PPBase de
-   `--origins` (`origins`, `ppbase/config.py:94`) si PocketBase n'utilise pas
-   la valeur par défaut `*` (`cmd/serve.go:55-60`).
+   `master.rupture.ts:222`, est commenté). Y ajouter :
+   - `PPBASE_SMTP_HOST`, `PPBASE_SMTP_PORT`, `PPBASE_SMTP_USERNAME`,
+     `PPBASE_SMTP_PASSWORD` et `PPBASE_SMTP_FROM`, selon I16 ;
+   - `PPBASE_JWT_SECRET`, secret propre à PPBase. Sans lui, PPBase génère et
+     conserve `<PPBASE_DATA_DIR>/.jwt_secret` (0600) et l'annonce au
+     démarrage (`ppbase/config.py:124-170`, `ppbase/app.py:70-74`). Ce
+     secret ne signe les jetons superuser qu'en l'absence de collection
+     `_superusers` ; sinon, ils sont signés et vérifiés avec `token_key` et
+     le secret `authToken` de `_superusers`, tiré au hasard à sa création
+     (`ppbase/services/auth_service.py:426-453`,
+     `ppbase/api/deps.py:79-101`, `ppbase/db/bootstrap.py:147-185`,
+     `ppbase/services/auth_service.py:302-315`). Son rôle exact dans la
+     continuité des sessions (C-34) est [à confirmer à l'intégration,
+     WS-C]. Dans tous les cas, c'est un secret géré selon I14 et compris dans
+     la sauvegarde du dossier de données (I18) ;
+   - l'équivalent PPBase de `--origins` (`origins`, `ppbase/config.py:94`)
+     si PocketBase n'utilise pas la valeur par défaut `*`
+     (`cmd/serve.go:55-60`) ;
+   - si I2 montre un `pb_public` servi : une copie de ce dossier et
+     `PPBASE_PUBLIC_DIR`, ou `--publicDir` (`ppbase/config.py:39`,
+     `ppbase/__main__.py:667-674`, `ppbase/app.py:472-476`). Le repli sur
+     `index.html` (`--indexFallback`, vrai par défaut dans 0.22.34,
+     `examples/base/main.go:73-79`) et la cohabitation avec la route `GET /`
+     de BUMA (section 10) sont à vérifier sur staging ; non vérifié par
+     WS-F.
 3. Le dossier de lancement ne contient ni `.env` ni `pb_hooks/` : PPBase lit
    `./.env` (`ppbase/config.py:118-119`) et charge les fichiers `*.py` de
    `./pb_hooks` (`ppbase/config.py:108`,
@@ -267,12 +427,23 @@ l'étape 14 avant sa fin.
 5. Préparer sans l'activer la configuration du proxy vers PPBase et la page
    de maintenance ; reprendre à l'identique les limites, délais, en-têtes et
    réglages SSE de la configuration PocketBase (I7).
-6. Juste avant le gel, chaque titulaire d'un compte de contrôle (I15) obtient
-   un jeton PocketBase par une connexion normale ; l'opérateur le conserve
-   dans `<privé>` (0600) pour le contrôle C-34, jamais dans le journal.
+6. **Diagnostic à blanc**, quelques jours avant la fenêtre, avec
+   l'autorisation de 2.1, sur un backup récent (I24) copié dans `<privé>` de
+   la machine de bascule : 6.4 (inventaire et extraction), 6.5 (C-05, C-07 à
+   C-13, dont les parties b et c de C-08), preuve de révision des hooks et
+   des migrations déployés (2.2) et règles du gel du schéma (2.4). Lecture
+   seule, aucun import. Tout écart se traite avant la fenêtre, jamais
+   pendant. Une sauvegarde native bloque les écritures pendant sa création
+   (`core/base_backup.go:35-37`, `:70-84`) : la faire à un moment creux
+   choisi par l'utilisateur [durée : non mesurable par WS-G]. La copie est
+   conservée ou détruite selon I17, jamais publiée.
 7. Communication (I12) : annonce ; demander aux utilisateurs mobiles de
    synchroniser leurs opérations en attente et de ne rien saisir pendant la
    fenêtre.
+8. Juste avant le gel, chaque titulaire d'un compte de contrôle (I15)
+   obtient un jeton PocketBase par une connexion normale ; l'opérateur le
+   conserve dans `<privé>` (0600) pour le contrôle C-34, jamais dans le
+   journal, et le détruit après C-34 (6.9).
 
 ### 6.2 Gel des écritures côté PocketBase (méthode à confirmer, I11)
 
@@ -296,6 +467,17 @@ l'étape 14 avant sa fin.
 
 ### 6.3 Capture d'un backup fermé (méthode à confirmer)
 
+**Règle de redémarrage.** Tout démarrage de PocketBase écrit dans
+`data.db` : le bootstrap de la source supprime puis recrée les 18
+`buma_apps_roles` (`master.setup.ts:5-8`, `:72-73`, `:309-324`) et le
+démarrage applique toute migration en attente du dossier `--migrationsDir`
+déployé (`apis/serve.go:66-69`, `:254-278` ;
+`plugins/jsvm/jsvm.go:175-213`). Un redémarrage après `T_gel`, gel maintenu,
+annule donc la capture en cours : le consigner, noter `T_gel'` quand
+PocketBase répond de nouveau en local (bootstrap terminé), puis reprendre la
+capture. C-01 reste compté depuis le premier `T_gel`, C-10 depuis le dernier
+`T_gel'`. `buma_apps_roles` n'est jamais exclue de C-10.
+
 Méthode A — sauvegarde native de PocketBase, sous gel G-A :
 
 1. L'administrateur crée une sauvegarde au nom explicite, conforme à
@@ -312,9 +494,10 @@ Méthode A — sauvegarde native de PocketBase, sous gel G-A :
    septembre, 8 fichiers à la racine et 1 282 objets). Un checkpoint en échec
    peut laisser un WAL non vide dans le ZIP, que l'inventaire refuse (C-05).
    Avec S3, les fichiers n'y seraient pas (`core/base_backup.go:44-45`).
-3. Copier le ZIP depuis `pb_data/backups/` vers `<privé>` par le système de
-   fichiers, en lecture. Le téléchargement HTTP exige un jeton de fichier
-   admin et son contexte est limité à 10 minutes (`apis/backup.go:115-127`).
+3. Copier le ZIP vers `<privé>` en lecture : par le système de fichiers
+   depuis `pb_data/backups/`, ou depuis le bucket si `backups.s3` est actif
+   (I13). Le téléchargement HTTP exige un jeton de fichier admin et son
+   contexte est limité à 10 minutes (`apis/backup.go:115-127`).
 4. Arrêter PocketBase proprement (SIGTERM : `pocketbase.go:158-183` ;
    fermeture des bases : `core/base.go:381-404`) et vérifier la fin du
    processus.
@@ -323,13 +506,15 @@ Méthode B — copie à froid, sous gel G-A ou G-B :
 
 1. Arrêter PocketBase proprement et vérifier la fin du processus.
 2. `data.db-wal` et `data.db-journal` doivent être absents ou vides. Sinon,
-   ne rien supprimer ni tronquer : redémarrer PocketBase sous gel, l'arrêter
-   proprement et recontrôler, ou passer à la méthode A.
+   ne rien supprimer ni tronquer : redémarrer PocketBase sous gel, selon la
+   règle de redémarrage, l'arrêter proprement et recontrôler ; ou passer à
+   la méthode A, qui exige le même redémarrage.
 3. Copier `data.db`, `storage/` et, pour archive seulement, `logs.db` vers
    `<privé>` ; manifeste SHA-256 et tailles de chaque fichier, calculé sur la
-   source arrêtée et sur la copie, puis comparé : 0 écart [outil non
-   attribué ; le format du manifeste privé de septembre, `{archive_sha256,
-   files: [{path, bytes, sha256, crc32}]}`, peut servir de modèle].
+   source arrêtée et sur la copie, puis comparé : 0 écart
+   [outil non attribué ; le format du manifeste privé de septembre,
+   `{archive_sha256, files: [{path, bytes, sha256, crc32}]}`, peut servir de
+   modèle].
 
 Dans les deux cas :
 
@@ -337,16 +522,20 @@ Dans les deux cas :
   SHA-256 du binaire égale celui du binaire officiel de la même architecture
   (annexe B).
 - **C-03** : référence d'intégrité `H_stop` de PocketBase arrêté : SHA-256 de
-  `data.db` et manifeste de `storage/` du `pb_data` de production, calculés
-  après l'arrêt sans rien écrire dans `pb_data`. Méthode A : le SHA-256 de ce
-  `data.db` doit égaler celui du `data.db` du ZIP ; un écart signale une
-  écriture après la capture et impose une nouvelle capture. `H_stop` est
-  revérifiée avant tout redémarrage de retour arrière (8.2).
+  `data.db` (`sha256sum` suffit) et manifeste SHA-256 et tailles de
+  `storage/` du `pb_data` de production [outil non attribué, le même que pour
+  le manifeste de la méthode B], calculés après l'arrêt sans rien écrire dans
+  `pb_data`. Méthode A : le SHA-256 de ce `data.db` doit égaler celui du
+  `data.db` du ZIP. Un écart signale une écriture après la capture : le ZIP
+  est écarté et, PocketBase étant déjà arrêté, la capture reprend par la
+  méthode B sans redémarrage, si son étape 2 le permet ; C-01 et C-10 disent
+  ensuite si un client a écrit après `T_gel`. `H_stop` est revérifiée avant
+  tout redémarrage de retour arrière (8.2).
 - La méthode A ajoute le ZIP dans `pb_data/backups/`, dossier géré par
   PocketBase et exclu de ses propres sauvegardes ; `H_stop` ne porte que sur
   `data.db` et `storage/`.
 - PocketBase reste arrêté, redémarrage automatique suspendu ; il ne
-  redémarre qu'en cas de retour arrière.
+  redémarre qu'en cas de retour arrière ou selon la règle de redémarrage.
 
 ### 6.4 Transfert, inventaire et extraction vérifiée
 
@@ -401,15 +590,31 @@ que 0.22.27 (`scripts/c11_import.py:273-276`).
 `<source gelée>` est le checkout en lecture seule de `530018c` (6.1).
 
 - **C-07** : `PRAGMA integrity_check` donne `ok` ; 0 dérive sur les 114
-  définitions de l'export corrigé ; version déclarée 0.22.34, prouvée par
-  C-02.
-- **C-08** : `_migrations` identique à septembre : 325 des 326 migrations
-  source, seule `1785599959` absente. Toute autre différence signale un
-  changement de la production depuis la source gelée : arrêt.
+  définitions de l'export corrigé, hors dérive de `buma_sql_table` acceptée
+  selon 2.4 ; version déclarée 0.22.34, prouvée par C-02. C-07 est le
+  contrôle décisif du gel du schéma (2.4).
+- **C-08** : `_migrations`, comparé à sa référence (2.2) en trois parties ;
+  il ne prouve pas la révision des hooks.
+  - a) Migrations source, mesurées par la troisième commande :
+    `source_migrations` vaut 326, `source_migrations_not_applied_in_snapshot`
+    ne contient que `1785599959_updated_buma_transaction.js` et
+    `source_index_migration_applied` vaut `false`
+    (`scripts/c11_idempotency_source_check.py:47-64`). Si `1785599959` est
+    désormais appliquée, l'index source existe aussi en production et C-07
+    signale une dérive des index de `buma_transaction` : arrêt et décision,
+    la cible créant déjà cet index (D-0022).
+  - b) Migrations système : exactement les 14 fichiers `.go` de
+    `migrations/` du tag `v0.22.34` [outil non attribué].
+  - c) Autres lignes, comparées une à une à la référence privée la plus
+    récente (copie de septembre pour le diagnostic à blanc, diagnostic à
+    blanc pour la capture) [outil non attribué] : 0 ligne disparue ; 0
+    nouvelle automigration du tableau de bord (2.4, règle 1) ; une nouvelle
+    ligne console `*_updated_buma_sql_table.js` relève de la règle 3 de 2.4.
 - **C-09** : 0 clé `idem:` dupliquée (index source, D-0022) ; doublons mobile
   mesurés et conservés (877 groupes, 2 391 lignes en septembre).
-- **C-10** : aucun `created` ni `updated` postérieur à `T_gel` ; activité la
-  plus récente cohérente avec la dernière activité connue (référent métier).
+- **C-10** : aucun `created` ni `updated` postérieur à `T_gel`, ou au dernier
+  `T_gel'` (6.3), dans les 72 tables ; activité la plus récente cohérente
+  avec la dernière activité connue (référent métier) [outil non attribué].
 - **C-11** : comptages par table comparés à septembre ; toute diminution est
   expliquée et acceptée par le décideur avant de continuer.
 - **C-12** : références orphelines par champ, fichiers référencés absents et
@@ -457,24 +662,24 @@ que 0.22.27 (`scripts/c11_import.py:273-276`).
    (`master.setup.ts`), et l'importeur refuse une cible non vide. La
    répétition ne les retire que dans la base qu'elle vient de créer
    (`scripts/c11_rehearsal.py:240-245`). Même règle en production :
-   uniquement dans cette base neuve, avant l'import, et journalisé [commande
-   à confirmer à l'intégration].
+   uniquement dans cette base neuve, avant l'import, et journalisé
+   [commande à confirmer à l'intégration].
 5. Import des données (WS-B) : lecture de la copie vérifiée, verrou des 72
    tables, refus d'une cible non vide, INSERT sans hooks, relecture typée,
    empreinte par table, rowids conservés, tableaux D-0019 conservés,
    références orphelines et références de fichiers absents conservées et
-   comptées, transaction unique, staging supprimé en cas d'échec [commande à
-   confirmer à l'intégration]. Aujourd'hui, aucune commande d'import de
-   production n'existe : `load_isolated` n'accepte que la base
+   comptées, transaction unique, staging supprimé en cas d'échec
+   [commande à confirmer à l'intégration]. Aujourd'hui, aucune commande
+   d'import de production n'existe : `load_isolated` n'accepte que la base
    `buma_c11_rehearsal` (`scripts/c11_import.py:485-487`).
 6. Comptes, paramètres et sessions (WS-C, `scripts/c11_auth_import.py`) :
    `_admins` vers `_superusers` (hash bcrypt et `tokenKey` conservés),
    `_params.settings` (nom, URL, SMTP, durées et secrets des jetons), secret
-   de jeton dans chaque collection auth, aucun secret journalisé [commande à
-   confirmer à l'intégration]. À faire **avant** tout démarrage de PPBase sur
-   cette base : sans superuser, PPBase crée un jeton d'installation dans
-   `_params` et imprime une URL d'installation dans sa console
-   (`ppbase/app.py:174-199`).
+   de jeton dans chaque collection auth, aucun secret journalisé
+   [commande à confirmer à l'intégration]. À faire **avant** tout démarrage
+   de PPBase sur cette base : sans superuser, PPBase crée un jeton
+   d'installation dans `_params` et imprime une URL d'installation dans sa
+   console (`ppbase/app.py:174-199`).
 7. Échec à l'une de ces étapes : NO-GO, retour arrière avant ouverture (8.2).
    La base reste en l'état pour analyse ; elle n'est ni vidée ni réutilisée
    sans décision.
@@ -495,7 +700,7 @@ Outils : rapport de l'importeur et vérifications de WS-B, WS-C et WS-E
 | C-23 Doublons mobile | groupes et lignes égaux à C-09 ; aucune ligne supprimée |
 | C-24 Comptes utilisateurs | `users` et `agent_users` : nombres égaux ; hash bcrypt et `tokenKey` identiques pour 100 % des records, comparés sans affichage |
 | C-25 Superusers | nombre égal à `_admins` de la capture ; hash et `tokenKey` repris ; aucun jeton d'installation dans `_params` |
-| C-26 Paramètres | nom, URL, SMTP et durées des jetons égaux à la source ; secrets présents, jamais affichés ; S3 désactivé ; limitation de débit PPBase désactivée (`ppbase/middleware/rate_limit.py:26-30`), PocketBase 0.22.34 n'en ayant pas |
+| C-26 Paramètres | nom, URL, SMTP et durées des jetons égaux à la source ; secrets présents, jamais affichés ; S3 désactivé ; SMTP réellement utilisé par PPBase conforme à I16 ; limitation de débit PPBase désactivée (`ppbase/middleware/rate_limit.py:26-30`), PocketBase 0.22.34 n'en ayant pas |
 | C-27 Schéma après import | C-15 et C-16 rejoués : 114 définitions, 42 vues, `Pending: 0` |
 | C-28 Horloge | `now()` de PostgreSQL et horloge de l'hôte PPBase postérieurs au plus grand `created` ou `updated` importé ; NTP synchronisé [outil non attribué] |
 | C-29 Source inchangée | SHA-256 du `data.db` de la capture égal avant et après l'import |
@@ -518,8 +723,8 @@ numéros en double.
    (`ppbase/services/file_storage.py:466-479`) et un partage lui permettrait
    de modifier PocketBase (principe 2).
 2. **C-30** : manifeste SHA-256 et tailles de la copie égal à celui de la
-   capture : 100 % des objets, 0 manquant, 0 en trop, 0 différence [commande
-   à confirmer à l'intégration, mode complet de WS-B].
+   capture : 100 % des objets, 0 manquant, 0 en trop, 0 différence
+   [commande à confirmer à l'intégration, mode complet de WS-B].
 3. Les fichiers référencés absents (2 303 en septembre) restent absents ;
    aucun fichier de remplacement.
 4. Option à décider : pré-copie de `storage/` avant le gel pour raccourcir la
@@ -551,24 +756,40 @@ collection dans le tableau de bord écrit un fichier dans le dossier des
 migrations.
 
 Contrôles en lecture seule, sans écriture métier sur la production ; records
-choisis en privé, jamais cités :
+choisis en privé, jamais cités. Chaque corps de réponse doit être égal à
+celui de PocketBase 0.22.34 pour la même requête, enveloppes d'erreur
+comprises. La référence vient de C-39 le jour J ou, à défaut, de la
+comparaison faite sur staging avant le jour J (scénarios ci-dessous).
 
 - **C-31** : `GET /api/health` répond 200.
-- **C-32** : sondes legacy (contrat C3, `docs/contracts/authentication.md`) :
-  `GET /isConnected` sans jeton donne 400 `{"message":"false"}`, avec le
-  jeton d'un compte de contrôle 200 `{"message":"true"}` ;
-  `GET /master/user/health` donne 200.
+- **C-32** : sondes legacy (contrat C3,
+  `docs/contracts/authentication.md:7-12`), avec le jeton d'un compte
+  `users` ou `agent_users` : `GET /isConnected` donne 200
+  `{"message":"true"}`, et 400 `{"message":"false"}` sans jeton ;
+  `GET /master/user/health` donne 200 avec le texte `true`, et `false` sans
+  jeton. Avec le jeton administrateur, les deux sondes répondent comme sans
+  jeton, car la source ne lit que le record authentifié
+  (`index.pb.ts:3-10`, `master.user.ts:1-14`) : ce n'est pas un échec.
 - **C-33** : connexion `users` par username et `agent_users` par email et par
   username : 200 `{token, record}`, sans `rowid`, `passwordHash` ni
-  `tokenKey` dans `record` ; refresh 200 ; mauvais mot de passe 400 ;
-  lecture de son propre record `agent_users` 200.
+  `tokenKey` dans `record` ; refresh 200 ; lecture de son propre record
+  `agent_users` 200 ; mauvais mot de passe 400. Écart connu, non tranché
+  (section 10) : sur un mauvais mot de passe, PocketBase 0.22.34 répond
+  `{"code":400,"message":"Failed to authenticate.","data":{}}`
+  (`forms/record_password_login.go:83-85`, `apis/record_auth.go:316-317`,
+  `apis/api_error.go:11-16`, `:67-89`), et PPBase
+  `{"status":400,"message":"Failed to authenticate.","data":{"identity":…}}`
+  (`app/auth/login.py:108-113`, `ppbase/api/record_auth.py:63-69`,
+  `:352-357`). Sans correction ni décision avant G0, C-33 échoue.
 - **C-34** : continuité des sessions : le jeton PocketBase de 6.1 de chaque
   compte de contrôle, administrateur compris, est accepté par `auth-refresh`
   (200, même record) [commande à confirmer à l'intégration, WS-C].
   PocketBase 0.22.34 signe les jetons de record avec `tokenKey` +
   `recordAuthToken.secret`, type `authRecord` (`tokens/record.go:13-27`), et
   ceux d'administrateur avec `tokenKey` + `adminAuthToken.secret`, type
-  `admin` (`tokens/admin.go:11-17`).
+  `admin` (`tokens/admin.go:11-17`). Ensuite, l'opérateur détruit le fichier
+  des jetons de contrôle dans `<privé>` et consigne la destruction, sans
+  valeur : ces jetons restent valides jusqu'à leur expiration.
 - **C-35** : l'administrateur se connecte (`POST
   /api/admins/auth-with-password`) et ouvre le tableau de bord `/_/` ;
   72 collections et 42 vues listées ; aucune modification.
@@ -582,29 +803,58 @@ choisis en privé, jamais cités :
   égaux à la source.
 - **C-37** : fichiers : échantillon de fichiers présents téléchargés par
   `/api/files/<collectionId>/<recordId>/<fichier>`, octets égaux au manifeste
-  (aucun des 20 champs fichiers de l'export n'est protégé) ; une référence de
-  fichier absent répond 404 « The requested resource wasn't found. », comme
-  PocketBase 0.22.34 (`apis/file.go:213-215`, `apis/api_error.go:32-38`).
-  Aucune miniature avant l'ouverture : la demande en crée une ; elle est
-  testée sur staging.
+  (aucun des 20 champs fichiers de l'export n'est protégé). Une référence de
+  fichier absent répond 404 « The requested resource wasn't found. » dans les
+  deux systèmes (`apis/file.go:213-215`, `apis/api_error.go:31-38` ;
+  `ppbase/api/files.py:83-91`, `:940-941`), mais le corps diffère par la
+  même enveloppe que C-33 : `code` dans PocketBase 0.22.34, `status` dans
+  PPBase (`ppbase/app.py:514-535`). Sans correction ni décision avant G0,
+  C-37 échoue. Aucune miniature avant l'ouverture : la demande en crée une ;
+  elle est testée sur staging.
 - **C-38** : realtime : connexion `GET /api/realtime` reçue avec
   `PB_CONNECT`, abonnement accepté ; la réception d'événements, qui demande
   une écriture, est testée sur staging.
-- **C-39** (recommandé) : mêmes lectures sur un PocketBase 0.22.34 lancé sur
-  une **copie** de la capture avec les hooks de production, en boucle
-  locale, jamais sur le `pb_data` de production [outil non attribué]. Son
+- **C-39** (recommandé, référence des corps de C-31 à C-38) : mêmes lectures
+  sur un PocketBase 0.22.34 lancé sur une **copie** de la capture avec les
+  hooks de production, en boucle locale, jamais sur le `pb_data` de
+  production [outil non attribué]. Son
   bootstrap supprime puis recrée les 18 `buma_apps_roles` à chaque
   démarrage (`master.setup.ts:5-8`, `:72-73`, `:309-324`) : comparer ces
   records hors `created` et `updated`.
-- **C-40** : mêmes lectures avec le SDK des clients (I8) [outil non attribué ;
-  `scripts/c10_sdk_probe.mjs` écrit des données : staging seulement].
-- **C-41** : comptages et empreintes des 72 tables de collections égaux avant
-  et après ces contrôles ; seul le journal de requêtes de PPBase, `_requests`,
-  hors de ces tables, grossit (`ppbase/middleware/request_logger.py:1-6`).
+- **C-40** : mêmes lectures avec le SDK des clients (I8)
+  [outil non attribué]. `scripts/c10_sdk_probe.mjs` écrit des données :
+  jamais sur la production.
+- **C-41** : comptages et empreintes des 72 tables de collections égaux
+  avant et après ces contrôles [commande à confirmer à l'intégration :
+  empreintes par table de WS-B, à rendre rejouables en lecture seule sur
+  cette base ; sinon outil non attribué] ; seul le journal de requêtes de
+  PPBase, `_requests`, hors de ces tables, grossit
+  (`ppbase/middleware/request_logger.py:1-6`).
 
-Staging, avant le jour J et obligatoire pour la porte G0 : base jetable
-chargée depuis un backup réel, comptes de test créés dans cette seule base,
-jamais exposée aux clients de production :
+Staging, avant le jour J et obligatoire pour la porte G0, sous
+l'autorisation de 2.1 (I23) : base PostgreSQL jetable chargée depuis un
+backup réel, comptes de test créés dans cette seule base. Règles
+d'isolement :
+
+- aucune exposition aux clients de production : ni URL, ni DNS, ni amont de
+  proxy partagés avec la production ; accès réservé aux testeurs nommés ;
+- SMTP neutralisé, aucun envoi réel. Sans SMTP, PPBase écrit les jetons
+  d'authentification dans ses journaux (I16) : journaux du staging privés et
+  détruits avec lui ;
+- secrets de jetons distincts de la production. Le staging contient les
+  `tokenKey` réelles : avec les secrets de production, il accepterait les
+  jetons de production, et un jeton `admin` qu'il émettrait pour
+  l'administrateur importé serait accepté par PocketBase 0.22.34, qui
+  vérifie `tokenKey` + `adminAuthToken.secret` (`daos/admin.go:52-78`,
+  `apis/middlewares.go:229-240`). Chargement sans ces secrets, ou avec des
+  secrets propres au staging [commande à confirmer à l'intégration, WS-C] ;
+  la continuité des sessions est alors prouvée par WS-C sur fixture et par
+  C-34 le jour J. Reprendre les secrets de production sur le staging exige
+  une acceptation écrite du risque ;
+- destruction de la base, du dossier de données et des journaux à la date
+  fixée (I23), consignée.
+
+Scénarios, résultats validés par les référents métier :
 
 - desktop : connexion, écrans principaux, vente, retour, opérations de
   caisse ; console `executeSql` avec une requête PostgreSQL contenant `id`,
@@ -615,9 +865,19 @@ jamais exposée aux clients de production :
   hors ligne ;
 - administration : tableau de bord, consultation et édition de records de
   test ;
-- SDK, fichiers et realtime : parcours de `scripts/c10_sdk_runtime.py`
-  (écritures, envoi et téléchargement de fichiers, événements), miniatures ;
-- résultats validés par les référents métier.
+- SDK, fichiers et realtime : écritures, envoi et téléchargement de
+  fichiers, événements, miniatures, avec un outil paramétrable (URL cible,
+  comptes de test, aucun accès direct à la base, rapport neuf hors dépôt)
+  [outil non attribué]. Ne jamais lancer `scripts/c10_sdk_runtime.py` tel
+  quel, en particulier depuis un checkout de release : il est câblé sur
+  l'environnement C10 (Node `/opt/homebrew/bin/node`, SDK pris dans
+  `../buma_boutique_web`, serveurs 127.0.0.1:8098 et 127.0.0.1:8090), écrit
+  ses fixtures directement dans la base locale du port `55434` et réécrit
+  `docs/c10-sdk-runtime-report.json` (`scripts/c10_sdk_runtime.py:53`,
+  `:61-63`, `:88-92`, `:98-100` ; `scripts/c10_remaining_runtime.py:34-60`) ;
+- corps de réponse, enveloppes d'erreur comprises, comparés pour les cas de
+  C-31 à C-38 à ceux d'un PocketBase 0.22.34 lancé sur une copie du même
+  backup avec les hooks de production, comme C-39 [outil non attribué].
 
 ### 6.10 Bascule d'URL et ouverture (porte G5)
 
@@ -661,7 +921,9 @@ Pendant la surveillance renforcée, d'une durée fixée par le décideur (I21) :
 - journal de requêtes PPBase : chaque requête est enregistrée dans
   `_requests`, avec des extraits de corps de requête et de réponse et un
   masquage des clés sensibles (`ppbase/middleware/request_logger.py:24-56`) ;
-  volume et données personnelles à surveiller, conservation à décider.
+  volume et données personnelles à surveiller, conservation à décider ;
+- journaux du processus PPBase : accès restreint, d'autant plus que, sans
+  SMTP, ils contiennent des jetons d'authentification (I16).
 
 Fin : le décideur clôt la surveillance ; `H_stop` est revérifiée ; PocketBase
 et la capture sont conservés selon I17.
@@ -674,17 +936,20 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 
 | Porte | Critère | Seuil |
 | --- | --- | --- |
-| G0 | autorisations (2.1) et informations I1 à I21 | 100 % fournies |
-| G0 | porte de release (annexe A) et répétition WS-G | 0 échec |
-| G0 | version et révision de la production | 0.22.34 et `530018c` prouvées |
-| G0 | scénarios staging desktop, mobile et administration | 100 % passants |
+| G0 | autorisations (2.1) et informations I1 à I24 | 100 % fournies |
+| G0 | porte de release (annexe A) et répétition WS-G | 0 échec ; 100 % des échecs PPBase antérieurs analysés |
+| G0 | version de la production (2.2, C-02) | binaire 0.22.34, empreinte officielle |
+| G0 | révision des hooks et migrations déployés (2.2) | hooks égaux au build de `530018c`, toute différence décidée ; 0 migration en attente |
+| G0 | gel du schéma et diagnostic à blanc (2.4, 6.1) | règles de 2.4 respectées ; C-05 et C-07 à C-13 conformes |
+| G0 | constats de la section 10 | 100 % corrigés ou décidés |
+| G0 | staging autorisé et isolé ; scénarios desktop, mobile et administration | 100 % passants |
 | G1 | requêtes transmises à PocketBase après `T_gel` (C-01) | 0 hors opérateur |
 | G1 | version du binaire (C-02) | 0.22.34, empreinte officielle |
 | G1 | inventaire (C-05) | 0 blocage, 1 `data.db`, WAL et journal absents ou vides |
 | G1 | empreintes de capture, transfert et extraction (C-03, C-04, C-06) | 0 écart |
-| G2 | intégrité et schéma (C-07) | `ok`, 0 dérive sur 114 |
-| G2 | `_migrations` (C-08) | 325 sur 326, seule `1785599959` absente |
-| G2 | clés `idem:` dupliquées (C-09), records postérieurs à `T_gel` (C-10) | 0 et 0 |
+| G2 | intégrité et schéma (C-07) | `ok`, 0 dérive sur 114, hors règle `buma_sql_table` décidée (2.4) |
+| G2 | `_migrations` (C-08) | a) 325 sur 326, seule `1785599959` absente ; b) 14 sur 14 ; c) 0 disparue, 0 nouvelle hors console |
+| G2 | clés `idem:` dupliquées (C-09), records postérieurs à `T_gel` ou `T_gel'` (C-10) | 0 et 0 |
 | G2 | diminutions de comptage (C-11) | toutes expliquées et acceptées |
 | G2 | situations non couvertes (C-13) | 0 |
 | G3 | cible et migrations (C-14 à C-16) | base neuve, `Pending: 0`, `ok`, 42 sur 42 |
@@ -693,7 +958,7 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | G3 | comptes, superusers, paramètres (C-24 à C-26) | 100 % identiques |
 | G3 | schéma, horloge, source (C-27 à C-29) | conformes, `data.db` inchangé |
 | G4 | copie de `storage/` (C-30) | 100 % ; 0 manquant, 0 en trop, 0 différence |
-| G4 | contrôles avant ouverture (C-31 à C-38) | 100 % passants, 0 réponse 5xx |
+| G4 | contrôles avant ouverture (C-31 à C-38) | 100 % passants, corps égaux à PocketBase 0.22.34, erreurs comprises, 0 réponse 5xx |
 | G4 | continuité des sessions (C-34) | 100 % des comptes de contrôle |
 | G4 | comparaison avec PocketBase (C-39), si l'outil existe | 0 écart inexpliqué |
 | G4 | écritures pendant les contrôles (C-41) | 0 dans les 72 tables |
@@ -731,19 +996,28 @@ mesure :
 ### 8.2 Avant ouverture, sans écriture client reçue par PPBase
 
 1. Arrêter PPBase s'il tourne.
-2. Revérifier `H_stop` (C-03) sur le `pb_data` de production : SHA-256 de
-   `data.db` et manifeste de `storage/` égaux. Sinon **arrêt** : ne pas
-   redémarrer, rechercher ce qui a écrit dans `pb_data`.
-3. Rétablir le redémarrage automatique et démarrer PocketBase avec sa ligne
-   de commande inchangée (I2). Effet attendu : son bootstrap supprime puis
-   recrée les 18 `buma_apps_roles` (`master.setup.ts:5-8`, `:72-73`,
-   `:309-324`), comme à chaque démarrage ; ce n'est pas une corruption.
-4. En local : `/api/health`, connexion d'un compte de contrôle, une liste.
-5. Remettre l'amont du proxy, ou le DNS, vers PocketBase et lever la
+2. PocketBase jamais arrêté, par exemple après un NO-GO en G1 sur C-01 ou
+   C-02 : il n'y a ni `H_stop` à vérifier ni redémarrage. Lever la
+   maintenance, noter `T_retour`, puis passer à l'étape 7. Une sauvegarde de
+   la méthode A déjà créée reste dans `pb_data/backups/`, ou dans le bucket
+   si `backups.s3` est actif (I13) ; elle n'est pas supprimée sans décision.
+3. PocketBase arrêté : revérifier `H_stop` (C-03) sur le `pb_data` de
+   production : SHA-256 de `data.db` et manifeste de `storage/` égaux. Si
+   `H_stop` n'avait pas encore été calculée, la calculer maintenant et la
+   consigner. En cas d'écart, **arrêt** : ne pas redémarrer, rechercher ce
+   qui a écrit dans `pb_data`.
+4. Rétablir le redémarrage automatique et démarrer PocketBase avec sa ligne
+   de commande inchangée (I2). Effets attendus, comme à chaque démarrage :
+   son bootstrap supprime puis recrée les 18 `buma_apps_roles`
+   (`master.setup.ts:5-8`, `:72-73`, `:309-324`) et aucune migration n'est
+   appliquée, le dossier déployé n'en ayant aucune en attente (2.2) ; ce
+   n'est pas une corruption.
+5. En local : `/api/health`, connexion d'un compte de contrôle, une liste.
+6. Remettre l'amont du proxy, ou le DNS, vers PocketBase et lever la
    maintenance ; noter `T_retour`.
-6. Les jetons émis par PocketBase avant le gel restent valides jusqu'à leur
+7. Les jetons émis par PocketBase avant le gel restent valides jusqu'à leur
    expiration (`tokenKey` inchangées dans `pb_data`).
-7. Communiquer, analyser, replanifier.
+8. Communiquer, analyser, replanifier.
 
 ### 8.3 Après ouverture, PPBase ayant reçu des écritures
 
@@ -767,7 +1041,7 @@ mesure :
    d'écriture SQL directe dans `data.db`. Avant toute ressaisie, vérifier
    qu'un client ne l'a pas déjà rejouée vers PocketBase (`mobile_message_id`,
    `system_id`).
-5. Puis 8.2, étapes 2 à 7.
+5. Puis 8.2, étapes 3 à 8.
 
 Impact client d'un retour après ouverture :
 
@@ -778,9 +1052,13 @@ Impact client d'un retour après ouverture :
   (`ppbase/services/auth_service.py:18-19`, `:478-483`), alors que
   PocketBase 0.22.34 ne reconnaît que `admin` et `authRecord`
   (`apis/middlewares.go:229-249`, `tokens/tokens.go:5-6`) : une requête
-  portant un jeton émis ou rafraîchi par PPBase y est traitée comme anonyme
-  et l'utilisateur doit se reconnecter [à confirmer par WS-C à
-  l'intégration] ;
+  portant un jeton de record émis ou rafraîchi par PPBase y est traitée
+  comme anonyme et l'utilisateur doit se reconnecter
+  [à confirmer à l'intégration, WS-C] ;
+- les jetons `admin` émis par PPBase resteraient acceptés par PocketBase si
+  WS-C reprend le secret administrateur, PocketBase ne vérifiant que
+  `tokenKey` + `adminAuthToken.secret` (`daos/admin.go:52-78`)
+  [à confirmer à l'intégration, WS-C] ;
 - les jetons émis par PocketBase avant le gel restent valides jusqu'à leur
   expiration.
 
@@ -802,43 +1080,76 @@ empreintes de fichiers.
 | `<…>` | 6.3, C-03 | `H_stop` calculée | empreintes consignées | `<privé>/…` | `<…>` | `<…>` | — |
 | `<…>` | G2 | relecture du diagnostic | conforme ou écart | `<privé>/…` | `<…>` | `<…>` | GO ou NO-GO |
 
-À consigner au minimum : autorisations et méthodes retenues ; commits BUMA et
-PPBase ; `T_gel`, capture, arrêt de PocketBase, `H_stop` ; empreinte de la
-capture ; chaque rapport et son empreinte ; chaque contrôle C-01 à C-43 et
-chaque porte G0 à G6 avec sa décision ; `T_ouverture` ; incidents ; en cas de
-retour, `T_gel2`, `T_retour` et le relevé des écritures ; fin de la période
-de retour arrière.
+À consigner au minimum : autorisations et méthodes retenues ; décisions sur
+les constats de la section 10 ; diagnostic à blanc et sa référence ; commits
+BUMA et PPBase ; `T_gel`, capture, arrêt de PocketBase, `H_stop` ; chaque
+redémarrage sous gel et son `T_gel'` ; empreinte de la capture ; chaque
+rapport et son empreinte ; chaque contrôle C-01 à C-43 et chaque porte G0 à
+G6 avec sa décision ; destruction des jetons de contrôle ; `T_ouverture` ;
+incidents ; en cas de retour, `T_gel2`, `T_retour` et le relevé des
+écritures ; fin de la période de retour arrière.
 
 ## 10. Points ouverts avant une bascule
 
 Dépendances des chantiers [commande à confirmer à l'intégration] :
 
-- WS-B : mode d'import de production autorisé, empreintes par table,
-  traitement des 24 defaults C5, orphelins et fichiers absents signalés,
-  mode complet avec `storage/`.
+- WS-B : mode d'import de production autorisé, empreintes par table
+  rejouables en lecture seule sur une base existante (C-41), traitement des
+  24 defaults C5, orphelins et fichiers absents signalés, mode complet avec
+  `storage/`.
 - WS-B2 : extraction vérifiée `scripts/c11_extract.py`.
-- WS-C : `scripts/c11_auth_import.py`, continuité des sessions administrateur
-  compris, impact du type de jeton sur un retour arrière (8.3).
+- WS-C : `scripts/c11_auth_import.py` ; continuité des sessions,
+  administrateur compris ; chargement du staging sans les secrets de
+  production ; SMTP de PPBase (I16) ; rôle de `.jwt_secret` ; impact du type
+  de jeton et de la reprise du secret administrateur sur un retour arrière
+  (8.3).
 - WS-D : porte de version 0.22.34 du diagnostic et de la répétition.
 - WS-E : migration `1789236850` et vérificateurs alignés.
 - WS-G : durées, mémoire et disque. Les étapes 4, 5 et 11 de la section 5
   demandent la répétition avec le ZIP complet ; les étapes 1 à 3, 13 et 14,
   un essai sur la production.
 
-Outils non attribués : contrôle d'horloge (C-28) ; manifeste de la copie à
-froid (6.3) ; comparaison avec un PocketBase sur copie (C-39) ; lectures SDK
-sans écriture (C-40) ; taux d'erreurs habituel de PocketBase (6.11) ; relevé
-des écritures PPBase après ouverture et outil de rejeu éventuel (8.3).
+Outils non attribués :
 
-Constats à trancher hors WS-F, sans décision à ce jour :
+- preuve de révision : hooks déployés contre un build de `530018c`,
+  migrations déployées contre la source et `_migrations` (2.2) ;
+- `_migrations` par catégorie, comparé à sa référence privée (C-08 b et c) ;
+- prise en charge par l'importeur d'une dérive de `buma_sql_table`, si
+  l'utilisateur la retient (2.4) ;
+- plus grand `created` ou `updated` comparé à `T_gel` (C-10) ;
+- manifeste SHA-256 et tailles d'un dossier : copie à froid (6.3) et
+  `storage/` de `H_stop` (C-03) ;
+- contrôle d'horloge (C-28) ;
+- comparaison avec un PocketBase sur copie (C-39) ;
+- lectures SDK sans écriture (C-40) et parcours SDK, fichiers et realtime
+  paramétrable pour le staging (6.9) ;
+- empreintes PostgreSQL des 72 tables avant et après les contrôles, si WS-B
+  ne les fournit pas (C-41) ;
+- taux d'erreurs habituel de PocketBase (6.11) ;
+- relevé des écritures PPBase après ouverture et outil de rejeu éventuel
+  (8.3).
+
+Constats à trancher hors WS-F, sans décision à ce jour. Avant G0, chacun
+reçoit une correction, ou une décision D-XXXX avec impact client et test de
+régression (`AGENTS.md`) :
 
 - PPBase enregistre des routes absentes de la source gelée : `GET /` (JSON de
   santé, `app/hooks/health.py`), là où PocketBase sert `--publicDir` sur
   `/*` (`examples/base/main.go:118-122`), et `/__foundation/*`
   (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`). Aucun écart
   n'est consigné dans `docs/decisions-and-divergences.md` : retirer ces
-  routes de l'enregistrement de production ou documenter l'écart avant la
-  bascule.
+  routes de l'enregistrement de production ou documenter l'écart.
+- Enveloppe des erreurs natives : PocketBase 0.22.34 sérialise `code`,
+  `message` et `data` (`apis/api_error.go:11-16`), PPBase `status`,
+  `message` et `data` (`ppbase/app.py:514-558`,
+  `ppbase/api/record_auth.py:63-69`) ; les routes legacy de BUMA gardent
+  `code` (`app/legacy/http.py:1-9`). Pour un mauvais mot de passe, relevé
+  par la relecture sur des instances jetables et confirmé par lecture du
+  code : `data` vide dans PocketBase, `data.identity` renseigné dans PPBase
+  (C-33). Aucune comparaison appariée des erreurs natives ne figure dans les
+  rapports C10, et `docs/contracts/routes.json` décrit les deux connexions
+  sous la forme PPBase. Impact client : un client qui lit `code` ou `data`
+  dans une erreur verrait la différence ; non vérifié par WS-F.
 - Type des jetons de record : `authRecord` dans PocketBase 0.22.34
   (`tokens/tokens.go:5-6`, `tokens/record.go:18-23`), `auth` dans PPBase et
   dans PocketBase depuis `v0.23.0` (`core/record_tokens.go:13`). Le contrat
@@ -846,58 +1157,97 @@ Constats à trancher hors WS-F, sans décision à ce jour :
   un contexte et non comme un type de claim, ce qui ne vaut pas pour 0.22.34.
   Un client qui lirait le claim `type` verrait la différence ; non vérifié
   par WS-F.
+- Refresh avec un jeton administrateur sur `users` : 401 dans PocketBase
+  0.22.34 (`apis/record_auth.go:46`, `apis/middlewares.go:94-100`), 403 dans
+  PPBase (`ppbase/api/record_auth.py:1122-1126`), d'après le code ; non
+  exécuté par WS-F. Pour un jeton de record d'une autre collection, les deux
+  répondent 403 (`apis/middlewares.go:102-105`,
+  `ppbase/api/record_auth.py:1115-1121`). À rapprocher des échecs PPBase de
+  l'annexe A.
+- SMTP de PPBase lu dans son environnement, et jetons d'authentification
+  écrits dans ses journaux en l'absence de SMTP (I16).
 - Conservation et contenu du journal `_requests` de PPBase (6.11).
+- Règle `buma_sql_table` si la console a servi depuis l'export (2.4).
 
 ## 11. Références
 
 PocketBase, code officiel au tag `v0.22.34` (copie en lecture seule de la
 session serveur, `/root/buma-c11-tools/pocketbase-src`) :
 
-- `core/base_backup.go:30-84` : sauvegarde dans une transaction, checkpoint
-  WAL `TRUNCATE` aux erreurs ignorées, exclusions, espace disque, fichiers
-  S3 ; `:49-51` : refus d'une sauvegarde concurrente ; `:267-330` :
-  sauvegardes automatiques et rotation.
+- `core/base_backup.go:30-84` : sauvegarde dans une transaction qui bloque
+  les écritures, checkpoint WAL `TRUNCATE` aux erreurs ignorées, exclusions,
+  espace disque, fichiers S3 ; `:49-51` : refus d'une sauvegarde
+  concurrente ; `:267-330` : sauvegardes automatiques et rotation.
 - `apis/backup.go:25-31` : routes de sauvegarde ; `:115-127` :
   téléchargement par jeton de fichier admin, contexte de 10 minutes.
 - `forms/backup_create.go:11`, `:39-40` : nom d'une sauvegarde.
 - `pocketbase.go:158-183` et `core/base.go:381-404` : arrêt propre ;
   `pocketbase.go:187-207` : `--dir`, `--encryptionEnv`, `--dev`.
-- `examples/base/main.go:25-87` : options du binaire officiel ; `:118-122` :
-  fichiers statiques sur `/*`.
+- `examples/base/main.go:25-87` : options du binaire officiel, dont
+  l'automigration (`:57-63`), `--publicDir` (`:65-71`, `:129-137`) et
+  `--indexFallback` (`:73-79`) ; `:118-122` : fichiers statiques sur `/*`.
 - `cmd/serve.go:20-75` : `serve`, domaines, `--http`, `--https`,
-  `--origins` ; `apis/serve.go:137-140` : cache `autocert`.
-- `core/base.go:39-41`, `:517-530` : `storage/` local sous `pb_data`.
+  `--origins` ; `apis/serve.go:66-69` et `:254-278` : migrations appliquées
+  à chaque démarrage ; `:137-140` : cache `autocert`.
+- `plugins/jsvm/jsvm.go:150-157` et `:475-504` : fichier de types réécrit
+  au démarrage s'il diffère ; `:175-213` : migrations JS chargées depuis
+  `--migrationsDir`.
+- `plugins/migratecmd/migratecmd.go:84-100` et
+  `plugins/migratecmd/automigrate.go:65-87` : automigration, ligne de
+  `_migrations` et fichier écrits à chaque changement de collection.
+- `core/base.go:39-41`, `:517-530` : `storage/` local sous `pb_data` ;
+  `:495-509` : SMTP des paramètres ou `sendmail` ; `:538-552` : sauvegardes
+  locales ou S3.
 - `apis/file.go:162-193` : miniatures créées à la demande ; `:213-215` et
-  `apis/api_error.go:32-38` : 404 pour un fichier absent du stockage.
+  `apis/api_error.go:31-38` : 404 pour un fichier absent du stockage.
+- `apis/api_error.go:11-16` et `:67-89` : enveloppe d'erreur `code`,
+  `message`, `data` ; `forms/record_password_login.go:83-85` et
+  `apis/record_auth.go:316-317` : mauvais mot de passe ;
+  `apis/record_auth.go:46` et `apis/middlewares.go:94-110` : refresh limité
+  à la collection du record.
 - `tokens/tokens.go:5-6`, `tokens/record.go:13-27`, `tokens/admin.go:11-17`,
-  `apis/middlewares.go:217-254` : types, signature et lecture des jetons ;
-  `models/settings/settings.go:97-115` : `cronMaxKeep` et durées par défaut
-  des jetons d'authentification (14 jours).
+  `apis/middlewares.go:217-254`, `daos/admin.go:52-78` : types, signature et
+  lecture des jetons ; `models/settings/settings.go:97-115` : `cronMaxKeep`
+  et durées par défaut des jetons d'authentification (14 jours).
 - Comparaison : `v0.23.0`, `core/record_tokens.go:13` (type `auth`) et
   `core/settings_model.go:127` (limites de débit, absentes de 0.22.34).
 
 PPBase `c6821aa` (`pocketbase-auth-parity-v0404`, avant intégration de WS-A) :
-`ppbase/__main__.py` (options de `serve` et `migrate`) ;
-`ppbase/config.py:94`, `:101`, `:108`, `:118-119`, `:178-182` ;
-`ppbase/app.py:174-199`, `:404-409` ;
+`ppbase/__main__.py` (options de `serve` et `migrate`, dont `--publicDir`
+en `ppbase/__main__.py:667-674`) ;
+`ppbase/config.py:39`, `:86-91`, `:94`, `:101`, `:108`, `:118-119`,
+`:124-170`, `:178-182` ;
+`ppbase/app.py:70-74`, `:174-199`, `:404-409`, `:472-476`, `:514-558` ;
+`ppbase/api/deps.py:79-101` ; `ppbase/api/files.py:83-91`, `:940-941` ;
+`ppbase/api/record_auth.py:63-69`, `:352-357`, `:1115-1126`, `:1483` ;
+`ppbase/db/bootstrap.py:147-185` ;
+`ppbase/services/auth_service.py:18-19`, `:302-315`, `:426-453`,
+`:478-483` ;
+`ppbase/services/mail_service.py:15-31`, `:72-73`, `:95-96`, `:118-119` ;
 `ppbase/services/file_storage.py:466-479` ;
-`ppbase/services/auth_service.py:18-19`, `:478-483` ;
 `ppbase/services/hook_manager.py:315-326` ;
 `ppbase/middleware/request_logger.py:1-56` ;
 `ppbase/middleware/rate_limit.py:26-30` ; `ppbase/api/admins.py`.
 
 Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
-`docs/c11-master-diagnostic.md`, `docs/next-agent-handoff.md`,
+`docs/c11-master-diagnostic.md`, `docs/c11-master-initial-diagnostic.json`,
+`docs/c11-idempotency-source-check.json`, `docs/next-agent-handoff.md`,
 `docs/decisions-and-divergences.md` (D-0016, D-0018 à D-0023),
-`docs/contracts/authentication.md`, `docs/contracts/rowid.md`,
+`docs/contracts/authentication.md`, `docs/contracts/legacy-sql.md`,
+`docs/contracts/rowid.md`, `docs/contracts/routes.json`,
 `docs/contracts/settings-referentials.md`, `docs/test-matrix.md`,
-`scripts/c11_import.py`, `scripts/c11_snapshot_audit.py`,
-`scripts/c11_idempotency_source_check.py`, `scripts/c11_rehearsal.py`,
-`scripts/c11_idempotency_runtime.py`, `scripts/verify_complete_schema.py`,
-`scripts/verify_view_queries.py`, `app/finance/service.py`,
-`app/hooks/register.py`, `pb_migrations/1789236846_c5_reference_defaults.py`.
-Source gelée `buma_master_hooks@530018c` : `src/entries/master.setup.ts`,
-`src/entries/master.pb.ts`, `src/entries/master.rupture.ts`.
+`docs/progress/ledger.md`, `scripts/c11_import.py`,
+`scripts/c11_snapshot_audit.py`, `scripts/c11_idempotency_source_check.py`,
+`scripts/c11_rehearsal.py`, `scripts/c11_idempotency_runtime.py`,
+`scripts/c10_sdk_runtime.py`, `scripts/c10_remaining_runtime.py`,
+`scripts/verify_complete_schema.py`, `scripts/verify_view_queries.py`,
+`app/auth/login.py`, `app/finance/service.py`, `app/legacy/http.py`,
+`app/hooks/register.py`, `pb_migrations/1789236842_buma_master_views.py`,
+`pb_migrations/1789236846_c5_reference_defaults.py`.
+Source gelée `buma_master_hooks@530018c` : `src/entries/index.pb.ts`,
+`src/entries/master.article.ts`, `src/entries/master.pb.ts`,
+`src/entries/master.rupture.ts`, `src/entries/master.setup.ts`,
+`src/entries/master.user.ts`, `package.json`.
 
 ## Annexe A — porte de release (commandes existantes)
 
@@ -907,8 +1257,12 @@ production, avec un rapport neuf pour chaque banc :
 ```sh
 BUMA_SCHEMA_EXPORT=<export corrigé> PYTHONDONTWRITEBYTECODE=1 \
   .venv/bin/python -m pytest -p no:cacheprovider -q
-.venv/bin/python -m ruff check app tests scripts
-.venv/bin/python -m ruff format --check app tests scripts
+.venv/bin/python -m ruff check app tests scripts \
+  pb_migrations/1789236849_c11_source_transaction_idempotency.py \
+  <nouvelles migrations de la release>
+.venv/bin/python -m ruff format --check app tests scripts \
+  pb_migrations/1789236849_c11_source_transaction_idempotency.py \
+  <nouvelles migrations de la release>
 BUMA_SCHEMA_EXPORT=<export corrigé> \
   .venv/bin/python -m scripts.c11_idempotency_runtime \
   --report <nouveau rapport>.json
@@ -919,13 +1273,27 @@ BUMA_SCHEMA_EXPORT=<export corrigé> \
   --report <nouveau rapport>.json
 ```
 
-`scripts.c11_rehearsal` exige aujourd'hui PocketBase 0.22.27
+Ruff couvre, outre `app tests scripts`, chaque migration ajoutée depuis
+D-0022, dont `1789236850` de WS-E [commande à confirmer à l'intégration :
+nom du fichier] ; les anciennes migrations générées restent hors de son
+périmètre. `scripts.c11_rehearsal` exige aujourd'hui PocketBase 0.22.27
 (`scripts/c11_rehearsal.py:393-394`) ; l'ajout de 0.22.34 relève de WS-D
 [commande à confirmer à l'intégration]. Ces bancs créent leur propre
-conteneur PostgreSQL jetable et ne visent jamais une base existante. Côté
-PPBase, `pytest -p no:cacheprovider -q tests` au commit de release ne doit
-présenter aucun échec nouveau par rapport aux dix échecs antérieurs consignés
-par la phase 0 de la session serveur.
+conteneur PostgreSQL jetable et ne visent jamais une base existante.
+
+Côté PPBase, `pytest -p no:cacheprovider -q tests` au commit de release :
+aucun échec nouveau, et chacun des échecs antérieurs analysé et consigné
+avant G0, attente du test comparée au comportement de PocketBase 0.22.34,
+source citée, ou corrigé. Au commit `c6821aa`, la phase 0 de la session
+serveur en a relevé dix, tous d'authentification ou de routage
+(`docs/progress/ledger.md`) : durée de jeton attendue (3 tests), 403 au lieu
+de 401 sur un refresh croisé (4), collision de routes et routeur des hooks
+(2), jeton forgé dépendant de l'ordre des tests (1). Pour un jeton de record
+d'une autre collection, PocketBase 0.22.34 répond 403
+(`apis/middlewares.go:102-105`) ; pour un jeton administrateur, 401
+(`:97-100`) : les attentes à 401 ne sont donc pas toutes périmées. Un échec
+non analysé touchant l'authentification, l'isolement des jetons ou le
+routage est un NO-GO.
 
 ## Annexe B — empreintes des binaires officiels PocketBase 0.22.34
 
