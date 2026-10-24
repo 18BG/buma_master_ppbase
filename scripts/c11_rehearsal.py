@@ -219,7 +219,7 @@ async def exercise(root, url, binary, schema, report):
                 (
                     await conn.execute(
                         text(
-                            "SELECT table_name,column_name,data_type "
+                            "SELECT table_name,column_name,data_type,udt_name "
                             "FROM information_schema.columns "
                             "WHERE table_schema='public' AND ("
                             "(table_name='buma_customer' AND column_name='pdv') OR "
@@ -231,9 +231,22 @@ async def exercise(root, url, binary, schema, report):
                 .mappings()
                 .all()
             )
+            # D-0019: the three maxSelect-null relations are multiple, text[]
+            # like PocketBase's JSON arrays (no element length limit).
             assert len(columns) == 3
-            assert all(c["data_type"] == "character varying" for c in columns)
+            assert all(c["data_type"] == "ARRAY" and c["udt_name"] == "_text" for c in columns)
             report["unbounded_relation_target_columns"] = [dict(c) for c in columns]
+        from scripts.verify_schema_baseline import read_collections as read_physical_rows
+        from scripts.verify_schema_baseline import verify_relation_columns
+
+        # Database created by the corrected PPBase: every single relation is text.
+        relation_columns = verify_relation_columns(
+            definitions, await read_physical_rows(url), "fresh"
+        )
+        assert relation_columns["ok"], relation_columns["errors"]
+        report["relation_columns"] = {
+            key: relation_columns[key] for key in ("mode", "multiple", "single")
+        }
         baseline = await table_state(engine, definitions)
         report["seed_rows_before"] = sum(len(v) for v in baseline.values())
 

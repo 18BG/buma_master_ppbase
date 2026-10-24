@@ -132,12 +132,21 @@ async def up(app):
         {"id": "PAYMENT_CARTE_1", "name": "CARTE", "status": True},
     ):
         await _insert(app, "buma_payment_method", item)
+    # pdv is left to the column default, as master.setup.ts l.52-60 omits it
+    # (PocketBase 0.22.34 then stores '[]' for this maxSelect-null relation,
+    # PrepareValue, models/schema/schema_field.go l.375-386). That default is the
+    # empty value of the physical column: '{}' where the corrected PPBase created
+    # it as TEXT[], '' where an earlier PPBase created it as VARCHAR(15), which
+    # 1789236850 converts to '{}' (D-0019, D-XXXX). The previous explicit '' gave
+    # the same row on VARCHAR(15) but is not a TEXT[] value, and a bound list is
+    # not a VARCHAR(15) value: omitting it keeps this file valid for both shapes,
+    # also when it is replayed after 1789236850 down restored VARCHAR(15).
     await _insert(app, "buma_customer", {
         "id": "CUSTOMER_DIVERS", "solde": 0, "due": 0, "person_entity": "",
         "status": True, "author": "", "photo": "", "type": "PERSONNE",
         "parent": "", "kind": "CUSTOMER_SIMPLE", "agent": "", "firstname": "CLIENT DIVERS",
         "lastname": "", "address": "", "contact": "", "email": "", "name": "",
-        "pdv": "", "customer_no": 0,
+        "customer_no": 0,
     })
     await _insert(app, "buma_supplier", {
         "id": "SUPPLIER_DIVERS", "solde": 0, "author": "", "status": True,

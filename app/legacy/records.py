@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ppbase.core.id_generator import generate_id
+from ppbase.models.field_multiplicity import field_is_multiple
 from ppbase.services.record_service import resolve_collection
 from sqlalchemy import text
 
@@ -30,8 +31,9 @@ def js_add(left, right):
 
 def prepared(field, value):
     kind = field["type"]
-    options = field.get("options") or field
-    if kind in {"select", "relation", "file"} and (options.get("maxSelect") or 1) > 1:
+    # Shared PPBase rule (D-0019): a relation with maxSelect null is multiple,
+    # like PocketBase 0.22.34 RelationOptions.IsMultiple (schema_field.go l.715).
+    if field_is_multiple(field):
         return value if isinstance(value, list) else ([value] if value else [])
     if kind == "number":
         return number(value)
