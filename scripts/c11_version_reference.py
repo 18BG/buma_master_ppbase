@@ -37,7 +37,7 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -357,6 +357,9 @@ IMPORTER_INPUTS = (
         "real_evidence": "admins, params, migrations, external_auths",
     },
 )
+VERSION_GATE_BLOCKER = "source_pocketbase_version_unvalidated"
+ASSESSED_VERSION = "0.22.34"
+
 STATEMENT = (
     "PocketBase v0.22.34 changes none of the code that decides what data.db and storage/ "
     "contain (models, models/schema, tools/types, tools/security, tools/filesystem, forms, "
@@ -741,12 +744,42 @@ def model_summary(model: dict) -> dict:
     }
 
 
+@contextmanager
+def gate_closed_for(version: str):
+    """Measure the importer as if ``version`` were not yet validated.
+
+    scripts/c11_import.py accepts 0.22.34 only on the evidence this script
+    publishes (D-0024). Measuring the gate against the live registry would make
+    the conclusion depend on that evidence: a replay that writes the report to
+    its documented path (absent while it runs) would see
+    source_version_evidence_invalid and close the gate again. The assessed
+    version is therefore removed from the registry for this measurement only.
+    """
+    from scripts import c11_import
+
+    registry = c11_import.VALIDATED_SOURCE_VERSIONS
+    entry = registry.pop(version, None)
+    try:
+        yield
+    finally:
+        if entry is not None:
+            registry[version] = entry
+
+
 def importer_view(data: Path, schema: Path, version: str) -> dict:
-    """What the importer at this commit reads, with and without the version gate."""
+    """What the importer at this commit reads, with and without the version gate.
+
+    The assessed version (0.22.34) is measured with the gate closed for it, so
+    the result never depends on the published evidence (see gate_closed_for).
+    """
     from scripts.c11_import import diagnose
 
     neutral = diagnose(data, schema, source_version=None)
-    gated = diagnose(data, schema, source_version=version)
+    if version == ASSESSED_VERSION:
+        with gate_closed_for(version):
+            gated = diagnose(data, schema, source_version=version)
+    else:
+        gated = diagnose(data, schema, source_version=version)
     return {
         "read": {
             "blocker_codes_besides_unknown_version": sorted(
@@ -1337,19 +1370,16 @@ def run_real_formats(
     return json.loads(completed.stdout)
 
 
-VERSION_GATE_BLOCKER = "source_pocketbase_version_unvalidated"
-
-
 def only_version_gate_blocks(gate: dict) -> bool:
     """True when 0.22.34 is refused by nothing but the importer version gate.
 
-    The check must survive the gate itself: once scripts/c11_import.py accepts
-    0.22.34 (D-0024), its default fixture has no blocker at all, and a replay of
-    this reference must not turn that into a failure that closes the gate again.
+    importer_view measures 0.22.34 with the gate closed for it (gate_closed_for),
+    so this holds before and after scripts/c11_import.py accepts 0.22.34 and
+    whether or not the published evidence exists during a replay.
     """
     blockers_0_22_34 = gate["0.22.34"]["with_source_version"]["blocker_codes"]
     blockers_0_22_27 = gate["0.22.27"]["with_source_version"]["blocker_codes"]
-    return set(blockers_0_22_34) <= {VERSION_GATE_BLOCKER} and blockers_0_22_27 == []
+    return blockers_0_22_34 == [VERSION_GATE_BLOCKER] and blockers_0_22_27 == []
 
 
 def main() -> None:
