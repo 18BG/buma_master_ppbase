@@ -2513,7 +2513,6 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             measures["http_seconds"] = http.pop("seconds")
             checks["http"] = http
             credentials = None
-            require(not http["failed_checks"], "http_checks_failed", checks=http["failed_checks"])
 
         with phases.phase("after_http_checks"):
             server.stop()
@@ -2529,19 +2528,23 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             async with engine.connect() as conn:
                 superusers = await scalar(conn, 'SELECT count(*) FROM "_superusers"')
             signature = await target_signature(engine)
+            unchanged = signature_difference(before["signature"], signature)
             checks["after_http"] = {
                 "tables_changed_by_server_and_reads": [t for t in changed if t != SUPERUSERS],
                 "superusers_after_synthetic_one": superusers,
-                "schema_unchanged_by_server": signature_difference(before["signature"], signature)[
-                    "only_import_archives_added"
-                ],
+                "schema_unchanged_by_server": unchanged["only_import_archives_added"],
             }
             require(
                 changed in ([SUPERUSERS], []) and superusers == len(ctx.facts["admins"]) + 1,
                 "data_changed_by_server_or_reads",
                 tables=changed,
             )
+            require(unchanged["only_import_archives_added"], "schema_changed_by_server")
             measures["database_bytes_after_http"] = await database_size(engine)
+        # Last, so that a failed read still leaves the after-reads evidence.
+        require(
+            not http["failed_checks"], "http_checks_failed", checks=sorted(http["failed_checks"])
+        )
         summary["status"] = "passed"
     except Exception as exc:
         summary["failure"] = failure_entry(exc)
