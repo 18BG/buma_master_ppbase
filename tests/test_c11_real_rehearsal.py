@@ -680,3 +680,51 @@ def test_private_directories_are_owner_only(tmp_path):
     finally:
         os.umask(old)
     assert path.stat().st_mode & 0o777 == 0o700
+
+
+def test_fetch_records_a_dropped_connection_as_a_status():
+    import asyncio
+
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/drop"):
+            raise httpx.ReadError("connection closed", request=request)
+        if request.url.path.endswith("/text"):
+            return httpx.Response(500, text="Internal Server Error")
+        assert request.headers.get("Authorization") == "token-value"
+        assert request.url.params["perPage"] == "1"
+        return httpx.Response(200, json={"items": []})
+
+    async def run():
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(base_url="http://test", transport=transport) as client:
+            return (
+                await rehearsal.fetch(client, "/drop"),
+                await rehearsal.fetch(client, "/text"),
+                await rehearsal.fetch(client, "/ok", "token-value", perPage=1),
+            )
+
+    dropped, text, ok = asyncio.run(run())
+    assert dropped == ("transport_error:ReadError", None)
+    assert text == (500, None)
+    assert ok == (200, {"items": []})
+
+
+def test_independent_audit_must_recount_the_diagnosis():
+    diagnosis = {
+        "relations_checked": 10,
+        "dangling_references": 2,
+        "missing_file_references": 1,
+    }
+    audit = {
+        "relations": {"references_checked": 10, "missing_references": 2},
+        "missing_file_references": 1,
+        "source_unchanged": True,
+    }
+    assert rehearsal.audit_agreement(audit, diagnosis)["agrees_with_diagnosis"] is True
+    other = {**audit, "relations": {"references_checked": 10, "missing_references": 3}}
+    refused(
+        lambda: rehearsal.audit_agreement(other, diagnosis),
+        "independent_audit_disagrees_with_diagnosis",
+    )

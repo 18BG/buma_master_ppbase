@@ -986,14 +986,57 @@ def child_diagnose(params: dict) -> dict:
     )
     importer.write_json_new(Path(params["diagnostic"]), report, ascii=True)
     importer.write_json_new(Path(params["details"]), details, ascii=True)
-    return {
+    result = {
         "ready": report["ready_for_isolated_rehearsal"],
         "rows": report["rows"],
         "blocker_codes": sorted(
             {str(b.get("code") if isinstance(b, dict) else b) for b in report["blockers"]}
         ),
-        "elapsed_seconds": report["elapsed_seconds"],
+        "seconds": {"diagnosis": report["elapsed_seconds"]},
     }
+    # Runbook step 6: the independent audit (its own SQL reading of every
+    # relation and file field) and, with the frozen source, the D-0022 check.
+    from scripts import c11_idempotency_source_check, c11_snapshot_audit
+
+    started = time.monotonic()
+    audit, _files = c11_snapshot_audit.audit(
+        Path(params["data"]),
+        source_version=params["source_version"],
+        manifest=Path(params["manifest"]),
+    )
+    result["seconds"]["independent_audit"] = round(time.monotonic() - started, 3)
+    importer.write_json_new(Path(params["audit"]), audit, ascii=True)
+    result["audit"] = {
+        "relations": audit["relations_summary"],
+        "missing_file_references": sum(f["missing_references"] for f in audit["files"]["fields"]),
+        "array_length_distribution": {
+            f"{r['collection']}.{r['field']}": r["array_length_distribution"]
+            for r in audit["relations"]
+            if "array_length_distribution" in r
+        },
+        "idempotency": audit["idempotency"],
+        "source_unchanged": audit["source_unchanged"],
+    }
+    if params.get("source_migrations"):
+        started = time.monotonic()
+        check = c11_idempotency_source_check.check(
+            Path(params["data"]), Path(params["source_migrations"])
+        )
+        result["seconds"]["idempotency_source_check"] = round(time.monotonic() - started, 3)
+        result["idempotency_source_check"] = {
+            key: check[key]
+            for key in (
+                "source_migrations",
+                "source_migrations_not_applied_in_snapshot",
+                "source_index_migration_applied",
+                "source_index_conflict_groups",
+                "mobile_duplicate_groups",
+                "mobile_duplicate_rows",
+                "mobile_duplicate_first_row_by_rowid_vs_created",
+                "source_unchanged",
+            )
+        }
+    return result
 
 
 def child_import(params: dict) -> dict:
@@ -1866,6 +1909,22 @@ async def create_synthetic_superuser(url: str) -> tuple[str, str]:
     return email, password
 
 
+async def fetch(client, path: str, token: str | None = None, **params) -> tuple:
+    """(status, JSON body or None); a dropped connection is a status code, not an abort."""
+    import httpx
+
+    headers = {"Authorization": token} if token else None
+    try:
+        response = await client.get(path, params=params or None, headers=headers)
+    except httpx.TransportError as exc:
+        return "transport_error:" + type(exc).__name__, None
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    return response.status_code, body
+
+
 async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: dict, sql) -> dict:
     """Aggregated HTTP reads: statuses, counts, shapes and booleans, never a value."""
     import httpx
@@ -1879,13 +1938,7 @@ async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: di
     async with httpx.AsyncClient(base_url=base, timeout=HTTP_TIMEOUT_SECONDS) as client:
 
         async def get(path: str, token: str | None = None, **params):
-            headers = {"Authorization": token} if token else None
-            response = await client.get(path, params=params or None, headers=headers)
-            try:
-                body = response.json()
-            except ValueError:
-                body = None
-            return response.status_code, body
+            return await fetch(client, path, token, **params)
 
         def records(name: str) -> str:
             return f"/api/collections/{name}/records"
@@ -2066,7 +2119,8 @@ async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: di
             ("text_name_then_id", "buma_customer", "name,id", samples["sort_text_asc"]),
         ):
             status, body = await get(records(name), token, page=1, perPage=SAMPLE_PAGE, sort=order)
-            served = [i.get("id") for i in body.get("items", [])] if status == 200 else []
+            items = body.get("items", []) if status == 200 and isinstance(body, dict) else []
+            served = [i.get("id") for i in items]
             sorts[code] = {
                 "collection": name,
                 "status": status,
@@ -2351,6 +2405,8 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
                     "spec": str(spec_path),
                     "diagnostic": str(diagnostic_path),
                     "details": str(pass_dir / "diagnostic-details.json"),
+                    "audit": str(pass_dir / "independent-audit.json"),
+                    "source_migrations": str(args.source_migrations or ""),
                 },
                 pass_dir,
                 running,
@@ -2358,6 +2414,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             measures["diagnosis_child"] = {
                 k: child[k] for k in ("peak_rss_kib", "child_seconds", "parent_wall_seconds")
             }
+            measures["diagnosis_step_seconds"] = child["seconds"]
             checks["diagnosis"] = {
                 "ready_for_isolated_rehearsal": child["ready"],
                 "rows": child["rows"],
@@ -2366,6 +2423,9 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             require(child["ready"], "diagnosis_not_ready", blockers=child["blocker_codes"])
             diagnostic = json.loads(diagnostic_path.read_text())
             checks["diagnosis"].update(diagnosis_summary(diagnostic))
+            checks["independent_audit"] = audit_agreement(child["audit"], checks["diagnosis"])
+            if "idempotency_source_check" in child:
+                checks["idempotency_source_check"] = child["idempotency_source_check"]
 
         with phases.phase("import"):
             load_path = pass_dir / "load-report.json"
@@ -2539,6 +2599,19 @@ def diagnosis_summary(diagnostic: dict) -> dict:
     }
 
 
+def audit_agreement(audit: dict, diagnosis: dict) -> dict:
+    """The independent audit (scripts.c11_snapshot_audit) must recount the diagnosis."""
+    relations = audit["relations"]
+    agrees = (
+        relations["references_checked"] == diagnosis["relations_checked"]
+        and relations["missing_references"] == diagnosis["dangling_references"]
+        and audit["missing_file_references"] == diagnosis["missing_file_references"]
+        and audit["source_unchanged"] is True
+    )
+    require(agrees, "independent_audit_disagrees_with_diagnosis")
+    return {**audit, "agrees_with_diagnosis": True}
+
+
 def import_summary(child: dict, load: dict) -> dict:
     auth = load.get("auth")
     require(isinstance(auth, dict) and auth.get("imported") is True, "accounts_not_imported")
@@ -2582,6 +2655,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-version", required=True, help="Supplied, never guessed")
     parser.add_argument("--report", type=Path, required=True, help="New public JSON report")
     parser.add_argument("--private-dir", type=Path, required=True, help="New private directory")
+    parser.add_argument(
+        "--source-migrations",
+        type=Path,
+        help="Frozen source pb_migrations (read only): adds the D-0022 idempotency check",
+    )
     parser.add_argument("--passes", type=int, default=2, choices=(1, 2, 3))
     parser.add_argument("--memory", default="2g", help="Container memory limit")
     parser.add_argument("--cpus", default="2", help="Container CPU limit")
