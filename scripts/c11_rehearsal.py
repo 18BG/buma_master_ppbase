@@ -71,9 +71,27 @@ async def check_schema(url, schema):
 
 
 def negative_diagnostics(data, root, schema):
-    """Each rejected snapshot is synthetic; no fixture silently repairs a source."""
+    """Each altered snapshot is synthetic; no fixture silently repairs a source.
+
+    Orphan relations and absent referenced files are preserved anomalies: the
+    snapshot stays importable, nothing is invented, removed or redirected, and
+    the aggregate names the field. Every other altered case must still block.
+    Manifest mode is exercised on the same fixture without any storage/ bytes.
+    """
+    from scripts.c11_import import directory_manifest
+
+    def altered(name, sql=None):
+        clone = root / name
+        shutil.copytree(data, clone)
+        if sql:
+            with sqlite3.connect(clone / "data.db") as conn:
+                conn.execute(sql)
+        return clone
+
+    def codes(report):
+        return {b["code"] for b in report["blockers"]}
+
     cases = {
-        "dangling_relation": "UPDATE buma_transaction SET article='absent000000001'",
         "duplicate_idempotency_key": "INSERT INTO buma_transaction "
         "(id,type,author,system_id) SELECT 'duplicate000001',type,author,system_id "
         "FROM buma_transaction",
@@ -82,24 +100,111 @@ def negative_diagnostics(data, root, schema):
         "schema_drift": "UPDATE _collections SET listRule='C11 intentional drift' "
         "WHERE name='users'",
         "invalid_number": "UPDATE buma_article SET sell_price='broken'",
+        "nul_in_postgresql_text": "UPDATE buma_supplier SET firstname='C11'||char(0)||'nul'",
+        "nul_in_postgresql_jsonb": 'UPDATE buma_article SET specification=\'{"k":"\\u0000"}\'',
     }
     results = {}
     for code, sql in cases.items():
-        clone = root / code
-        shutil.copytree(data, clone)
-        with sqlite3.connect(clone / "data.db") as conn:
-            conn.execute(sql)
-        report = diagnose(clone, schema, source_version="0.22.27")
-        if code not in {b["code"] for b in report["blockers"]}:
+        report = diagnose(altered(code, sql), schema, source_version="0.22.27")
+        if code not in codes(report) or report["ready_for_isolated_rehearsal"]:
             raise AssertionError((code, report["blockers"]))
         results[code] = "blocked"
-    clone = root / "missing_file"
-    shutil.copytree(data, clone)
+
+    def preserved(report, kind, expected):
+        anomalies = report["preserved_source_anomalies"]
+        if not report["ready_for_isolated_rehearsal"] or anomalies["blocking"]:
+            raise AssertionError((kind, report["blockers"]))
+        if codes(report) & {"dangling_relation", "missing_referenced_file"}:
+            raise AssertionError((kind, report["blockers"]))
+        if anomalies[kind]["fields"] != [expected]:
+            raise AssertionError((kind, anomalies))
+
+    report = diagnose(
+        altered("dangling_relation", "UPDATE buma_transaction SET article='absent000000001'"),
+        schema,
+        source_version="0.22.27",
+    )
+    relation = {"collection": "buma_transaction", "field": "article", "target": "buma_article"}
+    preserved(
+        report,
+        "dangling_relations",
+        {**relation, "references": 1, "records": 1, "distinct_targets": 1},
+    )
+    results["dangling_relation"] = "preserved_anomaly_not_blocking"
+    clone = altered("missing_file")
     next(p for p in (clone / "storage").rglob("proof.bin")).unlink()
     report = diagnose(clone, schema, source_version="0.22.27")
-    if "missing_referenced_file" not in {b["code"] for b in report["blockers"]}:
-        raise AssertionError(report["blockers"])
-    results["missing_file"] = "blocked"
+    medias = {"collection": "buma_article", "field": "medias"}
+    preserved(
+        report, "missing_files", {**medias, "references": 1, "records": 1, "distinct_files": 1}
+    )
+    if report["unreferenced_files"] != 0 or report["files"] != 2:
+        raise AssertionError(report["files"])
+    results["missing_file"] = "preserved_anomaly_not_blocking"
+
+    # Manifest mode: data.db and the private-format manifest, no storage/ tree.
+    reference = diagnose(data, schema, source_version="0.22.27")
+    manifest = directory_manifest(data)
+    bundle = root / "manifest_bundle"
+    bundle.mkdir()
+    shutil.copyfile(data / "data.db", bundle / "data.db")
+    manifest_path = root / "manifest.json"
+    write_json_new(manifest_path, manifest)
+    report = diagnose(bundle, schema, source_version="0.22.27", manifest=manifest_path)
+    if not report["ready_for_isolated_rehearsal"] or (
+        report["storage_mode"],
+        report["file_bytes_copied"],
+        report["file_bytes_verified"],
+        report["file_manifest_sha256"],
+        report["files"],
+        report["file_bytes"],
+    ) != (
+        "manifest",
+        False,
+        False,
+        reference["file_manifest_sha256"],
+        reference["files"],
+        reference["file_bytes"],
+    ):
+        raise AssertionError(report)
+    results["manifest_mode"] = "ready_same_file_fingerprint_no_bytes_copied"
+
+    def manifest_case(name, change):
+        variant = json.loads(json.dumps(manifest))
+        change(variant)
+        path = root / f"{name}.json"
+        write_json_new(path, variant)
+        return diagnose(bundle, schema, source_version="0.22.27", manifest=path)
+
+    report = manifest_case(
+        "manifest_missing_file",
+        lambda m: m["files"].remove(next(f for f in m["files"] if f["path"].endswith("proof.bin"))),
+    )
+    preserved(
+        report, "missing_files", {**medias, "references": 1, "records": 1, "distinct_files": 1}
+    )
+    results["manifest_missing_file"] = "preserved_anomaly_not_blocking"
+
+    def wal(m):
+        m["files"].append(
+            {"path": "data.db-wal", "bytes": 32, "sha256": "0" * 64, "crc32": "0" * 8}
+        )
+
+    def other_db(m):
+        next(f for f in m["files"] if f["path"] == "data.db")["sha256"] = "0" * 64
+
+    for name, change, code in (
+        ("manifest_wal", wal, "live_or_incomplete_sqlite_snapshot"),
+        ("manifest_data_db", other_db, "data_db_manifest_mismatch"),
+    ):
+        try:
+            manifest_case(name, change)
+        except ImportBlocked as exc:
+            if str(exc) != code:
+                raise
+        else:
+            raise AssertionError(name)
+        results[name] = "blocked"
     return results
 
 

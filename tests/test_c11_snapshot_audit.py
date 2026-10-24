@@ -77,3 +77,76 @@ def test_files_continue_after_missing_entries_and_check_all_fields():
         assert result["unreferenced_files"] == 1
         assert result["fields"][0]["references"] == 2
         assert private["missing"] == ["c/r/missing", "c/r/other_missing"]
+
+
+def audit_snapshot(tmp_path):
+    """Smallest snapshot the complete audit can read: two collections + PB tables."""
+    import json
+
+    child = {"id": "childcol0000001", "name": "child", "type": "base", "schema": []}
+    parent = {
+        "id": "parentcol000001",
+        "name": "parent",
+        "type": "base",
+        "schema": [
+            {"name": "child", "type": "relation", "options": {"collectionId": child["id"]}},
+            {"name": "files", "type": "file", "options": {"maxSelect": 99}},
+        ],
+    }
+    data = tmp_path / "backup"
+    data.mkdir()
+    with sqlite3.connect(data / "data.db") as db:
+        db.execute("CREATE TABLE _collections (id TEXT, name TEXT, type TEXT, schema JSON)")
+        for c in (child, parent):
+            db.execute(
+                "INSERT INTO _collections VALUES (?,?,?,?)",
+                (c["id"], c["name"], c["type"], json.dumps(c["schema"])),
+            )
+        db.executescript(
+            "CREATE TABLE child(id TEXT PRIMARY KEY); INSERT INTO child VALUES('a');"
+            "CREATE TABLE parent(id TEXT PRIMARY KEY, child TEXT, files TEXT);"
+            'INSERT INTO parent VALUES(\'p1\',\'["a","absent"]\',\'["kept","lost"]\');'
+            "CREATE TABLE _params(key TEXT, value JSON);"
+            "INSERT INTO _params VALUES('settings','{\"s3\":{\"enabled\":false}}');"
+            "CREATE TABLE _admins(id TEXT);"
+            "CREATE TABLE buma_transaction(type TEXT, author TEXT, system_id TEXT, "
+            "mobile_message_id TEXT);"
+            "CREATE TABLE buma_sale(id TEXT, customer TEXT);"
+            "CREATE TABLE buma_customer(id TEXT); CREATE TABLE buma_customer_old(id TEXT);"
+        )
+    stored = data / "storage" / parent["id"] / "p1"
+    stored.mkdir(parents=True)
+    (stored / "kept").write_bytes(b"bytes")
+    (stored / "thumbs_kept").mkdir()
+    (stored / "thumbs_kept" / "100x100_kept").write_bytes(b"thumb")
+    return data
+
+
+def test_audit_manifest_mode_matches_directory_mode_without_file_bytes(tmp_path):
+    import pytest
+
+    from scripts.c11_import import ImportBlocked, directory_manifest, write_json_new
+    from scripts.c11_snapshot_audit import audit
+
+    data = audit_snapshot(tmp_path)
+    directory, directory_private = audit(data, source_version="0.22.27")
+    manifest = tmp_path / "manifest.json"
+    write_json_new(manifest, directory_manifest(data))
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "data.db").write_bytes((data / "data.db").read_bytes())
+    report, private = audit(bundle, source_version="0.22.27", manifest=manifest)
+    assert (report["storage_mode"], report["file_bytes_verified"], report["file_bytes_copied"]) == (
+        "manifest",
+        False,
+        False,
+    )
+    assert directory["storage_mode"] == "directory"
+    for key in ("relations", "files", "file_manifest_sha256", "relations_summary"):
+        assert report[key] == directory[key], key
+    assert private == directory_private
+    assert private["missing"] == ["parentcol000001/p1/lost"]
+    assert private["unreferenced"] == ["parentcol000001/p1/thumbs_kept/100x100_kept"]
+    assert report["relations"][0]["missing_references"] == 1
+    with pytest.raises(ImportBlocked, match="storage_directory_and_manifest_both_supplied"):
+        audit(data, source_version="0.22.27", manifest=manifest)

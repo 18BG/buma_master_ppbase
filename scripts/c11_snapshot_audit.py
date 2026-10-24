@@ -1,14 +1,15 @@
 """Read-only relationship/file audit, independent of import conversion failures.
 
-The initial C11 diagnostic stops at the first error per record. This companion
-checks every relation and file field, including unlimited source arrays. It
-never makes those arrays importable and never rewrites data or schema.
+An independent SQL implementation (json_each, LEFT JOIN) of the counts that
+the C11 diagnostic reports as preserved anomalies: every relation and file
+field, including unlimited source arrays. It never makes those arrays
+importable and never rewrites data or schema. Storage comes from a real
+storage/ directory or, without any file byte, from the private manifest.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import time
 from collections import Counter
@@ -19,16 +20,14 @@ from scripts.c11_import import (
     array_value,
     digest,
     file_key,
+    inventory_fingerprint,
     quote,
+    read_manifest,
     snapshot,
+    source_multiple,
     storage_inventory,
     write_json_new,
 )
-
-
-def source_multiple(field):
-    maximum = (field.get("options") or {}).get("maxSelect")
-    return (maximum or 0) != 1 if field["type"] == "relation" else (maximum or 1) > 1
 
 
 def relation_audit(db, collection, field, target):
@@ -184,16 +183,31 @@ def duplicate_audit(db):
     return results
 
 
-def audit(data: Path, *, source_version: str | None = None, progress=None):
+def audit(
+    data: Path,
+    *,
+    source_version: str | None = None,
+    progress=None,
+    manifest: Path | None = None,
+):
     started = time.monotonic()
     before = digest(data / "data.db")
-    inventory = storage_inventory(data / "storage")
+    if manifest is None:
+        inventory = storage_inventory(data / "storage")
+        storage = {"storage_mode": "directory", "file_bytes_verified": True}
+    else:
+        if (data / "storage").exists():
+            raise ImportBlocked("storage_directory_and_manifest_both_supplied")
+        inventory = read_manifest(manifest, data / "data.db")["storage"]
+        storage = {"storage_mode": "manifest", "file_bytes_verified": False}
     report = {
         "scope": "offline_complete_relation_file_diagnostic",
         "production_authorized": False,
         "source_version": source_version,
         "source_version_evidence": "user_supplied",
         "data_db_sha256": before,
+        **storage,
+        "file_bytes_copied": False,
         "relations": [],
     }
     with snapshot(data) as db:
@@ -251,9 +265,7 @@ def audit(data: Path, *, source_version: str | None = None, progress=None):
     if after != before:
         raise ImportBlocked("source_changed_during_audit")
     report["source_unchanged"] = True
-    report["file_manifest_sha256"] = hashlib.sha256(
-        json.dumps(inventory, sort_keys=True).encode()
-    ).hexdigest()
+    report["file_manifest_sha256"] = inventory_fingerprint(inventory)
     report["relations_summary"] = {
         "fields_checked": len(report["relations"]),
         "references_checked": sum(r["references"] for r in report["relations"]),
@@ -272,7 +284,11 @@ def main():
     parser.add_argument("--source-version", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--private-report", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, help="Private manifest instead of storage/")
     args = parser.parse_args()
+    for path in (args.report, args.private_report):
+        if path.exists() or path.is_symlink():
+            parser.error(f"{path} must be a new path")
     last = time.monotonic()
 
     def progress(name):
@@ -281,7 +297,9 @@ def main():
             print(json.dumps({"checked_through_collection": name}), flush=True)
             last = time.monotonic()
 
-    report, private = audit(args.data, source_version=args.source_version, progress=progress)
+    report, private = audit(
+        args.data, source_version=args.source_version, progress=progress, manifest=args.manifest
+    )
     write_json_new(args.private_report, private)
     write_json_new(args.report, report)
     print(json.dumps({"report": str(args.report), "elapsed_seconds": report["elapsed_seconds"]}))
