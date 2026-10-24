@@ -162,10 +162,21 @@ def test_audit_reads_field_multiplicity_independently_and_agrees_on_the_export()
     audit_rule, importer_rule = c11_snapshot_audit.source_multiple, c11_import.source_multiple
     assert audit_rule is not importer_rule
     for kind in ("relation", "file", "select"):
-        for maximum in (None, 0, 1, 2, 99):
+        for maximum in (None, -1, 0, 1, 2, 99):
             field = {"type": kind, "options": {"maxSelect": maximum}}
-            expected = maximum not in (1,) if kind == "relation" else (maximum or 1) > 1
+            # PocketBase 0.22.34 IsMultiple; the importer calls the PPBase rule.
+            if kind == "relation":
+                expected = maximum is None or maximum > 1
+            else:
+                expected = (maximum or 1) > 1
             assert audit_rule(field) is expected is importer_rule(field), (kind, maximum)
+    # Without the key a relation is stored as a list by 0.22.34 (nil pointer):
+    # audited as such, read as such by the diagnosis and refused for import.
+    absent = {"type": "relation", "options": {"collectionId": "x"}}
+    assert audit_rule(absent) is True is importer_rule(absent)
+    assert c11_import.relation_definition_problem(absent) == (
+        "relation_max_select_absent_requires_decision"
+    )
     export = Path(
         os.environ.get(
             "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"

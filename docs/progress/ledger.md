@@ -2821,3 +2821,63 @@ dans les projets présents sur le serveur ; les clients BUMA Master ne sont pas
 sur le serveur.
 
 C11 reste ouvert ; aucune action sur la production.
+
+## Session serveur — état intermédiaire du soir — 2026-10-24 22:50
+
+Entrée de reprise : elle décrit l'état exact pour qu'une interruption ne perde
+rien ; l'entrée de fin de session la complétera.
+
+### Interruptions de capacité
+
+Trois limites du compte ont interrompu des agents : limite de session vers
+14:30 (reprise 15:30), limite de débit 429 vers 16:50, limite de session vers
+18:30 (reprise 20:30). Chaque fois : travail partiel sauvegardé
+(`/tmp/buma-c11-session/partial/`), conteneurs orphelins supprimés, chantiers
+relancés avec la description exacte de l'état laissé ; `data.db` vérifié intact
+à chaque reprise.
+
+### Résultats acquis depuis l'entrée de 14:05
+
+- Intégrés et poussés sur `features/auth` : WS-E et WS-B (`0e8cc9e`, `8209330`),
+  D-0025, D-0026, D-0029 (`ed153e2`), WS-B3 (`4c3b975` : tableaux des relations
+  multiples, porte 0.22.34, records et comptes dans une transaction). Gates : 614
+  tests, Ruff, `c11_idempotency_runtime`, `c11_rehearsal`, `c11_auth_runtime`.
+- PPBase : `/root/projects/ppbase` basculé sur `fix/d0019-relation-maxselect`
+  (`526397a`) ; BUMA exige désormais ce PPBase.
+- Diagnostic réel en lecture seule : prêt, 0 blocage.
+- Répétitions réelles d'essai (sans octets de fichiers, PostgreSQL jetable,
+  détruit) : import et conservation réussis sur 1 188 247 records (comptes,
+  empreintes des 72 tables, rowids, tableaux, 195 795 références orphelines et
+  2 303 fichiers absents conservés et recomptés, comptes et 8 secrets de jetons) ;
+  durées d'une passe : diagnostic 149 s, import 281 s, contrôles 89 s.
+  Partie HTTP : avec PPBase `526397a`, erreurs 500 pour un anonyme sur six
+  collections ; avec l'aperçu PPBase (WS-A5 + WS-A2), 247 contrôles sur 256
+  conformes, plus aucune erreur 500, les 9 restants étant l'enveloppe d'erreur
+  `code` et le libellé « admins » (chantier WS-A6).
+- Failles de sécurité PPBase préexistantes trouvées et en correction (relecture
+  indépendante obligatoire avant intégration) : règles `users` multi-match
+  (création de comptes et auto-promotion admin par un utilisateur ordinaire) ;
+  colonnes auth cachées filtrables par un anonyme (hash bcrypt, tokenKey, e-mails
+  masqués, y compris par forme qualifiée et modificateurs) ; expand sans viewRule
+  de la cible (49 chemins anonymes dans le schéma BUMA) ; e-mails diffusés en
+  realtime.
+
+### Chantiers en cours (22:50)
+
+- PPBase `c11/ws-a5` (règles, filtres, réponses ; inclut WS-A3 et WS-A4) :
+  correction du tour 1 faite, relecture du tour 2 en cours.
+- PPBase `c11/ws-a2` (sessions, secrets, formulaires admin) : **approuvé**,
+  à fusionner.
+- PPBase `c11/ws-a6` (expand et mode d'erreurs 0.22) : correction du tour 1 en
+  cours.
+- BUMA `c11/ws-c2` (banc et contrat des sessions alignés) : **approuvé**.
+- BUMA `c11/ws-d2` (répétition synthétique complète) : relecture finale en cours.
+- BUMA `c11/ws-g` (répétition réelle) : script commité, relecture à lancer ;
+  passe finale publiée après intégration du PPBase final.
+- BUMA `c11/integration` : trois correctifs d'intégration relus (WS-ORCH) puis
+  corrigés (`03ed994`, `532ef61` : mesure de la porte 0.22.34 porte fermée,
+  D-0027) ; rejeu documenté de la référence sans preuve publiée : passant. Relecture
+  de ces deux correctifs à faire avant publication.
+- Restent ensuite : runbook final avec durées (WS-F2), documentation finale.
+
+C11 reste ouvert ; aucune action sur la production.
