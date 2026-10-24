@@ -2014,10 +2014,11 @@ async def exercise(root, binary, schema, version, profile, report, start_postgre
 
 
 def buma_checkout() -> dict:
-    """The BUMA commit this rehearsal ran from, and whether files differed from it."""
+    """The BUMA commit this rehearsal ran from, and whether tracked files differed."""
     try:
         commit = command("git", "-C", str(PROJECT), "rev-parse", "HEAD")
-        changed = bool(command("git", "-C", str(PROJECT), "status", "--porcelain"))
+        status = ("status", "--porcelain", "--untracked-files=no")
+        changed = bool(command("git", "-C", str(PROJECT), *status))
     except (OSError, subprocess.CalledProcessError):
         return {"git_commit": None, "uncommitted_changes": None}
     return {"git_commit": commit, "uncommitted_changes": changed}
