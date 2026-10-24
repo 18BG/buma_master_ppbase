@@ -73,12 +73,16 @@ async def check_schema(url, schema):
 def negative_diagnostics(data, root, schema):
     """Each altered snapshot is synthetic; no fixture silently repairs a source.
 
-    Orphan relations and absent referenced files are preserved anomalies: the
-    snapshot stays importable, nothing is invented, removed or redirected, and
-    the aggregate names the field. Every other altered case must still block.
-    Manifest mode is exercised on the same fixture without any storage/ bytes.
+    Every case is compared with the diagnosis of the unaltered fixture, so the
+    contract holds whatever that fixture already contains. Orphan relations
+    and absent referenced files are preserved anomalies: same blockers and
+    readiness as the unaltered fixture, exactly the injected anomaly added,
+    nothing invented, removed or redirected. Every other altered case must add
+    its own blocker. Manifest mode is exercised without any storage/ bytes.
     """
     from scripts.c11_import import directory_manifest
+
+    reference = diagnose(data, schema, source_version="0.22.27")
 
     def altered(name, sql=None):
         clone = root / name
@@ -90,6 +94,13 @@ def negative_diagnostics(data, root, schema):
 
     def codes(report):
         return {b["code"] for b in report["blockers"]}
+
+    def anomaly_counts(report, kind):
+        width = "distinct_targets" if kind == "dangling_relations" else "distinct_files"
+        return {
+            (item["collection"], item["field"]): (item["references"], item["records"], item[width])
+            for item in report["preserved_source_anomalies"][kind]["fields"]
+        }
 
     cases = {
         "duplicate_idempotency_key": "INSERT INTO buma_transaction "
@@ -106,44 +117,44 @@ def negative_diagnostics(data, root, schema):
     results = {}
     for code, sql in cases.items():
         report = diagnose(altered(code, sql), schema, source_version="0.22.27")
-        if code not in codes(report) or report["ready_for_isolated_rehearsal"]:
+        added = [b for b in report["blockers"] if b not in reference["blockers"]]
+        if code not in {b["code"] for b in added} or report["ready_for_isolated_rehearsal"]:
             raise AssertionError((code, report["blockers"]))
         results[code] = "blocked"
 
-    def preserved(report, kind, expected):
-        anomalies = report["preserved_source_anomalies"]
-        if not report["ready_for_isolated_rehearsal"] or anomalies["blocking"]:
+    def preserved(report, kind, key, expected):
+        if (
+            codes(report) != codes(reference)
+            or report["ready_for_isolated_rehearsal"] != reference["ready_for_isolated_rehearsal"]
+            or report["preserved_source_anomalies"]["blocking"]
+        ):
             raise AssertionError((kind, report["blockers"]))
-        if codes(report) & {"dangling_relation", "missing_referenced_file"}:
-            raise AssertionError((kind, report["blockers"]))
-        if anomalies[kind]["fields"] != [expected]:
-            raise AssertionError((kind, anomalies))
+        before, after = anomaly_counts(reference, kind), anomaly_counts(report, kind)
+        old = before.pop(key, (0, 0, 0))
+        new = after.pop(key, (0, 0, 0))
+        if after != before or tuple(n - o for n, o in zip(new, old, strict=True)) != expected:
+            raise AssertionError((kind, report["preserved_source_anomalies"][kind]))
 
     report = diagnose(
         altered("dangling_relation", "UPDATE buma_transaction SET article='absent000000001'"),
         schema,
         source_version="0.22.27",
     )
-    relation = {"collection": "buma_transaction", "field": "article", "target": "buma_article"}
-    preserved(
-        report,
-        "dangling_relations",
-        {**relation, "references": 1, "records": 1, "distinct_targets": 1},
-    )
+    # One reference, one record and one distinct target more on this field.
+    preserved(report, "dangling_relations", ("buma_transaction", "article"), (1, 1, 1))
     results["dangling_relation"] = "preserved_anomaly_not_blocking"
     clone = altered("missing_file")
     next(p for p in (clone / "storage").rglob("proof.bin")).unlink()
     report = diagnose(clone, schema, source_version="0.22.27")
-    medias = {"collection": "buma_article", "field": "medias"}
-    preserved(
-        report, "missing_files", {**medias, "references": 1, "records": 1, "distinct_files": 1}
-    )
-    if report["unreferenced_files"] != 0 or report["files"] != 2:
+    preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
+    if (report["files"], report["unreferenced_files"]) != (
+        reference["files"] - 1,
+        reference["unreferenced_files"],
+    ):
         raise AssertionError(report["files"])
     results["missing_file"] = "preserved_anomaly_not_blocking"
 
     # Manifest mode: data.db and the private-format manifest, no storage/ tree.
-    reference = diagnose(data, schema, source_version="0.22.27")
     manifest = directory_manifest(data)
     bundle = root / "manifest_bundle"
     bundle.mkdir()
@@ -151,23 +162,22 @@ def negative_diagnostics(data, root, schema):
     manifest_path = root / "manifest.json"
     write_json_new(manifest_path, manifest)
     report = diagnose(bundle, schema, source_version="0.22.27", manifest=manifest_path)
-    if not report["ready_for_isolated_rehearsal"] or (
-        report["storage_mode"],
-        report["file_bytes_copied"],
-        report["file_bytes_verified"],
-        report["file_manifest_sha256"],
-        report["files"],
-        report["file_bytes"],
-    ) != (
+    same = (
+        "ready_for_isolated_rehearsal",
+        "file_manifest_sha256",
+        "files",
+        "file_bytes",
+        "unreferenced_files",
+        "preserved_source_anomalies",
+        "blockers",
+    )
+    if (report["storage_mode"], report["file_bytes_copied"], report["file_bytes_verified"]) != (
         "manifest",
         False,
         False,
-        reference["file_manifest_sha256"],
-        reference["files"],
-        reference["file_bytes"],
-    ):
+    ) or any(report[key] != reference[key] for key in same):
         raise AssertionError(report)
-    results["manifest_mode"] = "ready_same_file_fingerprint_no_bytes_copied"
+    results["manifest_mode"] = "same_diagnosis_same_file_fingerprint_no_bytes_copied"
 
     def manifest_case(name, change):
         variant = json.loads(json.dumps(manifest))
@@ -180,9 +190,7 @@ def negative_diagnostics(data, root, schema):
         "manifest_missing_file",
         lambda m: m["files"].remove(next(f for f in m["files"] if f["path"].endswith("proof.bin"))),
     )
-    preserved(
-        report, "missing_files", {**medias, "references": 1, "records": 1, "distinct_files": 1}
-    )
+    preserved(report, "missing_files", ("buma_article", "medias"), (1, 1, 1))
     results["manifest_missing_file"] = "preserved_anomaly_not_blocking"
 
     def wal(m):
