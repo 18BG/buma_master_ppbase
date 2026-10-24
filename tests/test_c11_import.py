@@ -789,7 +789,13 @@ def test_relation_definition_problems_are_refused_whatever_the_target(tmp_path, 
 def test_multiplicity_is_the_ppbase_rule_except_the_refused_absent_key():
     from ppbase.models import field_multiplicity as rule
 
-    export = Path(os.environ["BUMA_SCHEMA_EXPORT"])
+    export = Path(
+        os.environ.get(
+            "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
+        )
+    )
+    if not export.is_file():
+        pytest.skip("BUMA_SCHEMA_EXPORT is not available")
     fields = [
         field
         for collection in json.loads(export.read_text())
