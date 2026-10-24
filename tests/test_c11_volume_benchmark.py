@@ -76,6 +76,10 @@ def test_generated_rows_are_importable_and_contain_preserved_anomalies(tmp_path)
     data = snapshot(tmp_path)
     result = benchmark.complete_fixture(data, [USERS, ITEMS], {"users": 5, "items": 4000})
     assert result["records"] == 4005 and result["synthetic_rows_added"] == 4004
+    # Only the 4000 synthetic items rows (4 users were added, none has a relation).
+    assert result["generated_anomalies"] == benchmark.generated_anomalies(
+        [USERS, ITEMS], {"users": 4, "items": 4000}
+    )
     with sqlite3.connect(data / "data.db") as db:
         db.row_factory = sqlite3.Row
         for collection in (USERS, ITEMS):
@@ -143,29 +147,33 @@ def test_negative_bundle_has_rows_in_every_generated_table():
 
 
 def test_negative_cases_alter_one_owned_object_each_and_undo_it():
-    definitions = [
-        {"name": "users", "type": "auth"},
-        {"name": "early", "type": "base"},
-        {"name": benchmark.NEGATIVE_TABLE, "type": "base"},
-        {"name": "late", "type": "base"},
-        {"name": "a_view", "type": "view"},
-    ]
     column = importer.TargetColumn
+    key = column("id", "character varying", False, 15, True, False)
+    definitions = [
+        {"name": "users", "type": "auth", "schema": []},
+        {"name": "early", "type": "base", "schema": []},
+        {"name": "buma_article", "type": "base", "schema": []},
+        {"name": benchmark.NEGATIVE_TABLE, "type": "base", "schema": []},
+        {"name": "late", "type": "base", "schema": [{"name": "note", "type": "text"}]},
+        {"name": "a_view", "type": "view", "schema": []},
+    ]
+    definitions[3]["schema"] = [{"name": "firstname", "type": "text"}]
     spec = {
-        "users": {"id": column("id", "character varying", False, 15, True, False)},
+        "users": {"id": key},
         "early": {
-            "id": column("id", "character varying", False, 15, True, False),
+            "id": key,
             "updated": column("updated", "timestamp with time zone", False, None, True, True),
         },
+        "buma_article": {"id": key},
         benchmark.NEGATIVE_TABLE: {
-            "id": column("id", "character varying", False, 15, True, False),
+            "id": key,
             benchmark.NEGATIVE_COLUMN: column("firstname", "text", False, None, True, True),
         },
-        "late": {"id": column("id", "character varying", False, 15, True, False)},
+        "late": {"id": key, "note": column("note", "text", False, None, True, True)},
     }
     diagnostic = {
-        "rows": 20,
-        "collections": [{"name": d["name"], "rows": 5} for d in definitions[:4]],
+        "rows": 25,
+        "collections": [{"name": d["name"], "rows": 5} for d in definitions[:5]],
         "preserved_source_anomalies": {
             "dangling_relations": {
                 "references": 2,
@@ -174,42 +182,127 @@ def test_negative_cases_alter_one_owned_object_each_and_undo_it():
             }
         },
     }
-    definitions[2]["schema"] = [{"name": "firstname", "type": "text"}]
-    definitions[3]["schema"] = [{"name": "note", "type": "text"}]
-    spec["late"]["note"] = column("note", "text", False, None, True, True)
-    for d in definitions[:2] + definitions[4:]:
-        d["schema"] = []
     used_by_views = {(benchmark.NEGATIVE_TABLE, "firstname")}
     narrow = benchmark.narrowable_text_field(definitions, spec, diagnostic, used_by_views)
     assert narrow == ("late", "note")
-    cases = benchmark.negative_cases(definitions, spec, diagnostic, narrow, "''::text")
+    allocator = "CREATE OR REPLACE FUNCTION public.buma_allocate_sqlite_rowid() ... original"
+    cases = benchmark.negative_cases(definitions, spec, diagnostic, narrow, "''::text", allocator)
     names = [case["name"] for case in cases]
     assert names == [
         "rowid_archive_exists",
+        "unexpected_deferred_constraint_trigger",
+        "unexpected_event_trigger",
         "target_constraint_violation",
+        "deferred_constraint_violation",
         "value_exceeds_target_length_at_load",
         "target_readback_mismatch",
         "target_changed_after_readback",
         "target_row_count_mismatch",
+        "definitions_do_not_match_diagnosis",
         "anomaly_conservation_mismatch",
         "source_row_count_mismatch",
         "injected_import_failure",
     ]
     by_name = {case["name"]: case for case in cases}
+    # Readback layers are reached through the allocator body, restored after.
+    assert by_name["target_readback_mismatch"]["details"] == {
+        "collection": "users",
+        "field": "updated",
+    }
+    for name in ("target_readback_mismatch", "target_changed_after_readback"):
+        assert by_name[name]["teardown"] == [allocator]
+        assert by_name[name]["setup"][0].startswith(
+            "CREATE OR REPLACE FUNCTION public.buma_allocate_sqlite_rowid()"
+        )
     assert by_name["target_changed_after_readback"]["details"] == {"collection": "early"}
-    assert 'AFTER INSERT ON "late"' in by_name["target_row_count_mismatch"]["setup"][1]
+    assert "TG_TABLE_NAME = 'buma_article'" in by_name["target_row_count_mismatch"]["setup"][0]
+    assert by_name["unexpected_deferred_constraint_trigger"]["details"] == {
+        "kind": "table",
+        "collection": benchmark.NEGATIVE_TABLE,
+        "trigger": "c11_negative_deferred",
+    }
+    assert "DEFERRABLE INITIALLY DEFERRED" in by_name["deferred_constraint_violation"]["setup"][0]
     # Every created object is dropped by the same case; the diagnosis is a copy.
     for case in cases:
-        created = [s.split()[2] for s in case.get("setup", []) if s.startswith("CREATE")]
+        created = [s.split()[2] for s in case.get("setup", []) if s.startswith("CREATE ")]
+        created += [
+            s.split()[3] for s in case.get("setup", []) if s.startswith("CREATE CONSTRAINT")
+        ]
+        created = [name for name in created if name not in {"OR", "TRIGGER"}]
         dropped = " ".join(case.get("teardown", []))
         assert all(name.split("(")[0] in dropped for name in created), case["name"]
     assert diagnostic["preserved_source_anomalies"]["dangling_relations"]["references"] == 2
     tampered = by_name["anomaly_conservation_mismatch"]["diagnostic"]
     assert tampered["preserved_source_anomalies"]["dangling_relations"]["references"] == 1
-    assert by_name["injected_import_failure"]["fail_after"] == 10
+    assert [c["name"] for c in by_name["definitions_do_not_match_diagnosis"]["definitions"]] == [
+        "users",
+        "early",
+        "buma_article",
+        benchmark.NEGATIVE_TABLE,
+        "a_view",
+    ]
+    assert by_name["injected_import_failure"]["fail_after"] == 12
     narrowing = by_name["value_exceeds_target_length_at_load"]
     assert narrowing["details"] == {"collection": "late", "field": "note"}
     assert narrowing["teardown"] == [
         'ALTER TABLE "late" ALTER COLUMN "note" TYPE text',
         'ALTER TABLE "late" ALTER COLUMN "note" SET DEFAULT \'\'::text',
     ]
+
+
+def test_generated_anomalies_follow_the_generator_rules_only():
+    expected = benchmark.generated_anomalies([USERS, ITEMS], {"users": 5, "items": 4000})
+    orphans = len(range(3, 4000, benchmark.ORPHAN_EVERY))  # rows 3, 1000, 1997, 2994, 3991
+    absent = len(range(1, 4000, benchmark.MISSING_FILE_EVERY))  # rows 1, 2000, 3999
+    assert (orphans, absent) == (5, 3)
+    assert expected == {
+        "dangling_relations": {
+            "references": 5,
+            "records": 5,
+            "fields": {"items.owner": [5, 5, 5]},
+        },
+        "missing_files": {
+            "references": 6,
+            "records": 3,
+            "fields": {"items.gallery": [3, 3, 3], "items.photo": [3, 3, 3]},
+        },
+    }
+    diagnosis_shape = {
+        "dangling_relations": {
+            "references": 5,
+            "records": 5,
+            "fields": [
+                {
+                    "collection": "items",
+                    "field": "owner",
+                    "target": "users",
+                    "references": 5,
+                    "records": 5,
+                    "distinct_targets": 5,
+                }
+            ],
+        },
+        "missing_files": {
+            "references": 6,
+            "records": 3,
+            "distinct_files": 6,
+            "fields": [
+                {
+                    "collection": "items",
+                    "field": f,
+                    "references": 3,
+                    "records": 3,
+                    "distinct_files": 3,
+                }
+                for f in ("photo", "gallery")
+            ],
+        },
+    }
+    assert benchmark.require_generated(diagnosis_shape, expected, "test") == {
+        "dangling_references": 5,
+        "missing_file_references": 6,
+        "equal_to_generated_counts": True,
+    }
+    diagnosis_shape["dangling_relations"]["fields"][0]["distinct_targets"] = 4
+    with pytest.raises(RuntimeError, match="differ from the generated counts"):
+        benchmark.require_generated(diagnosis_shape, expected, "test")

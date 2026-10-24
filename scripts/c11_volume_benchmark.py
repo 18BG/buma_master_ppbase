@@ -7,17 +7,21 @@ diagnosis. Nothing real is read. The import runs in manifest mode, like the
 server bundle. Phases:
 
 1. negative load cases, in process, on a small bundle (the same fixture with
-   a few rows per table): each alteration of the empty target or of the
-   diagnosis handed to the importer must be refused with its exact code and
-   details and leave no effect, and the target is then exactly restored;
+   a few rows per table): each alteration of the empty target, of the
+   diagnosis or of the definitions handed to the importer must be refused
+   with its exact code and details and leave no effect, and the target is then
+   exactly restored (schema signature, function bodies included);
 2. diagnosis of the volume bundle, in its own process;
 3. injected failure at half of the rows and verified rollback;
 4. two simultaneous imports on the same empty target (one must win, one must
    refuse), each in its own process so that its peak RSS is its own.
 
 ``--negative-only`` stops after phase 1 with a clean import of the small
-bundle on the same target (the retry after every refusal). The container and
-every temporary file are removed at the end.
+bundle on the same target (the retry after every refusal). The anomalies of
+every diagnosis and of every post-load recount are compared with the counts
+the generator itself produced (ORPHAN_EVERY, MISSING_FILE_EVERY), not only
+with each other. The container and every temporary file are removed at the
+end.
 
 Run as python -m scripts.c11_volume_benchmark --pocketbase /path/pocketbase-0.22.27 \
     --schema /path/export.json --report /new/report.json
@@ -149,6 +153,88 @@ def field_generator(field, table, ids, by_id):
     raise ValueError(f"no synthetic generator for {kind}")
 
 
+def generated_anomalies(definitions: list[dict], added: dict[str, int]) -> dict:
+    """Anomalies the generator writes, from its own rules (not from the importer).
+
+    Synthetic row ``i`` of a table holds an orphan in every single relation
+    field when ``i % ORPHAN_EVERY == 3`` (``orphan<i>``, distinct per row) and
+    an absent file in every file field when ``i % MISSING_FILE_EVERY == 1``.
+    """
+    relations, files = {}, {}
+    relation_records = file_records = 0
+    for c in definitions:
+        count = added.get(c["name"], 0)
+        orphans = len(range(3, count, ORPHAN_EVERY))
+        absent = len(range(1, count, MISSING_FILE_EVERY))
+        kinds = {f["type"] for f in c["schema"]}
+        for field in c["schema"]:
+            if field["type"] == "relation" and orphans:
+                relations[f"{c['name']}.{field['name']}"] = [orphans, orphans, orphans]
+            if field["type"] == "file" and absent:
+                files[f"{c['name']}.{field['name']}"] = [absent, absent, absent]
+        relation_records += orphans if "relation" in kinds else 0
+        file_records += absent if "file" in kinds else 0
+    return {
+        "dangling_relations": {
+            "references": sum(v[0] for v in relations.values()),
+            "records": relation_records,
+            "fields": dict(sorted(relations.items())),
+        },
+        "missing_files": {
+            "references": sum(v[0] for v in files.values()),
+            "records": file_records,
+            "fields": dict(sorted(files.items())),
+        },
+    }
+
+
+def anomaly_counts(anomalies: dict) -> dict:
+    """The ``generated_anomalies`` shape of a diagnosis or recount summary."""
+    result = {}
+    for kind, width in (
+        ("dangling_relations", "distinct_targets"),
+        ("missing_files", "distinct_files"),
+    ):
+        part = anomalies[kind]
+        result[kind] = {
+            "references": part["references"],
+            "records": part["records"],
+            "fields": dict(
+                sorted(
+                    (f"{f['collection']}.{f['field']}", [f["references"], f["records"], f[width]])
+                    for f in part["fields"]
+                )
+            ),
+        }
+    return result
+
+
+def require_generated(anomalies: dict, expected: dict, what: str) -> dict:
+    """Fail unless ``anomalies`` equals the generator's own counts."""
+    found = anomaly_counts(anomalies)
+    if found != expected:
+        differences = {
+            kind: {
+                key: (found[kind].get(key), expected[kind].get(key))
+                for key in ("references", "records")
+                if found[kind].get(key) != expected[kind].get(key)
+            }
+            | {
+                name: (found[kind]["fields"].get(name), expected[kind]["fields"].get(name))
+                for name in set(found[kind]["fields"]) | set(expected[kind]["fields"])
+                if found[kind]["fields"].get(name) != expected[kind]["fields"].get(name)
+            }
+            for kind in expected
+        }
+        # Synthetic counts only: (found, generated) per differing entry.
+        raise RuntimeError(f"{what}: anomalies differ from the generated counts {differences}")
+    return {
+        "dangling_references": expected["dangling_relations"]["references"],
+        "missing_file_references": expected["missing_files"]["references"],
+        "equal_to_generated_counts": True,
+    }
+
+
 def complete_fixture(data: Path, definitions: list[dict], counts: dict[str, int]) -> dict:
     """Add synthetic rows in SQLite until each table reaches its profile count."""
     started = time.monotonic()
@@ -222,6 +308,7 @@ def complete_fixture(data: Path, definitions: list[dict], counts: dict[str, int]
         "records": total,
         "seconds": round(time.monotonic() - started, 2),
         "data_db_bytes": (data / "data.db").stat().st_size,
+        "generated_anomalies": generated_anomalies(definitions, missing),
     }
 
 
@@ -334,17 +421,18 @@ async def run_child(role: str, arguments: list[str]) -> dict:
     started = time.monotonic()
     try:
         try:
-            outcome = await importer.import_snapshot(
-                engine,
-                bundle,
-                staging,
-                diagnostic,
-                definitions,
-                manifest=manifest,
-                fail_after=fail_after,
-                report=load,
-                batch_size=batch_size,
-            )
+            async with importer.cancelled_by_termination():
+                outcome = await importer.import_snapshot(
+                    engine,
+                    bundle,
+                    staging,
+                    diagnostic,
+                    definitions,
+                    manifest=manifest,
+                    fail_after=fail_after,
+                    report=load,
+                    batch_size=batch_size,
+                )
         except importer.ImportBlocked as exc:
             outcome = str(exc)
         except Exception as exc:  # synthetic data only: report the database error
@@ -530,19 +618,25 @@ SELECT 'constraint ' || conrelid::regclass::text || '.' || conname || ' '
        || pg_get_constraintdef(oid)
 FROM pg_constraint WHERE connamespace = 'public'::regnamespace
 UNION ALL
-SELECT 'trigger ' || c.relname || '.' || t.tgname FROM pg_trigger t
-JOIN pg_class c ON c.oid = t.tgrelid
+SELECT 'trigger ' || c.relname || '.' || t.tgname || ' ' || t.tgenabled::text || ' '
+       || pg_get_triggerdef(t.oid)
+FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
 WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
 UNION ALL
-SELECT 'function ' || p.oid::regprocedure::text FROM pg_proc p
-WHERE p.pronamespace = 'public'::regnamespace
+SELECT 'function ' || p.oid::regprocedure::text || ' '
+       || CASE WHEN p.prokind IN ('f', 'p') THEN md5(pg_get_functiondef(p.oid)) ELSE '' END
+FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
+UNION ALL
+SELECT 'event trigger ' || evtname || ' ' || evtenabled::text FROM pg_event_trigger
 """
+ALLOCATOR = "public.buma_allocate_sqlite_rowid()"
 
 
 async def target_signature(engine) -> list[str]:
     """Schema-only signature of the target: tables, columns (type, NOT NULL,
-    default), constraints, triggers and functions, to prove that every
-    alteration of a negative case was undone exactly."""
+    default), constraints, trigger definitions, function bodies (MD5) and
+    event triggers, to prove that every alteration of a negative case was
+    undone exactly."""
     from sqlalchemy import text
 
     async with engine.connect() as conn:
@@ -550,21 +644,29 @@ async def target_signature(engine) -> list[str]:
 
 
 async def run_statements(engine, statements) -> None:
-    from sqlalchemy import text
-
+    """One transaction; each statement verbatim (no bind-parameter parsing)."""
     async with engine.begin() as conn:
         for statement in statements:  # one statement per call (prepared protocol)
-            await conn.execute(text(statement))
+            await conn.exec_driver_sql(statement)
 
 
-def trigger_statements(name: str, table: str, timing: str, level: str, body: str) -> list[str]:
-    returned = "NEW" if level == "ROW" and timing == "BEFORE" else "NULL"
-    return [
+def trigger_function(name: str, body: str, returned: str = "NULL") -> str:
+    return (
         f"CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS "
-        f"$c11$ BEGIN {body} RETURN {returned}; END $c11$",
-        f"CREATE TRIGGER {name} {timing} INSERT ON {importer.quote(table)} "
-        f"FOR EACH {level} EXECUTE FUNCTION {name}()",
-    ]
+        f"$c11$ BEGIN {body} RETURN {returned}; END $c11$"
+    )
+
+
+def allocator_replacement(body: str) -> str:
+    """The migrated rowid allocator, same name and trigger, another body.
+
+    Rowids are supplied by the importer, so the replacement does not allocate;
+    the original definition (pg_get_functiondef) is restored by the teardown.
+    """
+    return (
+        f"CREATE OR REPLACE FUNCTION {ALLOCATOR} RETURNS trigger LANGUAGE plpgsql AS "
+        f"$c11$ BEGIN {body} RETURN NEW; END $c11$"
+    )
 
 
 def narrowable_text_field(definitions, spec, diagnostic, view_columns) -> tuple[str, str]:
@@ -587,32 +689,44 @@ def negative_cases(
     spec: dict,
     diagnostic: dict,
     narrow: tuple[str, str],
-    narrow_default: str | None = None,
+    narrow_default: str | None,
+    allocator: str,
 ) -> list[dict]:
     """Runtime refusals expected from import_snapshot on the empty target.
 
-    ``early`` is the first loaded base table whose columns all have defaults
-    (an extra row can be inserted), ``late`` the last loaded table: a trigger on
-    ``late`` changes ``early`` after its batches were read back. ``narrow`` is
-    the text field retyped varchar(3) after the diagnosis; its default
-    expression ``narrow_default`` is restored verbatim (a type round trip would
-    otherwise leave a cast in it).
+    Only the two migrated rowid allocators may exist as triggers: any other
+    trigger (the deferred constraint trigger that would rewrite rows at
+    COMMIT) and any event trigger is refused before the first write. The
+    readback layers are then reached through the allocator function itself,
+    whose body is replaced (``allocator`` is its original definition, restored
+    by the teardown): ``first`` is the first loaded rowid table, ``later``
+    the last one, ``early`` a base table loaded before ``later`` whose
+    columns all have defaults (an extra row can be inserted); the replaced
+    allocator changes ``early`` while ``later`` is loaded, after ``early``'s
+    batches were read back. ``narrow`` is the text field retyped varchar(3)
+    after the diagnosis; its default expression ``narrow_default`` is
+    restored verbatim (a type round trip would otherwise leave a cast in it).
     """
     rows = {c["name"]: c["rows"] for c in diagnostic["collections"]}
     loaded = [c for c in definitions if c["type"] != "view" and rows.get(c["name"])]
+    order = [c["name"] for c in loaded]
+    rowid_loaded = [name for name in order if name in importer.ROWID_TABLES]
+    if len(rowid_loaded) != len(importer.ROWID_TABLES):
+        raise RuntimeError("negative cases need rows in every rowid table")
+    first, later = rowid_loaded[0], rowid_loaded[-1]
     early = next(
         c["name"]
-        for c in loaded
+        for c in loaded[: order.index(later)]
         if c["type"] == "base"
+        and c["name"] not in importer.ROWID_TABLES
         and all(
             column.name == "id" or column.has_default or not column.not_null
             for column in spec[c["name"]].values()
         )
     )
-    late = loaded[-1]["name"]
     column = spec[NEGATIVE_TABLE][NEGATIVE_COLUMN]
-    if not rows.get(NEGATIVE_TABLE) or column.type != "text" or early == late:
-        raise RuntimeError("negative cases need rows in buma_supplier and two loaded tables")
+    if rows.get(NEGATIVE_TABLE, 0) < 2 or column.type != "text":
+        raise RuntimeError("negative cases need two buma_supplier rows with a text firstname")
     table, field = importer.quote(NEGATIVE_TABLE), importer.quote(NEGATIVE_COLUMN)
     narrow_table, narrow_field = (importer.quote(name) for name in narrow)
     archive = importer.ARCHIVE_TABLE
@@ -624,6 +738,7 @@ def negative_cases(
     relation["references"] -= 1
     counted = json.loads(json.dumps(diagnostic))
     next(c for c in counted["collections"] if c["name"] == early)["rows"] += 1
+    restore = [allocator]
     return [
         {
             "name": "rowid_archive_exists",
@@ -635,6 +750,44 @@ def negative_cases(
             ],
             "teardown": [f"DROP TABLE {archive}"],
             "keeps_foreign_archive": True,
+        },
+        {
+            # The reviewed scenario: it would rewrite rows at COMMIT, after
+            # every verification. Refused before the first write.
+            "name": "unexpected_deferred_constraint_trigger",
+            "code": "unexpected_target_trigger",
+            "details": {
+                "kind": "table",
+                "collection": NEGATIVE_TABLE,
+                "trigger": "c11_negative_deferred",
+            },
+            "setup": [
+                trigger_function(
+                    "c11_negative_deferred", f"UPDATE {table} SET {field} = 'changed at commit';"
+                ),
+                f"CREATE CONSTRAINT TRIGGER c11_negative_deferred AFTER INSERT ON {table} "
+                "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW "
+                "EXECUTE FUNCTION c11_negative_deferred()",
+            ],
+            "teardown": [
+                f"DROP TRIGGER c11_negative_deferred ON {table}",
+                "DROP FUNCTION c11_negative_deferred()",
+            ],
+        },
+        {
+            "name": "unexpected_event_trigger",
+            "code": "unexpected_target_trigger",
+            "details": {"kind": "event", "triggers": 1},
+            "setup": [
+                "CREATE FUNCTION c11_negative_event() RETURNS event_trigger LANGUAGE plpgsql "
+                "AS $c11$ BEGIN END $c11$",
+                "CREATE EVENT TRIGGER c11_negative_event ON ddl_command_end "
+                "EXECUTE FUNCTION c11_negative_event()",
+            ],
+            "teardown": [
+                "DROP EVENT TRIGGER c11_negative_event",
+                "DROP FUNCTION c11_negative_event()",
+            ],
         },
         {
             "name": "target_constraint_violation",
@@ -650,6 +803,21 @@ def negative_cases(
             "teardown": [f"ALTER TABLE {table} DROP CONSTRAINT c11_negative_check"],
         },
         {
+            # Checked at SET CONSTRAINTS ALL IMMEDIATE, not at COMMIT.
+            "name": "deferred_constraint_violation",
+            "code": "target_constraint_violation",
+            "details": {
+                "collection": NEGATIVE_TABLE,
+                "sqlstate": "23505",
+                "constraint": "c11_negative_deferred_unique",
+            },
+            "setup": [
+                f"ALTER TABLE {table} ADD CONSTRAINT c11_negative_deferred_unique "
+                "UNIQUE (status) DEFERRABLE INITIALLY DEFERRED"
+            ],
+            "teardown": [f"ALTER TABLE {table} DROP CONSTRAINT c11_negative_deferred_unique"],
+        },
+        {
             "name": "value_exceeds_target_length_at_load",
             "code": "value_exceeds_target_length",
             "details": {"collection": narrow[0], "field": narrow[1]},
@@ -663,52 +831,43 @@ def negative_cases(
         {
             "name": "target_readback_mismatch",
             "code": "target_readback_mismatch",
-            "details": {"collection": NEGATIVE_TABLE, "field": "updated"},
-            "setup": trigger_statements(
-                "c11_negative_shift",
-                NEGATIVE_TABLE,
-                "BEFORE",
-                "ROW",
-                "NEW.updated := NEW.updated + interval '1 microsecond';",
-            ),
-            "teardown": [
-                f"DROP TRIGGER c11_negative_shift ON {table}",
-                "DROP FUNCTION c11_negative_shift()",
+            "details": {"collection": first, "field": "updated"},
+            "setup": [
+                allocator_replacement("NEW.updated := NEW.updated + interval '1 microsecond';")
             ],
+            "teardown": restore,
         },
         {
             "name": "target_changed_after_readback",
             "code": "target_changed_after_readback",
             "details": {"collection": early},
-            "setup": trigger_statements(
-                "c11_negative_late_update",
-                late,
-                "AFTER",
-                "STATEMENT",
-                f"UPDATE {importer.quote(early)} SET updated = updated + interval '1 millisecond' "
-                f"WHERE id = (SELECT min(id) FROM {importer.quote(early)});",
-            ),
-            "teardown": [
-                f"DROP TRIGGER c11_negative_late_update ON {importer.quote(late)}",
-                "DROP FUNCTION c11_negative_late_update()",
+            "setup": [
+                allocator_replacement(
+                    f"IF TG_TABLE_NAME = '{later}' THEN UPDATE {importer.quote(early)} "
+                    "SET updated = updated + interval '1 millisecond' "
+                    f"WHERE id = (SELECT min(id) FROM {importer.quote(early)}); END IF;"
+                )
             ],
+            "teardown": restore,
         },
         {
             "name": "target_row_count_mismatch",
             "code": "target_row_count_mismatch",
             "details": {"collection": early},
-            "setup": trigger_statements(
-                "c11_negative_late_insert",
-                late,
-                "AFTER",
-                "STATEMENT",
-                f"INSERT INTO {importer.quote(early)} (id) VALUES ('c11negextra0001') "
-                "ON CONFLICT (id) DO NOTHING;",
-            ),
-            "teardown": [
-                f"DROP TRIGGER c11_negative_late_insert ON {importer.quote(late)}",
-                "DROP FUNCTION c11_negative_late_insert()",
+            "setup": [
+                allocator_replacement(
+                    f"IF TG_TABLE_NAME = '{later}' THEN INSERT INTO {importer.quote(early)} "
+                    "(id) VALUES ('c11negextra0001') ON CONFLICT (id) DO NOTHING; END IF;"
+                )
             ],
+            "teardown": restore,
+        },
+        {
+            "name": "definitions_do_not_match_diagnosis",
+            "code": "definitions_do_not_match_diagnosis",
+            "details": {},
+            # A collection left out of the definitions handed to the load.
+            "definitions": [c for c in definitions if c["name"] != order[-1]],
         },
         {
             "name": "anomaly_conservation_mismatch",
@@ -731,14 +890,23 @@ def negative_cases(
     ]
 
 
-async def negative_phase(url, definitions, bundle, manifest, schema, staged_root, version):
-    """Phase 1: each refusal, its exact code and details, and no effect at all."""
+async def negative_phase(
+    url, definitions, bundle, manifest, schema, staged_root, version, expected
+):
+    """Phase 1: each refusal, its exact code and details, and no effect at all.
+
+    ``expected`` holds the anomalies the generator wrote in the small bundle;
+    its diagnosis must report exactly those.
+    """
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
 
     diagnostic = importer.diagnose(bundle, schema, source_version=version, manifest=manifest)
     if not diagnostic["ready_for_isolated_rehearsal"]:
         raise RuntimeError(f"negative bundle blockers: {diagnostic['blockers']}")
+    generated = require_generated(
+        diagnostic["preserved_source_anomalies"], expected, "negative bundle diagnosis"
+    )
     engine = create_async_engine(url, connect_args={"ssl": "disable"})
     results = []
     try:
@@ -762,8 +930,15 @@ async def negative_phase(url, definitions, bundle, manifest, schema, staged_root
                     {"table": importer.quote(narrow[0]), "column": narrow[1]},
                 )
             ).scalar()
+            # Restored verbatim after each case that replaces the allocator body.
+            allocator = (
+                await conn.execute(
+                    text("SELECT pg_get_functiondef(CAST(:function AS regprocedure))"),
+                    {"function": ALLOCATOR},
+                )
+            ).scalar_one()
         before = await target_signature(engine)
-        cases = negative_cases(definitions, spec, diagnostic, narrow, narrow_default)
+        cases = negative_cases(definitions, spec, diagnostic, narrow, narrow_default, allocator)
         for case in cases:
             await run_statements(engine, case.get("setup", []))
             staging = staged_root / f"negative-{case['name']}"
@@ -774,7 +949,7 @@ async def negative_phase(url, definitions, bundle, manifest, schema, staged_root
                     bundle,
                     staging,
                     case.get("diagnostic", diagnostic),
-                    definitions,
+                    case.get("definitions", definitions),
                     manifest=manifest,
                     fail_after=case.get("fail_after"),
                 )
@@ -825,12 +1000,7 @@ async def negative_phase(url, definitions, bundle, manifest, schema, staged_root
         await engine.dispose()
     return diagnostic, {
         "bundle_rows": diagnostic["rows"],
-        "bundle_dangling_references": diagnostic["preserved_source_anomalies"][
-            "dangling_relations"
-        ]["references"],
-        "bundle_missing_file_references": diagnostic["preserved_source_anomalies"]["missing_files"][
-            "references"
-        ],
+        "bundle_anomalies_in_diagnosis": generated,
         "cases": results,
         "all_refused_with_expected_code_and_no_effect": True,
         "target_signature_restored": {
@@ -841,8 +1011,13 @@ async def negative_phase(url, definitions, bundle, manifest, schema, staged_root
     }
 
 
-async def clean_retry(url, definitions, bundle, manifest, diagnostic, staged_root) -> dict:
-    """--negative-only: the same target accepts the import after every refusal."""
+async def clean_retry(
+    url, definitions, bundle, manifest, diagnostic, staged_root, generated
+) -> dict:
+    """--negative-only: the same target accepts the import after every refusal.
+
+    The recount of the loaded target must equal the generated anomalies.
+    """
     from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine(url, connect_args={"ssl": "disable"})
@@ -864,7 +1039,14 @@ async def clean_retry(url, definitions, bundle, manifest, diagnostic, staged_roo
         "rowid_matches": final["rowid_matches"],
         "final_typed_reread": evidence["final_typed_reread"],
         "fingerprints_match": evidence["fingerprints_match"],
+        "deferred_constraints_run_before_final_reread": evidence[
+            "deferred_constraints_run_before_final_reread"
+        ],
+        "target_triggers": evidence["preflight"]["target_triggers"],
         "conservation_matches_diagnostic": evidence["conservation"]["matches_diagnostic"],
+        "recount_anomalies": require_generated(
+            evidence["conservation"], generated, "clean retry recount"
+        ),
         "json_normalizations": evidence["json_normalizations"],
         "staging_kept_for_serving": staging.exists(),
     }
@@ -886,11 +1068,18 @@ async def benchmark(args, root: Path, url: str, monitor: ContainerMemory, report
         args.schema,
         staged_root,
         args.source_version,
+        args.negative_expected,
     )
     report["memory_phases"]["negative_load_cases"] = monitor.take_phase()
     if args.negative_only:
         report["negative_load_cases"]["clean_retry_on_the_same_target"] = await clean_retry(
-            url, definitions, args.negative_bundle, args.negative_manifest, small, staged_root
+            url,
+            definitions,
+            args.negative_bundle,
+            args.negative_manifest,
+            small,
+            staged_root,
+            args.negative_expected,
         )
         report["memory_phases"]["clean_retry"] = monitor.take_phase()
         return
@@ -911,6 +1100,7 @@ async def benchmark(args, root: Path, url: str, monitor: ContainerMemory, report
     report["dataset"]["diagnostic"] = {
         "rows": diagnostic["rows"],
         "relations_checked": diagnostic["relations_checked"],
+        "anomalies": require_generated(anomalies, args.volume_expected, "volume diagnosis"),
         "dangling_references": anomalies["dangling_relations"]["references"],
         "dangling_fields": len(anomalies["dangling_relations"]["fields"]),
         "missing_file_references": anomalies["missing_files"]["references"],
@@ -1017,6 +1207,14 @@ async def concurrent_phase(args, url, definitions, diagnostic, common, staged_ro
             "server_row_hashes_unchanged_since_readback"
         ],
         "conservation_matches_diagnostic": load["conservation"]["matches_diagnostic"],
+        "recount_anomalies": require_generated(
+            load["conservation"], args.volume_expected, "volume recount"
+        ),
+        "deferred_constraints_run_before_final_reread": load[
+            "deferred_constraints_run_before_final_reread"
+        ],
+        "rows_equal_diagnosed_total": load["rows_equal_diagnosed_total"],
+        "triggers_unchanged_during_load": load["triggers_unchanged_during_load"],
         "json_normalizations_stated": [
             {k: w[k] for k in ("code", "collection", "field", "affected_rows") if k in w}
             for w in load["json_normalizations"]
@@ -1114,13 +1312,24 @@ def main():
             root = Path(folder)
             data = create_fixture(root / "fixture", args.pocketbase.resolve(), args.schema)
             definitions = importer.load_schema(args.schema)
+            # The generated counts are the only anomalies: the fixture has none.
+            baseline = importer.diagnose(data, args.schema, source_version=version)
+            preserved = baseline["preserved_source_anomalies"]
+            if (
+                preserved["dangling_relations"]["references"]
+                or preserved["missing_files"]["references"]
+            ):
+                raise RuntimeError("the default fixture profile must carry no anomaly")
+            report["fixture_baseline_anomalies"] = 0
             # The small bundle of the negative cases: the same fixture, few rows.
             small = root / "negative-fixture"
             shutil.copytree(data, small)
+            completed = complete_fixture(small, definitions, negative_counts())
+            args.negative_expected = completed.pop("generated_anomalies")
             report["negative_dataset"] = {
                 "scale": NEGATIVE_SCALE,
                 "minimum_rows_per_table": NEGATIVE_MINIMUM_ROWS,
-                **complete_fixture(small, definitions, negative_counts()),
+                **completed,
             }
             args.negative_bundle, args.negative_manifest = bundle_of(root, "negative", small)
             if not args.negative_only:
@@ -1133,8 +1342,10 @@ def main():
                     "scale": args.scale,
                     "orphan_every": ORPHAN_EVERY,
                     "missing_file_every": MISSING_FILE_EVERY,
-                    **complete_fixture(data, definitions, counts),
                 }
+                completed = complete_fixture(data, definitions, counts)
+                args.volume_expected = completed.pop("generated_anomalies")
+                report["dataset"].update(completed)
                 args.bundle, args.manifest = bundle_of(root, "volume", data)
             command(
                 "docker",
