@@ -627,3 +627,224 @@ n'est pas respecté (lancer dans tmux ou screen) ; quelques protections sans tes
 dédié (comparaison SHA-256 avant/après, `O_EXCL`, `O_NOFOLLOW`) ; l'aide omet le
 code 2. Régressions : `tests/test_c11_extract.py` (113 tests ; 20 mutants
 supprimant chacun une protection, tous détectés).
+
+## D-0025 — C11 : D-0019 résolu, relations maxSelect null multiples (PPBase et BUMA)
+
+Session serveur du 2026-10-24, chantiers WS-A (PPBase) et WS-E (BUMA), relus
+indépendamment, sur l'autorisation du plan (§2) de corriger PPBase en prenant
+PocketBase pour référence. Résout le blocage D-0019 sans aplatir aucune liste.
+
+Sémantique de référence, citée et vérifiée sur le code officiel :
+
+- PocketBase v0.22.34 `models/schema/schema_field.go` : l.693 `MaxSelect *int`
+  (« If nil no limits are applied »), l.709 la valeur 0 est refusée, l.715-716
+  `IsMultiple() = MaxSelect == nil || *MaxSelect > 1`, l.150-165 colonne
+  `JSON DEFAULT '[]'` (multiple) ou `TEXT DEFAULT ''` (simple), l.375-386
+  `PrepareValue` (`tools/list/list.go` l.110-140) ; validation de tout le
+  formulaire avant les hooks (`forms/validators/record_data.go` l.52-97 et
+  l.361-398, `forms/record_upsert.go` l.472-563) ; suppression
+  `daos/record.go` l.619-776 ; filtres `resolvers/record_field_resolve_runner.go`
+  l.356-477 et `tools/search/filter.go`.
+- Version actuelle v0.40.6 `core/field_relation.go` l.98 et l.151-162
+  (`IsMultiple() = MaxSelect > 1`) ; montée v0.23.0
+  `migrations/1717233556_v0.23_migrate.go` l.844-848 (`maxSelect <= 0`, donc
+  null, devient 2147483647).
+
+PPBase, branche `fix/d0019-relation-maxselect` (fusion `526397a` de `c11/ws-a`,
+poussée sur `ssakone/ppbase`) :
+
+1. Règle unique `ppbase.models.field_multiplicity` : relation avec `maxSelect`
+   présent et null → multiple sans limite ; entier n → multiple si n > 1 ; clé
+   absente → simple ; select ou file à null → simple. Le schéma stocké n'est pas
+   réécrit : l'API renvoie toujours `maxSelect: null`. Écarts voulus, sans effet
+   sur BUMA (les 191 relations de l'export portent la clé) : clé absente au
+   format 0.22 lue simple, `maxSelect: null` au format plat lu multiple.
+2. Colonnes créées désormais : relation multiple `TEXT[] NOT NULL DEFAULT '{}'`
+   avec index GIN, relation simple `TEXT NOT NULL DEFAULT ''` avec btree partiel,
+   sans limite de longueur comme PocketBase. Les colonnes `VARCHAR(15)` existantes
+   de même forme restent compatibles (une valeur de plus de 15 caractères y est
+   refusée, jamais tronquée).
+3. Écritures selon `PrepareValue` (une chaîne envoyée à une relation multiple
+   devient une liste d'un élément, une liste envoyée à une relation simple garde
+   le dernier ID, décodage JSON partiel à la Go). L'API record refuse une cible
+   inexistante (`validation_missing_rel_records`) avant les hooks de requête et
+   après les 403/404, en listant aussi les autres erreurs du formulaire ; les
+   valeurs posées par un hook et les écritures internes ne sont pas vérifiées,
+   comme `dao.SaveRecord`.
+4. Suppression : portage de `Dao.DeleteRecord` ; l'ID est retiré des relations
+   qui le référencent (mise à jour de `updated` et événement realtime), cascade
+   seulement quand la liste devient vide, refus (400, message PocketBase) si une
+   relation requise serait vidée.
+5. Filtres : un champ multiple, direct ou en fin de chemin, est comparé par son
+   texte JSON ; `:length` et `:each` suivent PocketBase ; une liste `@request`
+   est liée en texte JSON ; un identifiant invalide donne 400.
+6. Base créée avant la règle : PPBase refuse de démarrer
+   (`MultiValueShapeMismatchError`) tant qu'une colonne contredit la règle ;
+   réparation explicite et transactionnelle par
+   `app.reconcile_multi_value_columns(...)` dans une migration.
+
+BUMA (`c11/ws-e`, 7 commits) :
+
+- Migration `1789236850_c11_relation_multiple_columns` : sur une base migrée
+  avant la correction, `buma_customer.pdv`, `buma_pilotage_ticket.tag` et
+  `buma_wallet.managers` passent de `varchar(15)` à `text[] NOT NULL DEFAULT '{}'`
+  avec index GIN (`''` et `'[]'` → `{}`, toute autre valeur sans `[` →
+  `{valeur}`) ; refus atomique d'une valeur contenant `[` autre que `[]`, d'une
+  forme inattendue, d'une vue dépendante ou d'un PPBase non corrigé ; verrou
+  `ACCESS EXCLUSIVE` ; aucun effet sur une base neuve ; `_collections` jamais
+  écrit. `down` seulement si chaque tableau a au plus un élément non vide d'au
+  plus 15 caractères. À appliquer serveur arrêté (un serveur resté démarré garde
+  des requêtes préparées de l'ancien type et échoue une fois).
+- Graine C5 `1789236846` : `CUSTOMER_DIVERS` n'envoie plus `pdv`, comme
+  `master.setup.ts` l.52-60 (PocketBase stocke alors `[]`). Le contenu d'une
+  migration déjà appliquée change parce que l'ancien `''` explicite échoue sur
+  une colonne `TEXT[]` ; là où elle est enregistrée, rien n'est rejoué et
+  `1789236850` convertit la valeur `''`.
+- `app/legacy/records.py` `prepared()` et `app/legacy/views.py` utilisent la
+  règle PPBase au lieu de `(maxSelect or 1) > 1`.
+- Vérificateurs : forme physique des 191 colonnes relationnelles contrôlée, mode
+  strict `fresh` par défaut (multiple `text[]` + GIN, simple `text` + btree),
+  `--relation-columns migrated` explicite pour une base créée avant la correction
+  (les 188 relations simples y restent `varchar(15)` : les élargir imposerait de
+  recréer les vues).
+- Bancs : `scripts/c9_commerce_runtime.py` attend `[id]` pour `customer.pdv`
+  (la source réécrit toujours `pdv`, `master.retour.functions.ts` l.96-99, et
+  PocketBase stocke une liste) ; `scripts/c11_rehearsal.py` attend des tableaux ;
+  `scripts/c11_idempotency_runtime.py` propage le `PYTHONPATH` de l'appelant au
+  serveur isolé et vérifie le PPBase réellement chargé.
+
+Impact client : `pdv`, `tag` et `managers` sont servis en listes (API, expand
+ordonné, realtime), comme en production ; une écriture API vers une cible
+inexistante reçoit 400, comme en production, y compris la mise à jour d'un
+record qui porte un orphelin historique ; les suppressions nettoient désormais
+les références comme en production ; la règle de consultation de `buma_wallet`
+renvoie 404 comme PocketBase au lieu de couper la connexion. BUMA exige
+désormais ce PPBase corrigé (`ppbase.models.field_multiplicity`) ; le
+`pyproject.toml` ne peut pas l'exprimer par la version (0.3.2 dans les deux
+cas) : la révision PPBase requise est consignée dans la note de passation.
+
+Écarts PPBase restants, antérieurs à ce changement et documentés dans
+`docs/relation-multiplicity.md` de PPBase (xfail stricts) : multi-match des
+traversées et de `@collection` (faille des règles `users`, traitée par D-0030),
+feuille NULL d'une relation absente dans un chemin, enveloppe d'erreur
+`status`/`code` et messages, code de dépassement `maxSelect`, `minSelect` non
+appliqué, `+champ` appliqué, expand `_via_` absent, `expand: {}` présent, tri sur
+un champ multiple, aucun hook de modèle pendant le nettoyage des références.
+
+Preuves : suite PPBase 927 passés, 71 sautés, 6 xfail stricts et exactement les
+10 échecs antérieurs ; sonde appariée `tests/pocketbase_parity/relation_multiplicity_probe.py` :
+132 valeurs comparées au binaire PocketBase 0.22.34, 119 identiques, les 13
+autres étant les écarts ci-dessus (0.22.27 donne les mêmes valeurs) ; BUMA :
+`tests/test_c11_relation_columns.py` (41 tests, dont sondes 0.22.27 et 0.22.34),
+`scripts/c11_relation_columns_runtime.py` (base partielle, rejeu, down/up des
+5 dernières migrations, serveur démarré), banc d'idempotence C4/C7/C9 et
+répétition passants sur le PPBase corrigé.
+
+## D-0026 — C11 : contrat de l'importeur, anomalies source conservées et vérification exacte
+
+Chantier WS-B de la session serveur du 2026-10-24 (`scripts/c11_import.py`,
+`scripts/c11_snapshot_audit.py`, `scripts/c11_volume_benchmark.py`), relu
+indépendamment sur trois tours. Applique le choix par défaut du plan (§2,
+conforme à D-0009 et D-0021) : importer telles quelles les références orphelines
+et les références de fichiers absents.
+
+1. **Anomalies conservées, non bloquantes.** Une relation sans cible et une
+   référence de fichier absent sont importées telles quelles : aucune cible ni
+   fichier inventé, aucune référence supprimée, scindée ou redirigée
+   (PocketBase 0.22.34 stocke une relation en texte sans clé étrangère, PPBase
+   n'en crée pas). Publication en agrégats (`preserved_source_anomalies`, par
+   collection et champ : références, records, cibles ou fichiers distincts) ;
+   détail par record seulement dans `--private-report` (fichier neuf 0600, sous
+   `backups/`). Après chargement, PostgreSQL recompte ces anomalies ; le résultat
+   doit égaler le diagnostic (`anomaly_conservation_mismatch`, sinon annulation).
+   Sur le backup réel : les 195 795 références orphelines (5 champs) et les
+   2 303 fichiers absents (2 champs) de D-0021, à l'identique.
+2. **Types cibles.** Contrôle préalable de chaque champ de l'export contre sa
+   colonne PostgreSQL (introspection une fois par table), puis de chaque valeur
+   avant écriture : longueur `varchar(n)` (éléments compris), tableau ou scalaire,
+   NOT NULL, NUL et UTF-8 invalide, entiers, double exact, booléen, timestamptz
+   au format écrit par PocketBase, JSON. Codes explicites, **aucune troncature ni
+   conversion** (PostgreSQL 16 tronque en silence les espaces excédentaires d'un
+   `varchar(n)` : ce cas est refusé). Sur le backup réel, aucune valeur hors
+   D-0019 ne dépasse sa colonne.
+3. **Version source.** Registre `VALIDATED_SOURCE_VERSIONS`, preuve publique relue
+   à l'exécution (statut `passed` et version déclarée) ; 0.22.27 → rapport de
+   répétition historique ; 0.22.34 → D-0024 (ajout par WS-B3).
+4. **Chargement et vérification exacte**, dans une seule transaction de
+   l'appelant, sur une base nommée `buma_c11_rehearsal` : définitions identiques
+   au diagnostic ; seuls les deux déclencheurs rowid de `1789236848` admis, avec
+   leur définition exacte, et aucun déclencheur d'événement (contrôlés trois
+   fois) ; COPY binaire par lots de 5 000 ; relecture typée de chaque lot, puis
+   `SET CONSTRAINTS ALL IMMEDIATE`, relecture complète de chaque table et de
+   l'archive rowid (compte, empreinte multiensemble, somme des hash PostgreSQL),
+   total égal au diagnostic, recomptage des anomalies. Les erreurs PostgreSQL et
+   de décodage ne sont jamais chaînées (le DETAIL cite la ligne) : seuls
+   collection, SQLSTATE et contrainte sont rapportés. Réglages limités à la
+   transaction : `plan_cache_mode = force_custom_plan`,
+   `max_parallel_workers_per_gather = 0`.
+5. **Robustesse.** Échec injecté sans aucun effet (72 tables vides, pas
+   d'archive, staging supprimé, aucun verrou ni session restants) ; reprise propre
+   sur la même cible ; deux imports simultanés : un seul réussit, l'autre reçoit
+   `target_not_empty` ; SIGTERM et SIGHUP transformés en annulation avec
+   nettoyage (`cancelled_by_termination`). Après SIGKILL ou OOM, seul le staging
+   privé reste, à supprimer à la main.
+6. **Mode manifeste** (paquet du serveur, sans `storage/`) : `--manifest` remplace
+   `storage/` ; `data.db` doit égaler son entrée, les WAL et journaux doivent être
+   vides, une entrée de 0 octet porte les empreintes du contenu vide ; aucun octet
+   copié (`file_bytes_copied: false`) et le rapport le dit. Sur le backup réel,
+   l'empreinte de l'inventaire tirée du manifeste égale celle du vrai `storage/`
+   diagnostiqué sur le Mac le 2026-09-28.
+7. **Mesures** (jeu synthétique de 1 182 406 records, PostgreSQL limité à 2 Go et
+   2 CPU, hôte partagé) : import 243 à 321 s selon la charge, environ
+   1 400 instructions au lieu d'environ 3,55 millions, RSS de l'importeur
+   114 Mio ; rollback d'un import à moitié 91 à 128 s ; diagnostic réel 110 à
+   128 s (RSS 146 à 169 Mio) ; audit 30 à 38 s.
+
+Impact client : aucun par lui-même (outil hors ligne) ; il fixe ce que la base
+PPBase contiendra à la bascule : les historiques, y compris leurs anomalies, sont
+ceux de PocketBase. Régressions : `tests/test_c11_import.py`,
+`tests/test_c11_snapshot_audit.py`, `tests/test_c11_volume_benchmark.py`,
+`negative_diagnostics()` de `scripts/c11_rehearsal.py` (20 cas),
+`python -m scripts.c11_volume_benchmark --negative-only` (13 refus vérifiés sans
+effet) et `docs/c11-volume-benchmark-report.json`.
+
+## D-0029 — C11 : représentation jsonb et lectures normalisées par PocketBase (écarts documentés, acceptation demandée)
+
+Constatés par WS-B en comparant les deux binaires PocketBase et PPBase ; aucun
+n'est créé par l'import, qui garde les valeurs stockées.
+
+- **Ordre des clés JSON.** PocketBase 0.22.34 sert les octets JSON stockés
+  (`tools/types/json_raw.go` l.26-32) ; PPBase stocke en `jsonb`, qui trie les
+  clés. Même valeur après décodage, ordre d'itération différent. Backup réel :
+  7 objets (`roles.permission` 6, `buma_config.posConfig` 1). Avertissement
+  `jsonb_key_order_normalized`.
+- **SQL NULL d'un champ json.** PocketBase sert `null` et son filtre `= null` est
+  vrai pour SQL NULL comme pour JSON null ; la colonne PPBase est
+  `JSONB NOT NULL DEFAULT 'null'` et son filtre `= null` est compilé en
+  `IS NULL`. Même valeur servie, filtres `= null` et `!= null` différents (écart
+  général de PPBase). Backup réel : 100 valeurs (`users.more` 12,
+  `buma_article.specification` 44, `buma_article.details` 44). Avertissement
+  `sql_null_json_stored_as_jsonb_null`.
+- **Notation des nombres JSON.** `jsonb` réécrit `1e2` en `100` ; un décodeur
+  typé (Dart) lit l'un comme double, l'autre comme entier. Backup réel : 0.
+  Avertissement `jsonb_number_notation_normalized`.
+- **Listes servies normalisées par PocketBase.** À chaque lecture, PocketBase
+  0.22.34 passe select, file et relation par `list.ToUniqueStringSlice` puis
+  `NonzeroUniques` (`models/schema/schema_field.go` l.351-386) : une liste
+  multiple perd ses `""` et ses doublons, une valeur simple stockée comme texte
+  de tableau JSON est servie par son dernier élément. PPBase sert la valeur
+  stockée. L'import garde la valeur (ni dédoublonnage ni aplatissement, interdits
+  par le plan). Backup réel : 0 cas sur 8 650 valeurs multiples et environ
+  12,5 millions de valeurs simples. Avertissements
+  `list_served_deduplicated_by_pocketbase`, `single_value_served_as_last_element`.
+- Restent **bloqués** : clés JSON dupliquées (`jsonb_duplicate_keys_collapsed`,
+  jsonb ne garde que la dernière) et textes que PocketBase servirait comme chaîne
+  JSON (`json_text_served_as_string_by_pocketbase`) : 0 cas réel.
+
+Statut : écarts documentés et signalés par avertissement, sans effet mesuré sur
+le backup réel hors les 7 ordres de clés et les 100 NULL. **Acceptation de
+l'utilisateur demandée** pour les deux premiers ; la correction possible côté
+PPBase (filtre `= null` compilé en `(col IS NULL OR col = 'null'::jsonb)`,
+colonne JSON nullable, nombres servis avec leur texte, normalisation des listes à
+la lecture) reste ouverte. Régressions : tests jsonb et listes de
+`tests/test_c11_import.py`, cas correspondants de `negative_diagnostics()`.
