@@ -20,7 +20,9 @@ async def test_concurrent_subscribers_have_independent_live_permissions(monkeypa
             "role.permission.customer.read": auth["id"] == "allowed",
         }
 
-    async def check(engine, collection, rid, rule, context):
+    async def check(engine, collection, rid, rule, context, **options):
+        # PPBase passes keyword options such as allow_hidden (WS-A5); the
+        # subscriber context is what this test checks.
         await asyncio.sleep(0)
         return context["auth"]["role.permission.customer.read"]
 
