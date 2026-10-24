@@ -52,7 +52,9 @@ from scripts import c11_import as importer
 
 PROJECT = Path(__file__).resolve().parents[1]
 PROFILE = PROJECT / "docs" / "c11-master-initial-diagnostic.json"
-# D-0019: these collections stay blocked until the unbounded-relation wave.
+# D-0019: importable since WS-B3, but this generator has no multiple-relation
+# values: their 5 841 real rows (0.5 %) stay out of the synthetic volume; their
+# arrays are loaded and recounted on the PocketBase real_shape fixture instead.
 UNBOUNDED_TABLES = {"buma_customer", "buma_pilotage_ticket", "buma_wallet"}
 DATABASE = "buma_c11_rehearsal"
 ORPHAN_EVERY = 997
