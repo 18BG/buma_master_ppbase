@@ -244,6 +244,7 @@ def test_child_failure_is_reported_without_its_message(tmp_path, capsys):
 def test_privacy_patterns_are_reported_by_path_only():
     report = {
         "ok": "imported_as_is_no_target_or_file_invented_no_reference_removed_or_redirected",
+        "migration": "1785599959_updated_buma_transaction.js",
         "digest": "a" * 64,
         "commit": "b" * 40,
         "fingerprint": "12:" + "c" * 64,
@@ -402,6 +403,10 @@ def test_envelope_problems():
     assert rehearsal.envelope_problems(body, page=1, per_page=1, expected_total=5) == [
         "total_pages"
     ]
+    body = envelope(0, 0) | {"totalPages": 1}
+    assert rehearsal.envelope_problems(body, page=1, per_page=1, expected_total=0) == [
+        "total_pages_one_for_empty_list"
+    ]
     assert rehearsal.envelope_problems(envelope(5, 0), page=1, per_page=1, expected_total=5) == [
         "items_count"
     ]
@@ -467,6 +472,14 @@ def test_record_shape_of_auth_records():
         "forbidden_key",
         "keys",
     ]
+    dated = {
+        **USERS,
+        "schema": [*USERS["schema"], {"name": "since", "type": "date", "options": {}}],
+    }
+    assert rehearsal.record_shape_problems(dated, served_user(since=""), email_visible=True) == []
+    assert rehearsal.record_shape_problems(dated, served_user(since=None), email_visible=True) == [
+        "empty_date_served_as_null:since"
+    ]
     wrong = served_user(set="false", role=["r1"])
     assert rehearsal.record_shape_problems(USERS, wrong, email_visible=True) == [
         "kind:role",
@@ -500,6 +513,10 @@ def test_error_body_problems():
     assert rehearsal.error_body_problems(
         {"code": 403, "message": "Forbidden", "data": {}}, 403, rehearsal.PB_ADMIN_ONLY
     ) == ["message"]
+    current = {"status": 403, "message": rehearsal.PB_ADMIN_ONLY, "data": {}}
+    assert rehearsal.error_body_problems(current, 403, rehearsal.PB_ADMIN_ONLY) == [
+        "error_status_key_instead_of_code"
+    ]
     assert rehearsal.error_body_problems({"detail": "x"}, 404, rehearsal.PB_NOT_FOUND) == [
         "keys",
         "code",
@@ -589,37 +606,82 @@ def test_metadata_changes_allowed_only_for_imported_auth_options():
     assert not rehearsal.import_changes_allowed({"buma_sale": ["schema"]}, {"users"})
 
 
-def test_filter_cases_follow_the_source_samples():
+def test_filter_cases_follow_pocketbase_0_22_semantics():
+    def sample(value, like, json_equal, id_any, empty, rows):
+        return {
+            "value": value,
+            "like_rows": like,
+            "json_equal_rows": json_equal,
+            "id_any_rows": id_any,
+            "empty_rows": empty,
+            "rows": rows,
+        }
+
     samples = {
-        "buma_customer.pdv": {"value": "p1", "rows_containing": 7, "empty_rows": 90, "rows": 100},
-        "buma_pilotage_ticket.tag": {
-            "value": "t1",
-            "rows_containing": 2,
-            "empty_rows": 0,
-            "rows": 4,
-        },
-        "buma_wallet.managers": {
-            "value": "a,b",
-            "rows_containing": 1,
-            "empty_rows": 10,
-            "rows": 11,
-        },
+        "buma_customer.pdv": sample("p1", 7, 0, 7, 90, 100),
+        "buma_pilotage_ticket.tag": sample("t1", 2, 0, 2, 0, 4),
+        "buma_wallet.managers": sample("a,b", 1, 0, 0, 10, 11),
         "orphan": {"value": "o1", "rows": 5},
         "present_single": {"value": "c1", "rows": 3},
     }
     cases = {
         code: (name, expr, total) for code, name, expr, total in rehearsal.filter_cases(samples)
     }
-    assert cases["pdv_any_equals"] == ("buma_customer", 'pdv ?= "p1"', 7)
+    assert cases["pdv_contains"] == ("buma_customer", 'pdv ~ "p1"', 7)
+    # A direct multi-value field is its JSON text: ?= compares it whole.
+    assert cases["pdv_any_equals_whole_json_text"] == ("buma_customer", 'pdv ?= "p1"', 0)
+    assert cases["pdv_id_any_equals"] == ("buma_customer", 'pdv.id ?= "p1"', 7)
     assert cases["pdv_length_positive"] == ("buma_customer", "pdv:length > 0", 10)
-    assert cases["managers_any_equals_31_characters_orphan"] == (
-        "buma_wallet",
-        'managers ?= "a,b"',
-        1,
-    )
-    assert cases["orphan_single_equals"][2] == 5
+    assert cases["managers_contains"] == ("buma_wallet", 'managers ~ "a,b"', 1)
+    assert cases["managers_id_any_equals"] == ("buma_wallet", 'managers.id ?= "a,b"', 0)
     assert cases["orphan_single_target_id"] == ("buma_sale", 'customer.id = "o1"', 0)
-    assert len(cases) == 9
+    assert cases["single_target_id"] == ("buma_customer", 'type.id = "c1"', 3)
+    assert len(cases) == 19
+    assert rehearsal.like_pattern("a_b%c") == "%a\\_b\\%c%"
+
+
+def test_expand_problems():
+    lists = [{"pdv": ["a", "b"], "expand": {"pdv": [{"id": "a"}, {"id": "b"}]}}]
+    assert rehearsal.expand_problems(lists, "pdv", related="ordered_list") == []
+    swapped = [{"pdv": ["a", "b"], "expand": {"pdv": [{"id": "b"}, {"id": "a"}]}}]
+    assert rehearsal.expand_problems(swapped, "pdv", related="ordered_list") == [
+        "expand_not_the_stored_ordered_list"
+    ]
+    assert rehearsal.expand_problems([{"type": "c"}], "type", related="object") == [
+        "expand_not_one_object"
+    ]
+    assert rehearsal.expand_problems([{"customer": "o"}], "customer", related="absent") == []
+    assert rehearsal.expand_problems(
+        [{"customer": "o", "expand": {}}], "customer", related="absent"
+    ) == ["expand_key_without_related_record"]
+    assert rehearsal.expand_problems([], "pdv", related="ordered_list") == ["no_items"]
+
+
+def test_divergences_pass_only_when_accepted_by_a_decision():
+    problems = {
+        "anonymous_list:a": ["error_status_key_instead_of_code"],
+        "superuser_list:b": ["empty_date_served_as_null:since", "total_pages_one_for_empty_list"],
+        "anonymous_list:c": ["status:500"],
+        "sort:d": [],
+    }
+    none = rehearsal.classify_problems(problems, {})
+    assert sorted(none["failing"]) == ["anonymous_list:a", "anonymous_list:c", "superuser_list:b"]
+    assert none["divergences"]["empty_date_served_as_null"]["checks"] == 1
+    accepted = rehearsal.accepted_divergences(
+        [
+            "error_status_key_instead_of_code=D-0031",
+            "empty_date_served_as_null=D-0032",
+            "total_pages_one_for_empty_list=D-0033",
+        ]
+    )
+    some = rehearsal.classify_problems(problems, accepted)
+    assert some["failing"] == {"anonymous_list:c": ["status:500"]}
+    assert some["divergences"]["error_status_key_instead_of_code"]["accepted_by"] == "D-0031"
+    refused(lambda: rehearsal.accepted_divergences(["status=D-0031"]), "unknown_divergence_code")
+    refused(
+        lambda: rehearsal.accepted_divergences(["total_pages_one_for_empty_list=yes"]),
+        "decision_reference_required",
+    )
 
 
 def passed_pass(index: int, seconds: float) -> dict:
@@ -639,6 +701,10 @@ def test_repeatability_and_runbook_durations():
     other = {**private, "row_hashes_after_import": {"t": "1:6"}}
     assert rehearsal.repeatability(passes, [private, other])["identical"] is False
     assert rehearsal.repeatability(passes[:1], [private])["identical"] is None
+    failed = [passed_pass(1, 10.0) | {"status": "failed"}, passed_pass(2, 12.0)]
+    result = rehearsal.repeatability(failed, [private, private])
+    assert result["identical"] is True and result["both_passed"] is False
+    assert rehearsal.repeatability(passes, [{}, {}])["identical"] is False
     assert rehearsal.runbook_durations(passes) == {
         "import": {"seconds": [10.0, 12.0], "max": 12.0},
         "diagnosis": {"seconds": [2.0, 2.0], "max": 2.0},

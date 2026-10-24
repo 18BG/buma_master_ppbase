@@ -496,7 +496,7 @@ MIN_FULL_LENGTH = 4
 MIN_TOKEN_LENGTH = 8
 TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_@+\-]+")
 HEX_DIGEST = re.compile(r"(?:[0-9]+:)?(?:[0-9a-f]{40}|[0-9a-f]{64})")
-SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
+SNAKE_CASE = re.compile(r"[a-z0-9][a-z0-9_]*")  # codes and migration file names
 PRIVACY_PATTERNS = {
     "email_address": re.compile(r"[^\s@/]+@[^\s@/]+\.[A-Za-z]{2,}"),
     "bcrypt_hash": re.compile(r"\$2[abxy]\$\d\d\$"),
@@ -692,7 +692,8 @@ def envelope_problems(body, *, page: int, per_page: int, expected_total: int | N
     elif expected_total is not None and total != expected_total:
         problems.append("total_items_mismatch")
     if total is not None and body.get("totalPages") != math.ceil(total / per_page):
-        problems.append("total_pages")
+        empty = total == 0 and body.get("totalPages") == 1
+        problems.append("total_pages_one_for_empty_list" if empty else "total_pages")
     items = body.get("items")
     if not isinstance(items, list):
         problems.append("items_type")
@@ -738,10 +739,10 @@ def record_shape_problems(collection: dict, record, *, email_visible: bool) -> l
     if record.get("collectionName") != collection["name"]:
         problems.append("collection_name")
     for field in collection["schema"]:
-        if field["name"] in record and not kind_matches(
-            record[field["name"]], expected_kind(field)
-        ):
-            problems.append("kind:" + field["name"])
+        name = field["name"]
+        if name in record and not kind_matches(record[name], expected_kind(field)):
+            empty_date = field["type"] == "date" and record[name] is None
+            problems.append(("empty_date_served_as_null:" if empty_date else "kind:") + name)
     return problems
 
 
@@ -750,10 +751,14 @@ def error_body_problems(body, status: int, message: str) -> list[str]:
     if not isinstance(body, dict):
         return ["not_an_object"]
     problems = []
-    if set(body) != {"code", "message", "data"}:
-        problems.append("keys")
-    if body.get("code") != status:
-        problems.append("code")
+    if set(body) == {"status", "message", "data"} and body.get("status") == status:
+        # The current PocketBase envelope (v0.23.0 tools/router/error.go:41).
+        problems.append("error_status_key_instead_of_code")
+    else:
+        if set(body) != {"code", "message", "data"}:
+            problems.append("keys")
+        if body.get("code") != status:
+            problems.append("code")
     if body.get("message") != message:
         problems.append("message")
     if body.get("data") != {}:
@@ -1424,12 +1429,31 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
                 arrays[record_id] = parsed
             facts["arrays"][f"{table}.{field}"] = arrays
             holders = Counter(item for items in arrays.values() for item in set(items))
-            value, rows = most_frequent(holders)
+            value, _rows = most_frequent(holders)
+            require(value is not None, "no_relation_element_to_sample", field=f"{table}.{field}")
+            target = relation_target(definitions, table, field)
+
+            def count(sql: str, *args) -> int:
+                return db.execute(sql, args).fetchone()[0]
+
             samples[f"{table}.{field}"] = {
                 "value": value,
-                "rows_containing": rows,
-                "empty_rows": sum(1 for items in arrays.values() if not items),
                 "rows": len(arrays),
+                "empty_rows": sum(1 for items in arrays.values() if not items),
+                # PocketBase 0.22 semantics evaluated by SQLite on the stored JSON.
+                "like_rows": count(
+                    f"SELECT count(*) FROM {q(table)} WHERE {q(field)} LIKE ? ESCAPE '\\'",
+                    like_pattern(value),
+                ),
+                "json_equal_rows": count(
+                    f"SELECT count(*) FROM {q(table)} WHERE {q(field)} = ?", value
+                ),
+                "id_any_rows": count(
+                    f"SELECT count(*) FROM {q(table)} t WHERE EXISTS (SELECT 1 FROM "
+                    f"json_each(t.{q(field)}) je JOIN {q(target)} r ON r.id = je.value "
+                    "WHERE je.value = ?)",
+                    value,
+                ),
             }
         # Orphan single relation: most referenced missing target of buma_sale.customer.
         target = relation_target(definitions, "buma_sale", "customer")
@@ -1925,23 +1949,100 @@ async def fetch(client, path: str, token: str | None = None, **params) -> tuple:
     return response.status_code, body
 
 
+# PocketBase 0.22.34 behaviors that PPBase served differently on the real data:
+# problem code -> the PocketBase source defining the expected behavior. Such a
+# divergence passes only through --accept-divergence CODE=DECISION (recorded).
+DIVERGENCES = {
+    "error_status_key_instead_of_code": (
+        "v0.22.34 apis/api_error.go:12-15: error body {code, message, data}"
+    ),
+    "total_pages_one_for_empty_list": (
+        "v0.22.34 tools/search/provider.go:254: totalPages = ceil(0 / perPage) = 0"
+    ),
+    "empty_date_served_as_null": 'v0.22.34 tools/types/datetime.go:47-58: empty date ""',
+    "expand_key_without_related_record": (
+        "v0.22.34 models/record.go:557-559 and daos/record_expand.go:227-229: no expand key"
+    ),
+}
+
+
+def problem_base(problem: str) -> str:
+    return problem.split(":", 1)[0]
+
+
+def classify_problems(problems: dict[str, list[str]], accepted: dict[str, str]) -> dict:
+    """Checks failing without an accepted divergence, and every divergence observed."""
+    failing, observed = {}, {}
+    for check, codes in sorted(problems.items()):
+        bases = {problem_base(code) for code in codes}
+        for base in sorted(bases & set(DIVERGENCES)):
+            entry = observed.setdefault(
+                base,
+                {
+                    "checks": 0,
+                    "pocketbase_0_22_34": DIVERGENCES[base],
+                    "accepted_by": accepted.get(base),
+                },
+            )
+            entry["checks"] += 1
+        if codes and not bases <= set(accepted):
+            failing[check] = sorted(codes)
+    return {"failing": failing, "divergences": observed}
+
+
+def listing_problems(status, body, expected: int | None, per_page: int = 1) -> list[str]:
+    if status != 200:
+        return [f"status:{status}"]
+    return envelope_problems(body, page=1, per_page=per_page, expected_total=expected)
+
+
+def items_of(status, body) -> list:
+    if status == 200 and isinstance(body, dict) and isinstance(body.get("items"), list):
+        return body["items"]
+    return []
+
+
+def expand_problems(items: list, field: str, *, related: str) -> list[str]:
+    """``related``: "ordered_list", "object" or "absent" (PocketBase 0.22.34 expand)."""
+    problems = [] if items else ["no_items"]
+    for item in items:
+        expand = item.get("expand")
+        if related == "absent":
+            if expand == {}:
+                problems.append("expand_key_without_related_record")
+            elif "expand" in item:
+                problems.append("expand_served_for_absent_record")
+            continue
+        value = (expand or {}).get(field) if isinstance(expand, dict) else None
+        if related == "ordered_list":
+            stored = item.get(field)
+            if not isinstance(value, list) or [r.get("id") for r in value] != stored:
+                problems.append("expand_not_the_stored_ordered_list")
+        elif not isinstance(value, dict) or value.get("id") != item.get(field):
+            problems.append("expand_not_one_object")
+    return sorted(set(problems))
+
+
 async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: dict, sql) -> dict:
-    """Aggregated HTTP reads: statuses, counts, shapes and booleans, never a value."""
+    """Aggregated HTTP reads: statuses, counts and problem codes, never a value."""
     import httpx
 
     definitions, samples = ctx.definitions, ctx.facts["samples"]
     by_name = {c["name"]: c for c in definitions}
-    failures: list[str] = []
+    problems: dict[str, list[str]] = {}
     result: dict = {}
     timer: dict[str, float] = {}
+
+    def total_of(name: str) -> int | None:
+        return counts[name] if by_name[name]["type"] != "view" else view_counts.get(name)
+
+    def records(name: str) -> str:
+        return f"/api/collections/{name}/records"
 
     async with httpx.AsyncClient(base_url=base, timeout=HTTP_TIMEOUT_SECONDS) as client:
 
         async def get(path: str, token: str | None = None, **params):
             return await fetch(client, path, token, **params)
-
-        def records(name: str) -> str:
-            return f"/api/collections/{name}/records"
 
         started = time.monotonic()
         status, _ = await get("/api/health")
@@ -1965,233 +2066,229 @@ async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: di
         }
         timer["auth"] = time.monotonic() - started
 
-        # Every collection listed by the superuser: envelope, totalItems = SQL count,
-        # served record shape (keys and JSON kinds) of the first item.
+        # Every collection listed by the superuser: envelope, totalItems equal to
+        # the SQL count, served shape (keys, JSON kinds) of the first record.
         started = time.monotonic()
-        listed = {}
         for c in definitions:
             name = c["name"]
-            expected = counts[name] if c["type"] != "view" else view_counts.get(name)
             status, body = await get(records(name), token, page=1, perPage=1)
-            problems = (
-                envelope_problems(body, page=1, per_page=1, expected_total=expected)
-                if status == 200
-                else ["status"]
-            )
-            if status == 200 and c["type"] != "view" and not problems and body["items"]:
-                problems += record_shape_problems(c, body["items"][0], email_visible=True)
-            listed[name] = {"status": status, "problems": problems}
-        bad = {name: entry for name, entry in listed.items() if entry["problems"]}
-        failures += [f"superuser_list:{name}" for name in bad]
-        result["superuser_lists"] = {
-            "collections": len(listed),
-            "base_and_auth_total_items_equal_sql_count": sum(
-                1 for c in definitions if c["type"] != "view" and not listed[c["name"]]["problems"]
-            ),
-            "views_total_items_equal_sql_count": sum(
-                1 for c in definitions if c["type"] == "view" and not listed[c["name"]]["problems"]
-            ),
-            "failing": bad,
-        }
+            codes = listing_problems(status, body, total_of(name))
+            items = items_of(status, body)
+            if c["type"] != "view" and items:
+                codes += record_shape_problems(c, items[0], email_visible=True)
+            problems[f"superuser_list:{name}"] = codes
         timer["superuser_lists"] = time.monotonic() - started
 
-        # Anonymous lists by rule: admin only -> 403 with PocketBase's body; public
-        # -> 200 and every record; expression -> 200, the rule filters.
+        # Anonymous lists by rule (apis/record_crud.go:56-58 and :71-73): admin
+        # only -> 403 and PocketBase's body; public -> 200 and every record;
+        # expression -> 200, the rule filtering.
         started = time.monotonic()
-        anonymous = {}
+        rules, zero_items = Counter(), 0
         for c in definitions:
             name, rule = c["name"], c.get("listRule")
+            rules[rule_kind(rule)] += 1
             status, body = await get(records(name), None, page=1, perPage=1)
             if rule is None:
-                problems = (
-                    error_body_problems(body, 403, PB_ADMIN_ONLY) if status == 403 else ["status"]
+                codes = (
+                    error_body_problems(body, 403, PB_ADMIN_ONLY)
+                    if status == 403
+                    else [f"status:{status}"]
                 )
-                anonymous[name] = {"rule": "admin_only", "status": status, "problems": problems}
-                continue
-            expected = None
-            if rule == "":
-                expected = counts[name] if c["type"] != "view" else view_counts.get(name)
-            problems = (
-                envelope_problems(body, page=1, per_page=1, expected_total=expected)
-                if status == 200
-                else ["status"]
-            )
-            entry = {"rule": rule_kind(rule), "status": status, "problems": problems}
-            if rule != "" and status == 200 and isinstance(body, dict):
-                entry["total_items"] = body.get("totalItems")
-            anonymous[name] = entry
-        bad = {name: entry for name, entry in anonymous.items() if entry["problems"]}
-        failures += [f"anonymous_list:{name}" for name in bad]
+            else:
+                codes = listing_problems(status, body, total_of(name) if rule == "" else None)
+                if rule != "" and status == 200 and isinstance(body, dict):
+                    zero_items += body.get("totalItems") == 0
+            problems[f"anonymous_list:{name}"] = codes
         result["anonymous_lists"] = {
-            "by_rule": dict(Counter(entry["rule"] for entry in anonymous.values())),
-            "admin_only_refused_403_with_pocketbase_body": sum(
-                1 for e in anonymous.values() if e["rule"] == "admin_only" and not e["problems"]
-            ),
-            "public_total_items_equal_sql_count": sum(
-                1 for e in anonymous.values() if e["rule"] == "public" and not e["problems"]
-            ),
-            "expression_rules_status_200": sum(
-                1 for e in anonymous.values() if e["rule"] == "expression" and not e["problems"]
-            ),
-            "expression_rules_zero_items": sum(
-                1 for e in anonymous.values() if e.get("total_items") == 0
-            ),
-            "failing": bad,
+            "by_rule": dict(sorted(rules.items())),
+            "expression_rules_with_zero_items": zero_items,
         }
 
-        # Anonymous view of one record: admin only -> 403, expression rule -> 404.
-        views = {}
+        # Anonymous view of one record: admin-only rule -> 403 (:155), an
+        # expression rule failing -> 404 (:173).
         for name, record_id in sorted(samples["admin_only_view"].items()):
             status, body = await get(f"{records(name)}/{record_id}")
-            problems = (
-                error_body_problems(body, 403, PB_ADMIN_ONLY) if status == 403 else ["status"]
+            problems[f"anonymous_view:{name}"] = (
+                error_body_problems(body, 403, PB_ADMIN_ONLY)
+                if status == 403
+                else [f"status:{status}"]
             )
-            views[name] = {"expected": 403, "status": status, "problems": problems}
         if samples["expression_view"]:
-            status, body = await get(
-                f"{records('buma_pilotage_ticket')}/{samples['expression_view']}"
+            path = f"{records('buma_pilotage_ticket')}/{samples['expression_view']}"
+            status, body = await get(path)
+            problems["anonymous_view:buma_pilotage_ticket"] = (
+                error_body_problems(body, 404, PB_NOT_FOUND)
+                if status == 404
+                else [f"status:{status}"]
             )
-            problems = error_body_problems(body, 404, PB_NOT_FOUND) if status == 404 else ["status"]
-            views["buma_pilotage_ticket"] = {
-                "expected": 404,
-                "status": status,
-                "problems": problems,
-            }
-        failures += [f"anonymous_view:{name}" for name, entry in views.items() if entry["problems"]]
-        result["anonymous_record_views"] = views
 
-        # Auth e-mail visibility for anonymous readers of the public users list.
+        # E-mail visibility of auth records for anonymous readers (models/record.go).
         status, body = await get(records("users"), None, page=1, perPage=200)
-        items = body.get("items", []) if status == 200 and isinstance(body, dict) else []
+        items = items_of(status, body)
         hidden_shown = sum(1 for i in items if "email" in i and not i.get("emailVisibility"))
         visible_missing = sum(1 for i in items if i.get("emailVisibility") and "email" not in i)
-        shapes = sum(
-            1
-            for i in items
-            if not record_shape_problems(by_name["users"], i, email_visible=True)
-            or not record_shape_problems(by_name["users"], i, email_visible=False)
-        )
+        codes = [] if status == 200 else [f"status:{status}"]
+        codes += ["email_served_while_not_visible"] * bool(hidden_shown)
+        codes += ["email_missing_while_visible"] * bool(visible_missing)
+        for item in items:
+            visible = bool(item.get("emailVisibility"))
+            codes += record_shape_problems(by_name["users"], item, email_visible=visible)
+        problems["anonymous_users_email_visibility"] = sorted(set(codes))
         result["anonymous_users_email_visibility"] = {
             "status": status,
             "items": len(items),
             "email_served_while_not_visible": hidden_shown,
             "email_missing_while_visible": visible_missing,
-            "items_with_pocketbase_shape": shapes,
         }
-        if status != 200 or hidden_shown or visible_missing or shapes != len(items):
-            failures.append("anonymous_users_email_visibility")
         timer["anonymous"] = time.monotonic() - started
 
-        # Filters, against counts taken in the source (SQLite) and in PostgreSQL.
+        # Filters with PocketBase 0.22 semantics, counted in the source and in
+        # PostgreSQL; PPBase's totalItems must equal both.
         started = time.monotonic()
         filters = {}
         for code, name, expression, expected in filter_cases(samples):
             status, body = await get(records(name), token, page=1, perPage=1, filter=expression)
-            problems = (
-                envelope_problems(body, page=1, per_page=1, expected_total=expected)
-                if status == 200
-                else ["status"]
-            )
+            codes = listing_problems(status, body, expected)
+            if sql.get(code) != expected:
+                codes.append("postgresql_count_differs_from_source")
             served = body.get("totalItems") if status == 200 and isinstance(body, dict) else None
-            filters[code] = {
-                "collection": name,
-                "status": status,
-                "expected_total_items": expected,
-                "postgresql_count": sql.get(code),
-                "total_items": served,
-                "problems": problems,
-            }
-            if problems or sql.get(code, expected) != expected:
-                failures.append("filter:" + code)
+            filters[code] = {"expected_total_items": expected, "total_items": served}
+            problems[f"filter:{code}"] = codes
         result["filters"] = filters
         timer["filters"] = time.monotonic() - started
 
-        # Expand: ordered lists for multiple relations, absent targets omitted.
+        # Expand (daos/record_expand.go:217-263): a multiple relation gives the
+        # list of existing targets in stored order, a single one an object, and
+        # no target at all no expand key (models/record.go:557-559).
         started = time.monotonic()
-        result["expand"] = await expand_checks(get, records, samples, token, failures)
+        pdv, managers = samples["buma_customer.pdv"], samples["buma_wallet.managers"]
+        cases = [
+            (
+                "multiple_targets_pdv",
+                "buma_customer",
+                f'pdv ~ "{pdv["value"]}"',
+                "pdv",
+                "ordered_list",
+            ),
+            ("multiple_targets_tag", "buma_pilotage_ticket", "", "tag", "ordered_list"),
+            (
+                "multiple_absent_target_managers",
+                "buma_wallet",
+                f'managers ~ "{managers["value"]}"',
+                "managers",
+                "absent",
+            ),
+        ]
+        if samples["orphan"]:
+            orphan = samples["orphan"]["value"]
+            cases.append(
+                (
+                    "single_absent_target",
+                    "buma_sale",
+                    f'customer = "{orphan}"',
+                    "customer",
+                    "absent",
+                )
+            )
+        if samples["present_single"]:
+            present = samples["present_single"]["value"]
+            cases.append(
+                ("single_present_target", "buma_customer", f'type = "{present}"', "type", "object")
+            )
+        expanded = {}
+        for code, name, expression, field, related in cases:
+            params = {"page": 1, "perPage": SAMPLE_PAGE, "expand": field}
+            if expression:
+                params["filter"] = expression
+            status, body = await get(records(name), token, **params)
+            items = items_of(status, body)
+            codes = [] if status == 200 else [f"status:{status}"]
+            codes += expand_problems(items, field, related=related)
+            expanded[code] = {"status": status, "items": len(items), "expected": related}
+            problems[f"expand:{code}"] = codes
+        result["expand"] = expanded
         timer["expand"] = time.monotonic() - started
 
         # Sort: the first page against SQLite's order (BINARY collation).
         started = time.monotonic()
-        sorts = {}
         for code, name, order, expected in (
             ("created_desc_then_id", "buma_sale", "-created,id", samples["sort_created_desc"]),
             ("text_name_then_id", "buma_customer", "name,id", samples["sort_text_asc"]),
         ):
             status, body = await get(records(name), token, page=1, perPage=SAMPLE_PAGE, sort=order)
-            items = body.get("items", []) if status == 200 and isinstance(body, dict) else []
-            served = [i.get("id") for i in items]
-            sorts[code] = {
-                "collection": name,
-                "status": status,
-                "items": len(served),
-                "order_equals_sqlite_source": served == expected,
-            }
-        failures += [
-            f"sort:{code}" for code, e in sorts.items() if not e["order_equals_sqlite_source"]
-        ]
-        result["sort"] = sorts
+            served = [item.get("id") for item in items_of(status, body)]
+            codes = [] if status == 200 else [f"status:{status}"]
+            if served != expected:
+                codes.append("order_differs_from_sqlite_source")
+            problems[f"sort:{code}"] = codes
         timer["sort"] = time.monotonic() - started
 
-        # Files: no byte on this server. A file present in the manifest is served
-        # by PocketBase with its storage (not provable here); a referenced file
-        # absent from the backup is 404 in PocketBase 0.22.34 (apis/file.go:211-215).
+        # Files, without any byte on this server: a referenced file absent from
+        # the backup is 404 in PocketBase 0.22.34 (apis/file.go:211-215); one the
+        # manifest lists is served there from its storage, not provable here.
         started = time.monotonic()
         files = {}
-        for code, key, expected in (
-            ("present_in_manifest_no_bytes_here", samples["present_file"], 404),
-            ("absent_from_backup", samples["missing_file"], 404),
+        for code, key in (
+            ("present_in_manifest_no_bytes_here", samples["present_file"]),
+            ("absent_from_backup", samples["missing_file"]),
         ):
             if key is None:
                 files[code] = {"sampled": False}
                 continue
             collection_id, record_id, filename = key.split("/", 2)
-            status, body = await get(
-                f"/api/files/{collection_id}/{record_id}/{url_quote(filename)}"
+            path = f"/api/files/{collection_id}/{record_id}/{url_quote(filename)}"
+            status, body = await get(path)
+            files[code] = {"sampled": True, "status": status, "expected_here": 404}
+            problems[f"file:{code}"] = (
+                error_body_problems(body, 404, PB_NOT_FOUND)
+                if status == 404
+                else [f"status:{status}"]
             )
-            problems = error_body_problems(body, 404, PB_NOT_FOUND) if status == 404 else ["status"]
-            files[code] = {
-                "sampled": True,
-                "status": status,
-                "expected": expected,
-                "problems": problems,
-            }
-            if problems:
-                failures.append("file:" + code)
-        files["present_in_manifest_no_bytes_here"]["expected_with_storage_bytes"] = 200
+        files["present_in_manifest_no_bytes_here"]["expected_with_storage"] = 200
         result["files"] = files
         timer["files"] = time.monotonic() - started
 
-    result["failed_checks"] = sorted(failures)
+    classified = classify_problems(problems, ctx.accepted)
+    result["checks_run"] = len(problems)
+    result["checks_without_problem"] = sum(1 for codes in problems.values() if not codes)
+    result["divergences"] = classified["divergences"]
+    result["failed_checks"] = classified["failing"]
     result["seconds"] = {name: round(value, 3) for name, value in timer.items()}
     return result
 
 
 def filter_cases(samples: dict) -> list[tuple[str, str, str, int]]:
-    """(code, collection, filter, expected totalItems from the source)."""
-    pdv, tag, managers = (
-        samples["buma_customer.pdv"],
-        samples["buma_pilotage_ticket.tag"],
-        samples["buma_wallet.managers"],
-    )
-    cases = [
-        ("pdv_any_equals", "buma_customer", f'pdv ?= "{pdv["value"]}"', pdv["rows_containing"]),
-        ("pdv_length_zero", "buma_customer", "pdv:length = 0", pdv["empty_rows"]),
-        ("pdv_length_positive", "buma_customer", "pdv:length > 0", pdv["rows"] - pdv["empty_rows"]),
-        (
-            "tag_any_equals",
-            "buma_pilotage_ticket",
-            f'tag ?= "{tag["value"]}"',
-            tag["rows_containing"],
-        ),
-        (
-            "managers_any_equals_31_characters_orphan",
-            "buma_wallet",
-            f'managers ?= "{managers["value"]}"',
-            managers["rows_containing"],
-        ),
-        ("managers_length_zero", "buma_wallet", "managers:length = 0", managers["empty_rows"]),
-    ]
+    """(code, collection, filter, totalItems the source gives with PocketBase 0.22).
+
+    A direct multi-value field resolves to its stored JSON text (v0.22.34
+    resolvers/record_field_resolve_runner.go:452-456): ``~`` matches a
+    substring of it and ``?=`` compares it whole; ``field.id ?=`` traverses
+    the relation to existing targets; ``:length`` counts the elements
+    (:400-414). A single relation to a missing target matches by value, never
+    through the target (LEFT JOIN).
+    """
+    cases = []
+    for key in ("buma_customer.pdv", "buma_pilotage_ticket.tag", "buma_wallet.managers"):
+        table, field = key.split(".")
+        sample = samples[key]
+        value = sample["value"]
+        cases += [
+            (f"{field}_contains", table, f'{field} ~ "{value}"', sample["like_rows"]),
+            (
+                f"{field}_any_equals_whole_json_text",
+                table,
+                f'{field} ?= "{value}"',
+                sample["json_equal_rows"],
+            ),
+            (f"{field}_id_any_equals", table, f'{field}.id ?= "{value}"', sample["id_any_rows"]),
+            (f"{field}_length_zero", table, f"{field}:length = 0", sample["empty_rows"]),
+            (
+                f"{field}_length_positive",
+                table,
+                f"{field}:length > 0",
+                sample["rows"] - sample["empty_rows"],
+            ),
+        ]
     if samples["orphan"]:
         orphan = samples["orphan"]
         cases += [
@@ -2201,146 +2298,79 @@ def filter_cases(samples: dict) -> list[tuple[str, str, str, int]]:
                 f'customer = "{orphan["value"]}"',
                 orphan["rows"],
             ),
-            # The related row does not exist: no join, no match (PocketBase 0.22 LEFT JOIN).
             ("orphan_single_target_id", "buma_sale", f'customer.id = "{orphan["value"]}"', 0),
         ]
     if samples["present_single"]:
         present = samples["present_single"]
-        cases.append(
-            ("single_equals", "buma_customer", f'type = "{present["value"]}"', present["rows"])
-        )
+        cases += [
+            ("single_equals", "buma_customer", f'type = "{present["value"]}"', present["rows"]),
+            (
+                "single_target_id",
+                "buma_customer",
+                f'type.id = "{present["value"]}"',
+                present["rows"],
+            ),
+        ]
     return cases
 
 
-async def filter_sql_counts(engine, samples: dict) -> dict:
-    """The same filters counted in PostgreSQL (the imported data itself)."""
-    pdv, tag, managers = (
-        samples["buma_customer.pdv"],
-        samples["buma_pilotage_ticket.tag"],
-        samples["buma_wallet.managers"],
-    )
-    queries = {
-        "pdv_any_equals": ("SELECT count(*) FROM buma_customer WHERE :v = ANY(pdv)", pdv["value"]),
-        "pdv_length_zero": ("SELECT count(*) FROM buma_customer WHERE cardinality(pdv) = 0", None),
-        "pdv_length_positive": (
-            "SELECT count(*) FROM buma_customer WHERE cardinality(pdv) > 0",
-            None,
-        ),
-        "tag_any_equals": (
-            "SELECT count(*) FROM buma_pilotage_ticket WHERE :v = ANY(tag)",
-            tag["value"],
-        ),
-        "managers_any_equals_31_characters_orphan": (
-            "SELECT count(*) FROM buma_wallet WHERE :v = ANY(managers)",
-            managers["value"],
-        ),
-        "managers_length_zero": (
-            "SELECT count(*) FROM buma_wallet WHERE cardinality(managers) = 0",
-            None,
-        ),
-    }
-    if samples["orphan"]:
-        value = samples["orphan"]["value"]
-        queries["orphan_single_equals"] = (
-            "SELECT count(*) FROM buma_sale WHERE customer = :v",
+def like_pattern(value: str) -> str:
+    """%value% with LIKE wildcards escaped (ESCAPE '\\')."""
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+async def filter_sql_counts(engine, definitions: list[dict], samples: dict) -> dict:
+    """The same filters counted in PostgreSQL, on the imported data itself."""
+    q = importer.quote
+    queries = {}
+    for key in ("buma_customer.pdv", "buma_pilotage_ticket.tag", "buma_wallet.managers"):
+        table, field = key.split(".")
+        target = relation_target(definitions, table, field)
+        value = samples[key]["value"]
+        column = f"array_to_json({q(field)})::text"
+        queries[f"{field}_contains"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE {column} ILIKE :v ESCAPE '\\'",
+            like_pattern(value),
+        )
+        queries[f"{field}_any_equals_whole_json_text"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE {column} = :v",
             value,
         )
-        queries["orphan_single_target_id"] = (
-            "SELECT count(*) FROM buma_sale s JOIN buma_customer_old o ON o.id = s.customer "
-            "WHERE o.id = :v",
+        queries[f"{field}_id_any_equals"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE :v = ANY({q(field)}) "
+            f"AND EXISTS (SELECT 1 FROM {q(target)} WHERE id = :v)",
             value,
         )
-    if samples["present_single"]:
-        queries["single_equals"] = (
-            "SELECT count(*) FROM buma_customer WHERE type = :v",
-            samples["present_single"]["value"],
+        queries[f"{field}_length_zero"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE cardinality({q(field)}) = 0",
+            None,
+        )
+        queries[f"{field}_length_positive"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE cardinality({q(field)}) > 0",
+            None,
+        )
+    for code, table, field, sample in (
+        ("orphan_single", "buma_sale", "customer", samples["orphan"]),
+        ("single", "buma_customer", "type", samples["present_single"]),
+    ):
+        if not sample:
+            continue
+        target = relation_target(definitions, table, field)
+        queries[f"{code}_equals"] = (
+            f"SELECT count(*) FROM {q(table)} WHERE {q(field)} = :v",
+            sample["value"],
+        )
+        queries[f"{code}_target_id"] = (
+            f"SELECT count(*) FROM {q(table)} s JOIN {q(target)} t ON t.id = s.{q(field)} "
+            "WHERE t.id = :v",
+            sample["value"],
         )
     counts = {}
     async with engine.connect() as conn:
         for code, (sql, value) in queries.items():
             counts[code] = await scalar(conn, sql, {"v": value} if value is not None else None)
     return counts
-
-
-async def expand_checks(get, records, samples: dict, token: str, failures: list) -> dict:
-    """PocketBase 0.22.34 daos/record_expand.go:217-263 and models/record.go:557-559."""
-    pdv, managers = samples["buma_customer.pdv"], samples["buma_wallet.managers"]
-    result = {}
-
-    async def items_of(name, **params):
-        status, body = await get(records(name), token, page=1, perPage=SAMPLE_PAGE, **params)
-        return status, (body.get("items", []) if status == 200 and isinstance(body, dict) else [])
-
-    def ordered_lists(items, field):
-        return sum(
-            1
-            for item in items
-            if isinstance((item.get("expand") or {}).get(field), list)
-            and [r.get("id") for r in item["expand"][field]] == item.get(field)
-        )
-
-    status, items = await items_of("buma_customer", filter=f'pdv ?= "{pdv["value"]}"', expand="pdv")
-    result["multiple_present_targets_pdv"] = {
-        "status": status,
-        "items": len(items),
-        "expand_is_list_in_stored_order": ordered_lists(items, "pdv"),
-    }
-    status, items = await items_of("buma_pilotage_ticket", expand="tag")
-    result["multiple_present_targets_tag"] = {
-        "status": status,
-        "items": len(items),
-        "expand_is_list_in_stored_order": ordered_lists(items, "tag"),
-    }
-    for code in ("multiple_present_targets_pdv", "multiple_present_targets_tag"):
-        entry = result[code]
-        if (
-            entry["status"] != 200
-            or not entry["items"]
-            or entry["items"] != entry["expand_is_list_in_stored_order"]
-        ):
-            failures.append("expand:" + code)
-    status, items = await items_of(
-        "buma_wallet", filter=f'managers ?= "{managers["value"]}"', expand="managers"
-    )
-    result["multiple_absent_target_managers"] = {
-        "status": status,
-        "items": len(items),
-        "expand_key_omitted": sum(1 for item in items if "expand" not in item),
-    }
-    if samples["orphan"]:
-        status, items = await items_of(
-            "buma_sale", filter=f'customer = "{samples["orphan"]["value"]}"', expand="customer"
-        )
-        result["single_absent_target_customer"] = {
-            "status": status,
-            "items": len(items),
-            "expand_key_omitted": sum(1 for item in items if "expand" not in item),
-        }
-    for code in ("multiple_absent_target_managers", "single_absent_target_customer"):
-        entry = result.get(code)
-        if entry and (
-            entry["status"] != 200
-            or not entry["items"]
-            or entry["items"] != entry["expand_key_omitted"]
-        ):
-            failures.append("expand:" + code)
-    if samples["present_single"]:
-        value = samples["present_single"]["value"]
-        status, items = await items_of("buma_customer", filter=f'type = "{value}"', expand="type")
-        objects = sum(
-            1
-            for item in items
-            if isinstance((item.get("expand") or {}).get("type"), dict)
-            and item["expand"]["type"].get("id") == item.get("type")
-        )
-        result["single_present_target_type"] = {
-            "status": status,
-            "items": len(items),
-            "expand_is_one_object": objects,
-        }
-        if status != 200 or not items or objects != len(items):
-            failures.append("expand:single_present_target_type")
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -2471,7 +2501,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             summary["server"] = await server.start()
 
         with phases.phase("http_reads"):
-            sql = await filter_sql_counts(engine, ctx.facts["samples"])
+            sql = await filter_sql_counts(engine, ctx.definitions, ctx.facts["samples"])
             http = await http_checks(
                 server.base,
                 credentials,
@@ -2660,6 +2690,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Frozen source pb_migrations (read only): adds the D-0022 idempotency check",
     )
+    parser.add_argument(
+        "--accept-divergence",
+        action="append",
+        default=[],
+        metavar="CODE=D-NNNN",
+        help="A documented divergence (DIVERGENCES code) and its decision; repeatable",
+    )
     parser.add_argument("--passes", type=int, default=2, choices=(1, 2, 3))
     parser.add_argument("--memory", default="2g", help="Container memory limit")
     parser.add_argument("--cpus", default="2", help="Container CPU limit")
@@ -2702,11 +2739,12 @@ def install_termination_handlers() -> None:
 
 
 def repeatability(passes: list[dict], privates: list[dict]) -> dict:
-    passed = [p for p in passes if p.get("status") == "passed"]
-    if len(passed) < 2:
-        return {"compared_passes": len(passed), "identical": None}
-    differences = compare_repeatable(passed[0]["checks"], passed[1]["checks"])
-    fingerprints = privates[0].get("fingerprints") == privates[1].get("fingerprints")
+    """The first two passes: every aggregate check, fingerprints and stored row hashes."""
+    if len(passes) < 2:
+        return {"compared_passes": len(passes), "identical": None}
+    differences = compare_repeatable(passes[0]["checks"], passes[1]["checks"])
+    first, second = privates[0].get("fingerprints"), privates[1].get("fingerprints")
+    fingerprints = bool(first) and first == second
     row_hashes = privates[0].get("row_hashes_after_import", {})
     other = privates[1].get("row_hashes_after_import", {})
     # _collections.updated is set to now() by import_auth: excluded.
@@ -2714,6 +2752,7 @@ def repeatability(passes: list[dict], privates: list[dict]) -> dict:
     hashes = bool(stable) and all(row_hashes[table] == other.get(table) for table in stable)
     return {
         "compared_passes": 2,
+        "both_passed": all(p.get("status") == "passed" for p in passes[:2]),
         "aggregate_differences": differences,
         "table_fingerprints_identical": fingerprints,
         "stored_row_hashes_identical": hashes,
@@ -2747,6 +2786,17 @@ def privacy_check(ctx, report: dict) -> dict:
     }
 
 
+def accepted_divergences(values: list[str]) -> dict[str, str]:
+    """CODE=D-NNNN pairs: a known divergence code and the decision documenting it."""
+    accepted = {}
+    for value in values:
+        code, _, decision = value.partition("=")
+        require(code in DIVERGENCES, "unknown_divergence_code", divergence=code)
+        require(re.fullmatch(r"D-[0-9]{4}", decision) is not None, "decision_reference_required")
+        accepted[code] = decision
+    return accepted
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--child"]:
@@ -2755,6 +2805,7 @@ def main(argv=None) -> int:
     try:
         require_isolated_interpreter()
         check_paths(args, Path.cwd())
+        accepted = accepted_divergences(args.accept_divergence)
     except RehearsalFailure as exc:
         print(json.dumps({"status": "refused", **failure_entry(exc)}))
         return 2
@@ -2779,6 +2830,7 @@ def main(argv=None) -> int:
         facts=source_facts(data, definitions, inventory),
         docker_root=Path(command("docker", "info", "--format", "{{.DockerRootDir}}")),
         url="",
+        accepted=accepted,
     )
     auth_evidence = json.loads((PROJECT / AUTH_RUNTIME_REPORT).read_text())
     report = {
@@ -2805,6 +2857,7 @@ def main(argv=None) -> int:
             },
         },
         "environment": environment_facts(),
+        "accepted_divergences": accepted,
         "token_continuity": {
             "evidence": AUTH_RUNTIME_REPORT,
             "status": auth_evidence.get("status"),
@@ -2817,11 +2870,11 @@ def main(argv=None) -> int:
     privates: list[dict] = []
     try:
         for index in range(1, args.passes + 1):
+            # Every pass runs, even after a failed one: the second still measures
+            # repeatability of everything the first could check.
             summary, private = asyncio.run(run_pass(ctx, index))
             report["passes"].append(summary)
             privates.append(private)
-            if summary["status"] != "passed":
-                break
     finally:
         listing_after = directory_listing(data)
         report["source_copy"] = {
@@ -2832,14 +2885,16 @@ def main(argv=None) -> int:
         }
     report["repeatability"] = repeatability(report["passes"], privates)
     passed = report["passes"] and all(p["status"] == "passed" for p in report["passes"])
-    if data_sha == SEPTEMBER_BACKUP_SHA256 and passed:
+    data_checked = [p for p in report["passes"] if "views" in p["checks"]]
+    if data_sha == SEPTEMBER_BACKUP_SHA256 and data_checked:
+        # Every data check of a pass ran (the views are the last ones).
         report["public_expected_aggregates"] = {
             "sources": [
                 "docs/c11-master-diagnostic-report.json",
                 "docs/c11-master-detailed-audit.json",
             ],
             "differences": expected_differences(
-                observed_aggregates(report["passes"][0]["checks"]), SEPTEMBER_EXPECTED
+                observed_aggregates(data_checked[0]["checks"]), SEPTEMBER_EXPECTED
             ),
         }
     ok = bool(
