@@ -52,6 +52,11 @@ def binary_for(version: str) -> Path:
         pytest.skip(f"{BINARIES[version]} is not set")
     if not SCHEMA.is_file():
         pytest.skip("BUMA_SCHEMA_EXPORT is not available")
+    # The variable name is only a label: a [0.22.34] test run by another
+    # binary would be false evidence, so the binary's own answer decides.
+    reported = fixture.pocketbase_version(Path(value))
+    if reported != version:
+        pytest.fail(f"{BINARIES[version]} runs PocketBase {reported}, not {version}")
     return Path(value)
 
 
@@ -147,7 +152,8 @@ def test_real_shape_snapshot_is_closed_and_extends_the_default_records(real_shap
     }
     assert real_shape.rows("SELECT _rowid_ FROM buma_supplier") == [(-17,)]
     assert real_shape.ids("buma_ressources") == {"c11file00000001", "c11file00000002"} | {
-        "c11file00000003"
+        "c11file00000003",
+        "c11file00000004",
     }
 
 
@@ -275,6 +281,45 @@ def test_duplicate_mobile_return_keys_keep_every_row(real_shape):
     assert inverted[0] > inverted[1]
 
 
+def test_user_dates_are_stored_by_pocketbase_in_its_layout(real_shape):
+    layout = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
+    for path, records in fixture.REAL_SHAPE["user_dates"].items():
+        collection, name = path.split(".")
+        assert real_shape.field(collection, name)["type"] == "date"
+        stored = dict(real_shape.rows(f'SELECT id, "{name}" FROM "{collection}"'))
+        for record, value in records.items():
+            assert layout.fullmatch(value) and stored[record] == value
+        # The other rows of these collections keep PocketBase's empty date.
+        assert {v for r, v in stored.items() if r not in records} <= {""}
+    # Given as 10:00+02:00 to the Dao: PocketBase stored the UTC instant.
+    delais = fixture.REAL_SHAPE["user_dates"]["buma_pilotage_ticket.delais"]
+    assert delais == {"c11ticket000001": "2025-03-01 08:00:00.000Z"}
+    mobile = fixture.REAL_SHAPE["user_dates"]["buma_transaction.mobile_transaction_date"]
+    assert set(mobile) == {r for rows in fixture.RETURN_DUPLICATES.values() for r, *_ in rows}
+
+
+def test_empty_multi_file_list_is_stored_as_an_empty_json_array(real_shape):
+    ((path, records),) = fixture.REAL_SHAPE["empty_multi_file"].items()
+    collection, name = path.split(".")
+    assert real_shape.field(collection, name)["options"]["maxSelect"] > 1
+    for record, items in records.items():
+        assert items == []
+        stored = real_shape.rows(
+            f'SELECT "{name}", typeof("{name}") FROM "{collection}" WHERE id=?', record
+        )
+        assert stored == [("[]", "text")]
+        assert not real_shape.folder(collection, record).exists()
+
+
+def test_documented_maps_keep_one_entry_per_record():
+    # Keyed by record ID: a second record of one collection must not replace
+    # the first (the api_uploads defect fixed in 012e46c).
+    deleted = fixture.REAL_SHAPE["deleted_record_files"]
+    assert deleted == {record: collection for collection, record in fixture.DELETED_RECORDS}
+    assert len(deleted) == len(fixture.DELETED_RECORDS)
+    assert len(fixture.REAL_SHAPE["api_uploads"]) == len(fixture.UPLOADS)
+
+
 def test_custom_record_ids_and_undeclared_select_values(real_shape):
     for collection, record in fixture.REAL_SHAPE["custom_record_ids"].items():
         assert record in real_shape.ids(collection) and not re.fullmatch(r"[a-z0-9]{15}", record)
@@ -342,6 +387,20 @@ def test_profile_and_version_are_checked_before_writing(tmp_path):
     with pytest.raises(ValueError, match="0.22.27 or 0.22.34"):
         fixture.create_fixture(tmp_path / "old", fake, tmp_path / "schema.json")
     assert not (tmp_path / "unknown").exists() and not (tmp_path / "old").exists()
+
+
+def test_a_mislabeled_binary_fails_instead_of_covering_another_version(tmp_path, monkeypatch):
+    fake = tmp_path / "pocketbase"
+    fake.write_text(f"#!{sys.executable}\nprint('pocketbase version 0.22.27')\n")
+    fake.chmod(0o700)
+    schema = tmp_path / "schema.json"
+    schema.write_text("[]")
+    monkeypatch.setattr(sys.modules[__name__], "SCHEMA", schema)
+    monkeypatch.setenv(BINARIES["0.22.34"], str(fake))
+    with pytest.raises(pytest.fail.Exception, match="runs PocketBase 0.22.27, not 0.22.34"):
+        binary_for("0.22.34")
+    monkeypatch.setenv(BINARIES["0.22.27"], str(fake))
+    assert binary_for("0.22.27") == fake
 
 
 @pytest.mark.parametrize("output", ["Error: Failed to apply migration x.js", ""])
