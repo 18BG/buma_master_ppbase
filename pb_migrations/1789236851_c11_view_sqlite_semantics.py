@@ -80,9 +80,11 @@ Not changed here, documented divergences:
   with a real operand): SQLite 3.43+ adds floats with Kahan-Babuska-Neumaier
   compensation (lang_aggfunc.html, sum), PostgreSQL ``SUM(float8)`` plainly,
   so the last digits may differ; PPBase stores numbers as float8, exact for
-  whole numbers up to 2^53. The notation of a number may differ too
-  (PocketBase serves SQLite's text, such as ``7e2``; PPBase the JSON encoding
-  of the float8, ``700``): same JSON value, D-0029 kind.
+  whole numbers up to 2^53. The notation of a number may differ too:
+  PocketBase serves the text its SQLite driver gives a REAL (Go's shortest
+  form, ``3.50000075e+06``), PPBase the JSON encoding of the float8
+  (``3500000.75``): same JSON value, D-0029 kind. The real backup has no REAL
+  in these sums.
 
 The SQLite rowid of an imported record is kept by the C11 importer in
 ``_buma_c11_rowids`` (scripts/c11_import.py), a table that only the import
