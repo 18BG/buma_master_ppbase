@@ -164,7 +164,7 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
   décidés, commits égaux aux commits de release (`code.buma.commit`,
   `code.ppbase.commit`) et arbres propres (`code.buma.tracked_files_clean`,
   `code.ppbase.tracked_files_clean`). Commande : annexe A. Ses valeurs
-  remplacent celles de l'aperçu dans les tableaux 5.1 et 5.2.
+  remplacent celles des aperçus AP1 et AP2 dans les tableaux 5.1 et 5.2.
 - **Porte de release** (annexe A) passante sur ces commits, analyse des
   échecs PPBase comprise.
 - **Outils de 10.2** nécessaires aux portes G1 à G4, dont l'import de
@@ -1213,13 +1213,12 @@ répétitions (`scripts/c11_rehearsal.py:2284-2320`, `PPBaseServer` de
   --no-automigrate --no-apply-migrations-on-start --no-generate-migrations
 ```
 
-avec `PYTHONPATH=<checkout BUMA>:<checkout PPBase>` (6.1, étape 4). Si
-PPBase est d'abord lancé hors service,
-rejouer C-31, C-44 et C-41 après le passage sous service, avant G5, et le
-consigner. `--generate-migrations` reste désactivé sauf décision (I2) :
-actif, une modification de collection dans le tableau de bord écrit un
-fichier dans le dossier des migrations (`ppbase/config.py:179-183`). Durée du
-démarrage : L15.
+avec `PYTHONPATH=<checkout BUMA>:<checkout PPBase>` (6.1, étape 4). Si PPBase
+est d'abord lancé hors service, rejouer C-31, C-44 et C-41 après le passage
+sous service, avant G5, et le consigner. `--generate-migrations` reste
+désactivé sauf décision (I2) : actif, une modification de collection dans le
+tableau de bord écrit un fichier dans le dossier des migrations
+(`ppbase/config.py:179-183`). Durée du démarrage : L15.
 
 Contrôles en lecture seule, sans écriture métier sur la production ; records
 choisis en privé, jamais cités. Jamais d'appel à `POST
@@ -1235,7 +1234,8 @@ avant le jour J (scénarios ci-dessous). Règles de comparaison :
 - `Content-Type` identique ; seule exception possible, la classe
   `json_content_type_charset` (10.4), si elle est décidée ;
 - pour les fichiers, `Content-Type`, `Content-Disposition`,
-  `Content-Length`, `Cache-Control` et `Content-Security-Policy` identiques ;
+  `Content-Length`, `Cache-Control` et `Content-Security-Policy` identiques,
+  et `X-Frame-Options` absent comme dans PocketBase (`apis/file.go:203-206`) ;
 - corps JSON comparés comme valeurs : ordre des clés d'objet ignoré, traité à
   part par D-0029 ; nombres comparés par leur texte ;
 - jetons comparés par leur en-tête et leurs claims, hors `iat` et `exp` ;
