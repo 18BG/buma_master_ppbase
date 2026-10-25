@@ -1434,3 +1434,104 @@ banc `scripts/c11_view_semantics_runtime.py` (binaire 0.22.34, matrice de 6 433 
 avant et après la migration, 190 requêtes appariées, pagination), vérificateurs du
 schéma (12 migrations, 114 définitions, 42 vues), répétition réelle (contrôles
 `served_values`).
+
+## D-0040 — C11 : répétition synthétique complète sur le code final (PocketBase 0.22.34, profil real_shape)
+
+`scripts/c11_rehearsal.py` (chantiers WS-D et WS-D2, adapté par WS-C2 et à l'intégration)
+est la répétition synthétique complète et la porte avant fusion : une fixture
+`real_shape` construite par le binaire officiel PocketBase 0.22.34 (relations multiples,
+références orphelines, fichiers absents, doublons RETURN, IDs personnalisés, select non
+déclarés, JSON null, dates vides, comptes, superuser, paramètres, jetons), des jetons
+émis par PocketBase **avant** l'import, l'import par `import_snapshot`, puis un serveur
+PPBase isolé comparé réponse par réponse au binaire. Elle prouve, en deux passages
+identiques : la fidélité de l'import (records, rowids, tableaux dans l'ordre stocké,
+orphelins, dates, JSON null, comptes, superuser, 16 chemins de paramètres, secrets de
+jetons), l'acceptation des jetons 0.22.34 d'avant l'import (admin, users, agent_users,
+refresh, realtime), les mots de passe d'origine, les fichiers présents servis octet pour
+octet et les absents en 404, trois échecs injectés qui laissent l'état migré vide, un seul
+gagnant sur deux imports concurrents, le schéma (114 définitions, 42 vues) avant et
+après. Sur l'état final (BUMA `b7427fe`, PPBase `069e0bb`, mode d'erreur 0.22 activé),
+les **84 réponses comparées sont identiques à PocketBase 0.22.34 en statut et en corps**,
+sans différence inattendue ; seule reste ouverte la classe `json_content_type_charset`
+(en-tête `Content-Type` sans `charset`, D-0034). Toute autre différence fait échouer la
+répétition ; les classes d'enveloppe d'erreur, de libellés 401/403 et de détail d'échec
+de connexion ont été retirées : leur retour serait une régression. Rapport public :
+`docs/c11-synthetic-rehearsal-report.json` (régénéré sur l'état final ; l'ancien rapport
+`docs/c11-rehearsal-report.json` reste l'historique de C11).
+
+## D-0041 — C11 : répétition complète sur le vrai backup, sans octets de fichiers ; ce qu'elle prouve et ne prouve pas
+
+`scripts/c11_real_rehearsal.py` (chantier WS-G, relu trois fois, et ses correctifs
+d'intégration) importe le vrai backup PocketBase 0.22.34 (lecture seule, `mode=ro&immutable=1`,
+Python `-I`) dans un PostgreSQL jetable possédé par le script (refus de toute autre
+cible), en mode manifeste sans octets de fichiers, puis contrôle données et réponses
+HTTP. Publication : `docs/c11-real-rehearsal-report.json`, deux passages sur le code
+commité et propre (BUMA `b7427fe`, PPBase `fix/d0019-relation-maxselect` `069e0bb`),
+le 2026-10-25 de 12:46 à 13:08 UTC.
+
+**Prouvé** (deux passages passés et identiques : empreintes des tables et hachages des
+lignes stockées identiques) : les 1 188 247 records importés en une transaction, comptes
+par table égaux au diagnostic ; empreintes des lignes converties égales aux lignes
+relues après commit ; rowids archivés pour toutes les tables et rowid natif de `users` et
+`buma_article` ; les trois relations multiples en tableaux égaux aux listes SQLite ; les
+195 795 références orphelines et les 2 303 références de fichiers absents conservées et
+recomptées (596 fichiers présents d'après le manifeste, aucun octet copié) ; comptes,
+admin, secrets de jetons et paramètres égaux à la source ; schéma inchangé hors archives
+de l'import ; les 42 vues interrogeables, lignes et ids distincts égaux à SQLite ; 414
+contrôles HTTP (lectures publiques et protégées, listes, totaux, filtres dont relations
+multiples et orphelines, expand, tri, refus, fichiers, valeurs servies comparées à un
+modèle de la sérialisation 0.22.34 tiré des valeurs SQLite brutes, indépendant de
+l'importeur) : 405 sans écart, 0 échec, les autres couverts par des divergences
+documentées dont l'acceptation est demandée (D-0029 : 3, D-0039 : 7) ; copie privée
+inchangée (empreinte et listage) ; confidentialité : 0 violation sur 3 442 001 valeurs.
+Durées par passage : diagnostic 144-146 s, import 248-249 s, contrôles après commit 77-78 s,
+lectures HTTP 105-107 s ; base 784,5 Mo, staging 325,2 Mo (runbook).
+
+**Non prouvé** : les octets des fichiers (prouvés sur la fixture, à refaire avec le ZIP
+complet, D-0028) ; la continuité des jetons sur les comptes réels (fixture, D-0027) ;
+l'ordre des tableaux à plusieurs éléments (aucun dans les vraies données ; fixture) ; les
+valeurs des records non lus par HTTP (couvertes par l'empreinte des lignes converties) ;
+les clients desktop, web et mobile ; les écritures, hooks et realtime sur les données
+importées ; la collation d'un PostgreSQL glibc ou ICU (la cible musl trie les octets
+comme SQLite ; un tri `en_US` glibc changerait l'ordre de 2 905 clients sur 5 826) ; la
+production (fraîcheur du backup, fenêtre, configuration du PostgreSQL de production),
+**hors périmètre : import de production et bascule ni demandés, ni autorisés, ni
+exécutés**.
+
+## D-0042 — C11 : booléens écrits convertis comme PocketBase (cast.ToBool) ; validation partielle des mises à jour (écart ouvert)
+
+Constat (relecture de WS-A11, vérifié par WS-A12, relu deux fois) : `_validate_bool` de
+PPBase faisait `bool(value)` ; le SDK JS envoie les booléens en chaînes dans un FormData
+dès qu'un fichier est joint, si bien qu'un `"false"` ou un `"0"` multipart (ou une chaîne
+JSON `"false"`) était enregistré `true`, et un bool required acceptait `"false"` ; la
+sonde appariée trouvait 84 cas sur 145 différents de 0.22.34. PocketBase convertit par
+`cast.ToBool` (v0.22.34 `forms/record_upsert.go` l.366-417, `models/schema/schema_field.go`
+l.346-347 ; identique en v0.40.6, `core/field_bool.go` l.103-106).
+
+Correction PPBase (WS-A12, intégrée dans `fix/d0019-relation-maxselect` en `069e0bb`),
+pour la création, la mise à jour et le batch, en JSON, multipart et `@jsonPayload` :
+booléen gardé, null faux, nombre vrai s'il est non nul, chaîne vraie seulement pour
+`"1"`, `"t"`, `"T"`, `"TRUE"`, `"true"`, `"True"` (sans trim), toute autre valeur fausse ;
+en mode 0.22, première valeur d'une clé multipart répétée, comme 0.22.34 ; clés
+modificatrices (`flag+`, `flag-`, `+flag`) sans effet sur un bool, comme dans les deux
+versions ; booléens JSON natifs et règle required inchangés. Sonde appariée : 254 cas,
+0 différence en mode 0.22. Écart du mode par défaut seulement (sans effet sur BUMA) : un
+nombre multipart autre que 0 et 1 vaut faux, comme 0.22.34, alors que v0.40.6 le lit vrai
+(`inferValue`).
+
+Impact client : un booléen envoyé en FormData, en chaîne JSON, en clé répétée ou avec une
+clé modificatrice est enregistré comme en production.
+
+**Écart ouvert, préexistant, relevé par WS-A12** : à la mise à jour, PPBase ne valide que
+les champs que la requête change, alors que PocketBase valide tous les champs du record
+(v0.22.34 `forms/validators/record_data.go` l.74-90 ; v0.40.6 `core/record_model.go`
+l.1427-1441). Mesuré : sur un record dont un bool required vaut déjà `false`,
+`PATCH {"label": "b"}` répond 400 dans 0.22.34 et 200 dans PPBase. Sur le vrai backup
+(agrégat en lecture seule), 872 des 989 records de `buma_article_stock` ont un `status`
+required à `false` : en production, une mise à jour par l'API de ces records qui ne passe
+pas `status` à `true` est refusée, PPBase l'accepte. Impact : PPBase est plus permissif
+que la production sur ces mises à jour ; correction PPBase à décider (valider tous les
+champs comme PocketBase), acceptation de l'utilisateur demandée d'ici là.
+
+Régressions : `tests/test_bool_field_cast.py`, `tests/integration/test_bool_field_writes.py`,
+sonde `tests/pocketbase_parity/bool_values_probe.py`.
