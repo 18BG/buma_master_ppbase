@@ -4401,23 +4401,46 @@ def unverified_rules(http: dict) -> list[str]:
     )
 
 
-def _http_clean(checks: dict) -> bool:
-    """No failing read and no rule left unverified (each read had its expected value)."""
+def _after_http_problems(checks: dict) -> list[str]:
+    """[] when the server and the reads changed nothing: no table (the synthetic
+    superuser aside), superusers = source admins + 1, imported accounts equal to
+    the source, schema as imported. Read from the after_http values, which are
+    written before their require() so that a failure keeps its evidence."""
+    after = checks.get("after_http")
+    clean = (
+        isinstance(after, dict)
+        and after.get("tables_changed_by_server_and_reads") == []
+        and after.get("superusers_are_source_admins_plus_synthetic") is True
+        and after.get("accounts_equal_to_source_after_reads") is True
+        and after.get("schema_unchanged_by_server") is True
+    )
+    return [] if clean else ["server_or_reads_changed_data_accounts_or_schema"]
+
+
+def _http_problems(checks: dict) -> list[str]:
+    """[] when every read had its expected value, no rule was left unverified and
+    the server and the reads changed nothing."""
     http = checks.get("http")
-    return isinstance(http, dict) and not http.get("failed_checks") and not unverified_rules(http)
+    problems = []
+    if not isinstance(http, dict) or http.get("failed_checks"):
+        problems.append("has_failing_checks")
+    elif unverified_rules(http):
+        problems.append("left_rules_unverified")
+    return problems + _after_http_problems(checks)
 
 
-def _served_values_clean(checks: dict) -> bool:
+def _served_values_problems(checks: dict) -> list[str]:
     served = (checks.get("http") or {}).get("served_values")
     if not isinstance(served, dict):
-        return False
+        return ["has_failing_checks"]
     failing = (checks["http"].get("failed_checks") or {}).keys()
-    return not served.get("differing_fields") and not any(
+    clean = not served.get("differing_fields") and not any(
         name.startswith("served_values:") for name in failing
     )
+    return [] if clean else ["has_failing_checks"]
 
 
-# (claim, check keys every pass must hold, extra predicate on a pass's checks)
+# (claim, check keys every pass must hold, problems of a pass's checks: [] if none)
 CLAIMS = (
     (
         "every record of the real backup imported in one transaction into a disposable "
@@ -4465,14 +4488,14 @@ CLAIMS = (
         "unmodeled values counted apart, views in served_values.views_not_compared left out, "
         "accepted divergences listed in http.divergences)",
         ("http",),
-        _served_values_clean,
+        _served_values_problems,
     ),
     (
         "an isolated PPBase server serves the imported data with PocketBase 0.22.34 envelopes, "
         "totals, rules, error bodies, filters, expand, sort and file statuses on every "
         "sampled read (no rule left unverified)",
         ("http", "after_http"),
-        _http_clean,
+        _http_problems,
     ),
 )
 
@@ -4489,15 +4512,8 @@ def proven_claims(report: dict, passes: int) -> tuple[list[str], list[dict]]:
             checks = run.get("checks") or {}
             if not all(key in checks for key in keys):
                 reasons.append(f"pass_{run.get('pass')}_did_not_reach_or_failed_these_checks")
-            elif predicate is not None and not predicate(checks):
-                http = checks.get("http") if isinstance(checks.get("http"), dict) else {}
-                only_unverified = (
-                    predicate is _http_clean
-                    and not http.get("failed_checks")
-                    and unverified_rules(http)
-                )
-                reason = "left_rules_unverified" if only_unverified else "has_failing_checks"
-                reasons.append(f"pass_{run.get('pass')}_{reason}")
+            elif predicate is not None:
+                reasons += [f"pass_{run.get('pass')}_{problem}" for problem in predicate(checks)]
         if reasons:
             missing.append({"claim": claim, "reasons": sorted(set(reasons))})
         else:

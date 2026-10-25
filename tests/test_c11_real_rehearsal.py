@@ -1736,9 +1736,23 @@ def test_glibc_order_difference_counts_positions_only():
     assert locale.setlocale(locale.LC_COLLATE) in ("C", "C.UTF-8", "C.utf8", "POSIX")
 
 
+def after_http(*, after=None, superusers=2, accounts=True, schema=True) -> dict:
+    """The after_http check of a pass (one imported admin, one synthetic superuser)."""
+    before = {"users": "20:5", "_superusers": "1:7"}
+    return rehearsal.after_reads_outcome(
+        before,
+        before if after is None else after,
+        superusers=superusers,
+        admins=1,
+        accounts=accounts,
+        signature={"only_import_archives_added": schema},
+    )
+
+
 def test_proven_claims_list_only_what_every_pass_checked():
     everything = {key: {} for claim in rehearsal.CLAIMS for key in claim[1]}
     everything["http"] = {"failed_checks": {}, "served_values": {"differing_fields": {}}}
+    everything["after_http"] = after_http()
     report = {
         "passes": [{"pass": 1, "checks": everything}, {"pass": 2, "checks": everything}],
         "repeatability": {"identical": True},
@@ -1763,6 +1777,10 @@ def test_proven_claims_list_only_what_every_pass_checked():
     assert proven == []
 
 
+def http_parity_claim() -> str:
+    return next(claim for claim, keys, _ in rehearsal.CLAIMS if "after_http" in keys)
+
+
 def test_a_rule_left_unverified_keeps_the_http_claim_open():
     everything = {key: {} for claim in rehearsal.CLAIMS for key in claim[1]}
     everything["http"] = {
@@ -1771,14 +1789,44 @@ def test_a_rule_left_unverified_keeps_the_http_claim_open():
         "anonymous_lists": {"expression_rules_unverified": ["buma_x"]},
         "anonymous_views": {"expression_rules_unverified": []},
     }
+    everything["after_http"] = after_http()
     assert rehearsal.unverified_rules(everything["http"]) == ["anonymous_lists:buma_x"]
     report = {"passes": [{"pass": 1, "checks": everything}], "repeatability": {}}
     proven, missing = rehearsal.proven_claims(report, 1)
-    http_claim = next(c[0] for c in rehearsal.CLAIMS if c[2] is rehearsal._http_clean)
+    http_claim = http_parity_claim()
     assert http_claim not in proven
     assert {"claim": http_claim, "reasons": ["pass_1_left_rules_unverified"]} in missing
     everything["http"]["anonymous_lists"]["expression_rules_unverified"] = []
     assert http_claim in rehearsal.proven_claims(report, 1)[0]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"after": {"users": "20:6", "_superusers": "1:7"}},  # a table changed by the reads
+        {"after": {"users": "20:5", "_superusers": "1:8"}},  # the imported admin changed
+        {"superusers": 3},  # another superuser appeared
+        {"superusers": 1},  # the synthetic one, or an admin, is gone
+        {"accounts": "auth_records_differ"},
+        {"schema": False},
+    ],
+)
+def test_the_http_claim_needs_a_server_that_changed_nothing(changed):
+    # after_http is written before its require(): the claim must read its values.
+    everything = {key: {} for claim in rehearsal.CLAIMS for key in claim[1]}
+    everything["http"] = {"failed_checks": {}, "served_values": {"differing_fields": {}}}
+    everything["after_http"] = after_http(**changed)
+    report = {"passes": [{"pass": 1, "checks": everything}], "repeatability": {}}
+    proven, missing = rehearsal.proven_claims(report, 1)
+    assert http_parity_claim() not in proven
+    assert {
+        "claim": http_parity_claim(),
+        "reasons": ["pass_1_server_or_reads_changed_data_accounts_or_schema"],
+    } in missing
+    # The other claims do not depend on the after-reads checks.
+    assert len(proven) == len(rehearsal.CLAIMS) - 1
+    everything["after_http"] = after_http()
+    assert http_parity_claim() in rehearsal.proven_claims(report, 1)[0]
 
 
 def test_check_tokens_and_settings_detects_a_changed_secret(monkeypatch):
