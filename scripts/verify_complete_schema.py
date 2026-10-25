@@ -9,9 +9,9 @@ itself. It also runs the physical relation column check of
 ``verify_schema_baseline.verify_relation_columns`` (D-0019): ``fresh`` by
 default, ``--relation-columns migrated`` for a database created before the
 D-0019 correction and converted by migration 1789236850. The expected view
-queries are those stored by migration 1789236851 for the ten views it recreates
-(``verify_view_queries.migrated_view_definitions``) when the database recorded
-it (``_migrations``), the translated ones otherwise.
+queries are those stored by migration 1789236851 for the thirteen views it
+recreates (``verify_view_queries.migrated_view_definitions``) when the database
+recorded it (``_migrations``), the translated ones otherwise.
 """
 
 from __future__ import annotations

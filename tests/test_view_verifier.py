@@ -111,7 +111,7 @@ def test_complete_schema_verifier_expects_the_queries_of_1789236851() -> None:
     definitions, _, _ = load_schema(SCHEMA, include_views=True)
     rows = compat_rows(definitions)
     assert verify_complete(definitions, rows)["ok"] is True
-    # A database whose ten views kept the translated query (1789236851 not
+    # A database whose thirteen views kept the translated query (1789236851 not
     # applied, or reverted) is reported, view by view, and nothing else.
     translated = {i["name"]: i["options"]["query"] for i in definitions if i["type"] == "view"}
     for row in rows:
@@ -131,11 +131,13 @@ def test_view_query_verifier_checks_the_migrated_queries() -> None:
     assert len(migrated) == len(original) == 114
     changed = sorted(n for n in migrated if migrated[n] != original[n])
     assert changed == sorted(VIEW_SEMANTICS.CHANGES)
-    # Same order (dependencies) and the dependent view keeps its query.
+    # Same order (dependencies); only the stored query differs.
     assert [i["name"] for i in dependency_order(list(migrated.values()))] == [
         i["name"] for i in dependency_order(definitions)
     ]
-    assert migrated["test"] == original["test"]
+    for name in changed:
+        options = {**migrated[name]["options"], "query": original[name]["options"]["query"]}
+        assert {**migrated[name], "options": options} == original[name], name
 
 
 def test_complete_schema_verifier_checks_the_translation_without_1789236851() -> None:

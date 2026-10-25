@@ -6,9 +6,9 @@ successful temporary view remains available to later dependent checks, while a
 failed query is rolled back to its savepoint and reported without hiding the
 remaining failures.
 
-The ten views recreated by migration 1789236851 are checked with the query
-that migration stores (``migrated_view_definitions``), which calls the
-functions and domains it creates, on a database where 1789236851 is applied
+The thirteen views recreated by migration 1789236851 are checked with the
+query that migration stores (``migrated_view_definitions``), which calls the
+function it creates, on a database where 1789236851 is applied
 (``_migrations``); on one migrated through 1789236850 only, with the translated
 query (``view_semantics`` overrides the detection).
 """

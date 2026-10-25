@@ -1,138 +1,109 @@
-"""Serve from ten views the values PocketBase 0.22.34 serves from their SQLite views.
+"""Serve from thirteen views the values PocketBase 0.22.34 serves from their SQLite views.
 
-PocketBase reads every view column as text (``dbx.NullStringMap``,
-``models/record.go`` l.50-58) and prepares it with the field type of the view
-schema; an expression column is a ``json`` field (``daos/view.go`` l.230-238).
-A json field turns a text that is a JSON number, list, object, ``null``,
-``true`` or ``false`` (first byte a digit, ``-``, ``"``, ``[`` or ``{``) into
-that JSON value and quotes any other text (``models/schema/schema_field.go``
-l.312-343, served as is by ``tools/types/json_raw.go`` l.26-32). The view
-itself is ``CREATE VIEW name AS SELECT * FROM (query)`` (``daos/view.go``
-l.59). The PostgreSQL translation (1789236842, 1789236847, 1789236848) served
-other values; only the ten views below (and ``test``, recreated unchanged
-because it reads ``buma_transaction_list_view``) are dropped and recreated, in
-dependency order, without CASCADE. Their ``_collections`` schema and rules are
-not touched; ``options.query`` takes the new query.
+PocketBase reads a view column as text (``dbx.NullStringMap``,
+``models/record.go`` l.48-58), the view being ``CREATE VIEW name AS SELECT *
+FROM (query)`` (``daos/view.go`` l.59); a view whose id is an expression is
+wrapped in ``SELECT cast(id as text) id, ...`` (``daos/collection.go``
+l.398-445, ``normalizeViewQueryId``). The PostgreSQL translation (1789236842,
+corrected by 1789236847 and 1789236848) served other values for the thirteen
+views below. They are dropped and created again, without CASCADE (no other view
+reads them); their ``_collections`` schema and rules are not touched;
+``options.query`` takes the new query, guarded by its SHA-256 before and after.
 
-* Text served as a JSON number (``agent_sim``, ``pdv_sim``, agent ``number``):
-  ``buma_pb_json_text`` applies the json PrepareValue rule to the text and
-  returns the domain ``buma_pb_json`` (``json``, which keeps the text, so key
-  order and ``\\u0000`` stay as in PocketBase); the fallback ``''`` is the JSON
-  string ``""`` and the text ``null`` is SQL NULL (served ``null``, like
-  JSON_EXTRACT reads it). asyncpg decodes it with the json codec of SQLAlchemy;
-  PPBase serves a whole float as an integer (``1e3`` as ``1000``, D-0029 kind).
-  json has no equality, so the four customer/return views, which group by or
-  select DISTINCT these columns, compute them as text (as before) and convert
-  them in an outer projection that keeps every column in its place.
-* SQLite booleans are integers (datatype3.html 2.1): ``isNafama``, ``payed``
-  and ``salePayed`` are the integers 1/0 of the domain ``buma_sqlite_integer``
-  (``smallint``), not booleans.
-* ``payedPercent``: SQLite divides two integers with an integer result
-  truncated toward zero, and floating point when either operand is real
-  (lang_expr.html, "Operators"); ``sum()`` is an integer when every input is
-  an integer (lang_aggfunc.html); a NUMERIC column stores a whole real as an
-  integer (datatype3.html 3); a zero divisor gives NULL (PostgreSQL raises).
-  The integer branch is exact. With a real operand the last digits may differ:
-  SQLite 3.43+ sums floats with Kahan-Babuska-Neumaier compensation
-  (lang_aggfunc.html, sum), PostgreSQL ``SUM(float8)`` adds them plainly.
-* ``ROW_NUMBER() OVER ()`` numbers the rows of SQLite's scan, the rowid order of
-  ``buma_caisse_transactions`` (plan ``SCAN b``, lookups by id); PostgreSQL
-  renumbered them on each query. PocketBase also wraps a view whose id is an
-  expression in ``SELECT cast(id as text) id, ...`` (``daos/collection.go``
-  l.398-445, ``normalizeViewQueryId``): the id is a string, sorted as text
-  and found by its text; PPBase served a bigint (and its view by id failed).
-  Only these two of the seven ROW_NUMBER views change: the other five keep a
-  bigint id and an unordered numbering (open, outside the WS-H codes).
+Types. Every column keeps the type and the collation of the translation, so
+PPBase renders filters (``=``, ``!=``, ``?=``, ``?!=``, ``~``, ``<``, ``>``),
+sorts and comparisons of two columns on them as before. An aggregate computed
+in SQLite's BINARY order (``COLLATE "C"``) takes the default collation back.
+Only two kinds of columns change: the id of the seven ``ROW_NUMBER()`` views
+(bigint -> text, as PocketBase serves it) and ``uvUser`` of
+``buma_customer_mobile_list_view`` (name -> character varying, below).
+
+* ``payedPercent`` (``buma_sale_info``): SQLite divides two integers with an
+  integer result truncated toward zero, and in floating point when either
+  operand is real (lang_expr.html, "Operators"); ``sum()`` is an integer when
+  every input is an integer (lang_aggfunc.html); a NUMERIC column stores a whole
+  real as an integer (datatype3.html 3); a zero divisor gives NULL (PostgreSQL
+  raised an error). Still double precision.
+* ``ROW_NUMBER() OVER ()`` (seven views): PostgreSQL numbered the rows in the
+  order of its plan, which may change between two requests, so that the pages
+  of one listing could serve a row twice and lose another. The id is now
+  ``CAST(ROW_NUMBER() OVER (order) AS TEXT) COLLATE "C"`` (BINARY, like
+  ``cast(id as text)``), numbered in SQLite's order:
+  ``buma_caisse_transaction_by_categorie_list_view``, the scan of
+  ``buma_caisse_transactions`` in rowid order (plan ``SCAN b``, lookups by id);
+  ``buma_caisse_session_info``, its GROUP BY order (caisse, session);
+  ``test``, its GROUP BY order (s.customer, a.id, a.designation; NULL first);
+  ``buma_sale_info``, ``buma_article_list_stat_view``,
+  ``buma_customer_supplier_info_view`` and ``buma_return_info_view`` have one
+  row, id ``"1"``. Text ids also make getOne and ``id = "3"`` answer (they
+  failed on a bigint).
 * ``group_concat`` order is "arbitrary" (lang_aggfunc.html); PocketBase serves
   SQLite's: the rows of the scan of the outer table (rowid order), each joined
   table read through an automatic covering index keyed by the join column,
   then the other used columns in table order, then rowid (plan ``SEARCH ...
   USING AUTOMATIC COVERING INDEX``), the GROUP BY sorter keeping that order;
-  ``DISTINCT`` keeps the first occurrence. Text compares with BINARY
-  (memcmp, datatype3.html 7): ``COLLATE "C"``. The order is the one of the
-  list request; for ``buma_article_with_no_stock_list_view`` and
-  ``buma_stockage_no_manager`` SQLite plans a view by id without that index
-  and concatenates there in rowid order, which PPBase does not reproduce.
+  ``DISTINCT`` keeps the first occurrence. Text compares with BINARY (memcmp,
+  datatype3.html 7): ``COLLATE "C"``. ``pdv_sim`` of the four customer and
+  return views, ``assigned_users`` and ``pdv_sim_network`` follow the rowids;
+  ``stockages`` and ``stockage`` of the two stock views follow the stock ids
+  (the list request). The text type is kept.
 * A bare column of an aggregate with several ``max()`` takes the row of the
   last one (lang_select.html 2.5 leaves the choice undefined; observed on
   SQLite 3.45 and on the 0.22.34 binary): ``isNafama`` comes from the first
-  sim, in rowid order, that has the greatest ``network``; with one ``max()``
-  it is the first row holding it (``user`` of ``UserData``, which the
-  translation had left unquoted: PostgreSQL read it as ``CURRENT_USER``).
+  sim, in rowid order, that has the greatest ``network`` (a boolean, as
+  before); with one ``max()`` it is the first row holding it: ``user`` of
+  ``UserData``, which the translation had left unquoted, so that PostgreSQL
+  read it as ``CURRENT_USER`` and served the database role as ``uvUser``.
 
-Filters. PocketBase compares a json field through ``JSON_EXTRACT`` with ``IS``
-/ ``IS NOT`` for ``=`` / ``!=`` (``resolvers/record_field_resolve_runner.go``
-l.465-474, ``tools/dbutils/json.go`` l.30-47, ``tools/search/filter.go``
-l.290-317), a number literal as a float64 parameter and ``true`` / ``false``
-as the SQL literals 1 / 0 (filter.go l.226-283); SQLite orders NULL < numbers
-< text (datatype3.html 4.1). PPBase sends ``column <op> value`` with an
-untyped string parameter, an integer or numeric literal, or TRUE / FALSE. The
-operators ``= <> < <= > >=`` created here between ``buma_pb_json`` and
-``text`` / ``double precision`` / ``boolean`` (both operand orders), and
-between ``buma_sqlite_integer`` and ``boolean``, give those PocketBase results:
-the domain has no ``=`` of its own, so PostgreSQL resolves an untyped
-parameter to ``text`` (typeconv-oper.html, steps 2 and 3) and ``""`` or
-``"72000001,72000002"`` never reach the json input function; ``payed = true``
-is no longer ``integer = boolean``. Not covered (PPBase answers 500): two json
-columns compared with each other, a sort on a ``buma_pb_json`` column on a
-PPBase that sorts the column itself (one that sorts ``to_jsonb(column)``, as
-PPBase WS-A11 does for json fields, sorts it in jsonb order), a string
-compared with a ``buma_sqlite_integer`` (as before for the booleans) and a
-number compared with the text ids (``id = 3``; PocketBase compares ``'3'`` with
-``'3.0'`` and finds nothing, ``id = "3"`` works). PocketBase filters
-JSON_EXTRACT of the stored text and serves PrepareValue: a JSON value after
-whitespace (``' 7'``) is a number for its filters and a string when served;
-the domain holds the served value (no such sim number in the real backup). An
-implicit cast also lets these operators compare a plain ``json`` or
-``smallint`` value: no PPBase or BUMA table, view or query has one.
+Not changed here, documented divergences:
+
+* A text that is valid JSON (``agent_sim``, ``pdv_sim``, ``number`` of
+  ``buma_agent_list_view``): PocketBase prepares it as a json field and serves
+  a JSON number or list (``models/schema/schema_field.go`` l.312-343), PPBase
+  a string (``number_served_as_text``); ``isNafama``, ``payed`` and
+  ``salePayed``: PocketBase serves SQLite's integers 1/0, PPBase true/false
+  (``sqlite_integer_boolean_served_as_boolean``); D-0039, acceptance requested.
+* A listing without ``sort``: PPBase orders a view that has no ``created``
+  field by its first column (``ORDER BY 1``); for the three numbered views
+  with several rows that is now the text order of the id ("1", "10", "100",
+  ..., "2"), where PocketBase serves SQLite's order (the numbering, or the
+  ``ORDER BY`` of ``test``). Every row is served once over the pages;
+  ``sort=id`` is PocketBase's text order.
+* A number compared with a text id (``id = 3``, ``id > 3``): PocketBase
+  compares the text '3' with '3.0' (TEXT affinity, datatype3.html 4.2) and
+  finds nothing; PPBase binds a number for a text column and fails, as for
+  the id of every base collection.
+* A view by id of the two stock views: SQLite plans it without the automatic
+  index and concatenates in rowid order; PPBase serves the list's order.
+* ``SUM`` of reals (``totalAmount``, ``totalPayed``, ``totalNotPayed``,
+  ``totalProfit``, the totals of the other numbered views, ``payedPercent``
+  with a real operand): SQLite 3.43+ adds floats with Kahan-Babuska-Neumaier
+  compensation (lang_aggfunc.html, sum), PostgreSQL ``SUM(float8)`` plainly,
+  so the last digits may differ; PPBase stores numbers as float8, exact for
+  whole numbers up to 2^53. The notation of a number may differ too
+  (PocketBase serves SQLite's text, such as ``7e2``; PPBase the JSON encoding
+  of the float8, ``700``): same JSON value, D-0029 kind.
 
 The SQLite rowid of an imported record is kept by the C11 importer in
 ``_buma_c11_rowids`` (scripts/c11_import.py), a table that only the import
 creates and that must not exist before it. ``buma_source_rowids`` returns the
 archived rowids of the given records when it exists and no row otherwise, so
 the rowid order is ``source rowid NULLS LAST, created, id``: imported records
-in their SQLite order, then records created afterwards in their creation
-order, as SQLite gives a new record the rowid after the greatest one. The
-archive must be kept after the cutover (and in every backup and restore):
-without it the order falls back to ``created, id``. One lookup per query and
-per table, not one function call per row: the archived rows of a small
-collection (pdv, sim, customer user), or of the filtered caisse expenses.
+in their SQLite order, then records created afterwards (no archived rowid) in
+their creation order, as SQLite gives a new record the rowid after the
+greatest one. The archive must be kept after the cutover (and in every backup
+and restore): without it the order falls back to ``created, id``. One lookup
+per query and per table, not one function call per row: the archived rows of a
+small collection (pdv, sim, customer user), or of the filtered caisse expenses.
 
-Requires PostgreSQL 16 (``pg_input_is_valid``). Apply with no PPBase server
-running: eight of these views change column types, and a running server keeps
-asyncpg prepared statements of the old ones.
+Apply with no PPBase server running: seven views change the type of their id,
+and a running server keeps asyncpg prepared statements of the old ones.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-
-MIN_SERVER_VERSION = 160000
-
-JSON_DOMAIN = "buma_pb_json"
-INTEGER_DOMAIN = "buma_sqlite_integer"
-DOMAINS = (
-    (JSON_DOMAIN, "json"),
-    (INTEGER_DOMAIN, "smallint"),
-)
-
-# A SQL function (inlined in the view, no call per row): NULL stays NULL, and
-# so does the text 'null': PocketBase serves it as the JSON null and its
-# filters read it through JSON_EXTRACT, which gives SQL NULL.
-PB_JSON_TEXT = """
-CREATE FUNCTION buma_pb_json_text(value text) RETURNS buma_pb_json
-LANGUAGE sql STABLE PARALLEL SAFE AS $$
--- PocketBase 0.22.34 json PrepareValue of a string (schema_field.go l.312-343).
-SELECT CAST(CASE
-    WHEN value = 'null' THEN NULL
-    WHEN value IN ('true', 'false') THEN value::json
-    WHEN left(value, 1) IN ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '"', '[', '{')
-        AND pg_input_is_valid(value, 'json') THEN value::json
-    ELSE to_json(value)
-END AS buma_pb_json)
-$$
-"""
 
 # The archived rowids of a collection, or of the given records only.
 SOURCE_ROWIDS = """
@@ -156,131 +127,7 @@ BEGIN
 END
 $$
 """
-
-# SQLite comparison of JSON_EXTRACT(value) with a parameter, -1/0/1, NULL when
-# either side is NULL (a JSON null is SQL NULL): numbers (a JSON true/false is
-# the integer 1/0) < text (datatype3.html 4.1), text by BINARY.
-JSON_COMPARE_TEXT = """
-CREATE FUNCTION buma_pb_json_cmp(a buma_pb_json, b text) RETURNS integer
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-SELECT CASE
-    WHEN b IS NULL THEN NULL
-    WHEN json_typeof(a) IN ('number', 'boolean') THEN -1
-    WHEN json_typeof(a) = 'string' THEN CASE
-        WHEN (a #>> '{}') = b THEN 0
-        WHEN (a #>> '{}') COLLATE "C" < b COLLATE "C" THEN -1
-        ELSE 1 END
-    WHEN json_typeof(a) IN ('array', 'object') THEN CASE
-        WHEN a::text = b THEN 0
-        WHEN a::text COLLATE "C" < b COLLATE "C" THEN -1
-        ELSE 1 END
-END
-$$
-"""
-JSON_COMPARE_NUMBER = """
-CREATE FUNCTION buma_pb_json_cmp(a buma_pb_json, b double precision) RETURNS integer
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-SELECT CASE
-    WHEN b IS NULL THEN NULL
-    WHEN json_typeof(a) = 'number' THEN CASE
-        WHEN (a #>> '{}')::numeric < b::numeric THEN -1
-        WHEN (a #>> '{}')::numeric = b::numeric THEN 0
-        ELSE 1 END
-    WHEN json_typeof(a) = 'boolean' THEN CASE
-        WHEN (a #>> '{}')::boolean::integer < b THEN -1
-        WHEN (a #>> '{}')::boolean::integer = b THEN 0
-        ELSE 1 END
-    WHEN json_typeof(a) IN ('string', 'array', 'object') THEN 1
-END
-$$
-"""
-JSON_COMPARE_BOOLEAN = """
-CREATE FUNCTION buma_pb_json_cmp(a buma_pb_json, b boolean) RETURNS integer
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-SELECT buma_pb_json_cmp(a, b::integer::double precision)
-$$
-"""
-INTEGER_COMPARE_BOOLEAN = """
-CREATE FUNCTION buma_sqlite_integer_cmp(a buma_sqlite_integer, b boolean) RETURNS integer
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
-SELECT CASE WHEN a < b::integer THEN -1 WHEN a = b::integer THEN 0 WHEN a > b::integer THEN 1 END
-$$
-"""
-
-# PostgreSQL operator -> function suffix; the reversed operand order flips <, >.
-COMPARISONS = {"=": "eq", "<>": "ne", "<": "lt", "<=": "le", ">": "gt", ">=": "ge"}
-SIGNS = {"lt": "<", "le": "<=", "gt": ">", "ge": ">="}
-FLIPPED = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
-RESTRICT = {"eq": "eqsel", "ne": "neqsel"}
-# domain -> (types it is compared with, SQL telling that the domain value is NULL)
-COMPARED = {
-    JSON_DOMAIN: (
-        ("text", "double precision", "boolean"),
-        "(a IS NULL OR json_typeof(a) = 'null')",
-    ),
-    INTEGER_DOMAIN: (("boolean",), "a IS NULL"),
-}
-
-
-def _comparison_sql(domain: str, other: str, name: str, reverse: bool) -> str:
-    """Operator function ``domain <op> other`` (or ``other <op> domain``).
-
-    ``=`` / ``<>`` are PocketBase's ``IS`` / ``IS NOT`` (NULL-safe); the
-    ordering operators are NULL when a side is NULL, as in SQLite.
-    """
-    _, domain_null = COMPARED[domain]
-    cmp = f"{domain}_cmp(a, b)"
-    if name in ("eq", "ne"):
-        body = f"COALESCE({cmp} = 0, {domain_null} AND b IS NULL)"
-        body = body if name == "eq" else f"NOT {body}"
-    else:
-        sign = SIGNS[name]
-        body = f"{cmp} {FLIPPED[sign] if reverse else sign} 0"
-    arguments = f"b {other}, a {domain}" if reverse else f"a {domain}, b {other}"
-    return (
-        f"CREATE FUNCTION {domain}_{name}({arguments}) RETURNS boolean\n"
-        f"LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ SELECT {body} $$"
-    )
-
-
-def _comparisons() -> list[tuple[str, str, str, str, str]]:
-    """(operator, function, left type, right type, function DDL) of every operator."""
-    out = []
-    for domain, (others, _) in COMPARED.items():
-        for other in others:
-            for reverse in (False, True):
-                left, right = (other, domain) if reverse else (domain, other)
-                for operator, name in COMPARISONS.items():
-                    ddl = _comparison_sql(domain, other, name, reverse)
-                    out.append((operator, f"{domain}_{name}", left, right, ddl))
-    return out
-
-
-COMPARISON_OPERATORS = _comparisons()
-COMPARE_FUNCTIONS = (
-    JSON_COMPARE_TEXT,
-    JSON_COMPARE_NUMBER,
-    JSON_COMPARE_BOOLEAN,
-    INTEGER_COMPARE_BOOLEAN,
-)
-COMPARE_SIGNATURES = (
-    "buma_pb_json_cmp(buma_pb_json, text)",
-    "buma_pb_json_cmp(buma_pb_json, double precision)",
-    "buma_pb_json_cmp(buma_pb_json, boolean)",
-    "buma_sqlite_integer_cmp(buma_sqlite_integer, boolean)",
-)
-
-
-def operator_ddl(operator: str, function: str, left: str, right: str) -> str:
-    restrict = RESTRICT.get(function.rsplit("_", 1)[1])
-    clause = f", RESTRICT = {restrict}" if restrict else ""
-    return (
-        f"CREATE OPERATOR {operator} (LEFTARG = {left}, RIGHTARG = {right}, "
-        f"FUNCTION = {function}{clause})"
-    )
-
-
-FUNCTIONS = ("buma_pb_json_text(text)", "buma_source_rowids(text, text[])")
+FUNCTIONS = ("buma_source_rowids(text, text[])",)
 
 # Collection ids of the corrected export, checked against _collections.
 COLLECTION_IDS = {
@@ -311,8 +158,15 @@ def rowid_order(alias: str) -> str:
     return f"{alias}_rowid.source_rowid NULLS LAST, {alias}.created, {alias}.id"
 
 
-def sqlite_integer(expression: str) -> str:
-    return f"CAST({expression} AS {INTEGER_DOMAIN})"
+def text_id(order: str = "") -> str:
+    """The id PocketBase serves for ROW_NUMBER() OVER (): its text, BINARY ordered."""
+    window = f"ORDER BY {order}" if order else ""
+    return f'CAST(ROW_NUMBER() OVER ({window}) AS TEXT) COLLATE "C" as id'
+
+
+def default_collation(expression: str) -> str:
+    """An expression computed in BINARY order, with the translation's collation."""
+    return f'{expression} COLLATE "default"'
 
 
 PDV_ROWIDS = archived_rowids("buma_pdv", "p")
@@ -325,42 +179,7 @@ NUMBER = 'CAST(sim.number AS TEXT) COLLATE "C"'
 SIM_LIST = (
     "STRING_AGG(CAST(sim.number AS TEXT), ',' ORDER BY " + rowid_order("p") + ", " + NUMBER + ")"
 )
-AGENT_SIM = "COALESCE(MAX(CAST(number AS TEXT) COLLATE \"C\"), '')"
-
-# The four customer/return views group by (or select DISTINCT) pdv_sim and
-# agent_sim, which json cannot do (it has no equality): they stay text there,
-# with the fallback '', and an outer projection serves them as buma_pb_json.
-WRAPPED = {
-    "buma_customer_list_view": (
-        "id created updated solde due kind agent customer_no firstname lastname name address "
-        "contact email photo status pdv complete_name pdv_sim agent_sim"
-    ),
-    "buma_customer_list_view_with_users": (
-        "id created updated solde due kind agent customer_no firstname lastname name address "
-        "contact email status photo pdv complete_name pdv_sim agent_sim assigned_users"
-    ),
-    "buma_customer_mobile_list_view": (
-        "id created updated solde due kind agent customer_no uvUser firstname lastname name "
-        "address contact email status photo isNafama pdv complete_name pdv_sim agent_sim "
-        "agent_sim_network pdv_sim_network globalUpdated"
-    ),
-    "buma_return_list_view": (
-        "id amount payed status note designation complete_name number customer_id created "
-        "pdv_name pdv_sim agent_sim return_date"
-    ),
-}
-JSON_COLUMNS = ("pdv_sim", "agent_sim")
-
-
-def wrapper(name: str) -> tuple[str, str]:
-    """(head, tail) around the query of a WRAPPED view (its final ``;`` kept)."""
-    columns = []
-    for column in WRAPPED[name].split():
-        quoted = f'w."{column}"' if column != column.lower() else f"w.{column}"
-        columns.append(
-            f"buma_pb_json_text({quoted}) AS {column}" if column in JSON_COLUMNS else quoted
-        )
-    return "SELECT " + ", ".join(columns) + "\nFROM (\n", "\n) AS w;"
+AGENT_SIM = default_collation("COALESCE(MAX(CAST(number AS TEXT) COLLATE \"C\"), '')")
 
 
 # SimNumbers reads its sims through the covering index (pdv, network, number,
@@ -424,7 +243,9 @@ MOBILE = (
     ),
     (
         "        MAX(network) AS agent_sim_network\n",
-        '        MAX(CAST(network AS TEXT) COLLATE "C") AS agent_sim_network\n',
+        "        "
+        + default_collation('MAX(CAST(network AS TEXT) COLLATE "C")')
+        + " AS agent_sim_network\n",
     ),
     (
         "        customer,\n        user,\n        MAX(updated) AS updated\n",
@@ -468,12 +289,6 @@ PAYED_PERCENT_NEW = (
 
 # view -> ((old fragment, new fragment), ...): each fragment occurs exactly once.
 CHANGES = {
-    "buma_agent_list_view": (
-        (
-            "  COALESCE(si.number, '') as number,\n",
-            "  buma_pb_json_text(COALESCE(si.number, '')) as number,\n",
-        ),
-    ),
     "buma_customer_list_view": (
         (
             "    FROM buma_pdv p\n    LEFT JOIN buma_sim sim \n",
@@ -514,10 +329,6 @@ CHANGES = {
     "buma_customer_mobile_list_view": (
         *MOBILE,
         (
-            'COALESCE(asn."isNafama", false) AS "isNafama",',
-            sqlite_integer('COALESCE(asn."isNafama"::integer, 0)') + ' AS "isNafama",',
-        ),
-        (
             "COALESCE(sn.network_list, '') AS pdv_sim_network,",
             "COALESCE(snw.network_list, '') AS pdv_sim_network,",
         ),
@@ -539,31 +350,8 @@ CHANGES = {
             f"{AGENT_SIM} AS agent_sim_number",
         ),
     ),
-    "buma_transaction_list_view": (
-        (
-            "    WHEN tr.sale != '' THEN sale.amount = sale.payed\n"
-            "    ELSE retour.payed\n"
-            "  END) as payed,",
-            "    WHEN tr.sale != '' THEN "
-            + sqlite_integer("(sale.amount = sale.payed)::integer")
-            + "\n    ELSE "
-            + sqlite_integer("retour.payed::integer")
-            + "\n  END) as payed,",
-        ),
-        (
-            '    WHEN sale.payed = sale.amount  THEN true\n    ELSE false\n  END) AS "salePayed",',
-            "    WHEN sale.payed = sale.amount  THEN "
-            + sqlite_integer("1")
-            + "\n    ELSE "
-            + sqlite_integer("0")
-            + '\n  END) AS "salePayed",',
-        ),
-    ),
     "buma_sale_info": (
-        (
-            "SELECT (ROW_NUMBER() OVER()) as id,\n",
-            'SELECT CAST(ROW_NUMBER() OVER () AS TEXT) COLLATE "C" as id,\n',
-        ),
+        ("SELECT (ROW_NUMBER() OVER()) as id,\n", f"SELECT {text_id()},\n"),
         (PAYED_PERCENT_OLD, PAYED_PERCENT_NEW),
     ),
     "buma_caisse_transaction_by_categorie_list_view": (
@@ -575,9 +363,9 @@ CHANGES = {
         (
             "AND b.status = true AND c.type = 'EXPENSE'",
             "AND b.status = true AND c.type = 'EXPENSE'\n)\n"
-            "SELECT CAST(ROW_NUMBER() OVER (ORDER BY "
-            + rowid_order("f")
-            + ') AS TEXT) COLLATE "C" as id, f.amount, f.created, f."caisseName", f.label\n'
+            "SELECT "
+            + text_id(rowid_order("f"))
+            + ', f.amount, f.created, f."caisseName", f.label\n'
             "FROM filtered f\n"
             + archived_rowids("buma_caisse_transactions", "f", "SELECT id FROM filtered"),
         ),
@@ -596,35 +384,51 @@ CHANGES = {
             "CAST(bs.stockage AS TEXT) COLLATE \"C\"), '') as stockage",
         ),
     ),
+    "buma_caisse_session_info": (
+        (
+            "SELECT\n    (ROW_NUMBER() OVER()) as id,\n",
+            "SELECT\n    " + text_id('bct.caisse COLLATE "C", bct.session COLLATE "C"') + ",\n",
+        ),
+    ),
+    "test": (
+        (
+            "SELECT\n  (ROW_NUMBER() OVER()) as id,\n",
+            "SELECT\n  "
+            + text_id(
+                's.customer COLLATE "C", a.id COLLATE "C" NULLS FIRST, '
+                'a.designation COLLATE "C" NULLS FIRST'
+            )
+            + ",\n",
+        ),
+    ),
+    "buma_article_list_stat_view": ((" (ROW_NUMBER() OVER()) as id;", f" {text_id()};"),),
+    "buma_customer_supplier_info_view": (
+        ("  (ROW_NUMBER() OVER()) as id,\n", f"  {text_id()},\n"),
+    ),
+    "buma_return_info_view": (
+        ("select (ROW_NUMBER() OVER()) as id, COUNT(r.id)", f"select {text_id()}, COUNT(r.id)"),
+    ),
 }
 
 # SHA-256 of each stored query before and after this migration (the query of
 # 1789236842 as corrected by 1789236847 and 1789236848, i.e. the translation of
 # the corrected export by scripts/generate_native_baseline.py).
 QUERY_SHA256 = {
-    "buma_agent_list_view": (
-        "0fdf28cd0f916dce6fb08b5b4a649579adf2c885b87ad33a6a7bdc22d12bc767",
-        "7568bf3daa4eca734a793f4a692c7531ce68ee5e55828e220cce897b18f4c717",
-    ),
     "buma_customer_list_view": (
         "b62cbb0cf037fd1b181db5fb71189b2f766e26ebd5c1b072a373c0d07c25c715",
-        "24dbab1b2dca61744ea7e27292e0cb5e444af13eb273d69112a1fe1398abe3da",
+        "ee964c72ec5fc881ce228e3b4eb877869f8f52a238c7794f9061c6895fe78fcb",
     ),
     "buma_customer_list_view_with_users": (
         "a44ba30eda0a05334df7655aa8f1a23063dc67e8eda2da41d62b9725f840c8d9",
-        "b05318c0e24ffe7ee721eb7be2cd8d3549902661d3a01b0e80be5f0ae03e5319",
+        "de190ce0fab1a5b2860ac7fdc91e00b69695bd0e257a2d98fdd8ac66cb97b6ea",
     ),
     "buma_customer_mobile_list_view": (
         "464885689bf9c5d9f0d30cf9d85892019e46c9f08c5e4b8ede9bb42d2ce93e65",
-        "a1c9efc0cc4a602ca5e9a2f1eafa124f193b24dc39c838cfd8703b6605832503",
+        "c1fc7b63d7cc7777cab39bc67ab6581e63bf3540ba523cd2259fb64ae6a5bc98",
     ),
     "buma_return_list_view": (
         "dc5d101242df4af8f7f78b6dbe44ab04b1756bab79929218ff19a06d2c873afc",
-        "9ac004bb7b97f8e8322dd570d04b4bebbcc2f71a6b6ff02e07db48c43a2b99d1",
-    ),
-    "buma_transaction_list_view": (
-        "f6e6700591d5cd79f43eef80d8636121c0dca5112a432c692c628392a8204796",
-        "db754fc03767e7da0b0d7d21fa875a199657fb766302e019bed7578878b8b424",
+        "c5824251bf957a2dc77f9f544251290257b8269147548142e4a2c3b649fad7dd",
     ),
     "buma_sale_info": (
         "d7ae090a8d0c7c04c055e3118dd97010149dfa53b137cabbeef24aef11e279cc",
@@ -642,11 +446,27 @@ QUERY_SHA256 = {
         "7770019d79ea2b30801eb427b07d94b1f8521ac8cdb9119b05023956c32bbde7",
         "3c13d0a263faca8bf9e8577ac1e6d86ad787c2825d596cabd8840b7b8eec5090",
     ),
+    "buma_caisse_session_info": (
+        "46fbd0191b3c01edaafbc6d54dd0f651febc576d9667cdb6b70971d53ef3f36f",
+        "9f58f5edbe57b83d375c3d99716630ba6e2d12d8a7602038e3b38127da660ccb",
+    ),
+    "test": (
+        "9633d68f04c32eb866dd619d82ed6da34f9e3eeb43d3727d0e18dad4300c50ef",
+        "e21faf7fe83cd25db513e2ecc750f36a621827b6ecd68ed571d0fab585bc1f60",
+    ),
+    "buma_article_list_stat_view": (
+        "4c802e6f9c48ac04e1910f69bf423d4d5091322e7284a123bd738da2020e4d76",
+        "8512d73a25d946cfd9dc1f4fcafbe4134478f0b9135a6ee9d1592b205ea58afd",
+    ),
+    "buma_customer_supplier_info_view": (
+        "dc62c307f679ca28cd70a02a3ae96d01dc721160bf037b19235d6af53caf63f2",
+        "b669e165b50b51636d6ff166dbeeb70867af4c739940d27425bdc3842c97bfbe",
+    ),
+    "buma_return_info_view": (
+        "b676651b529a01f50568fa35018aff2719683e3476617925c3f767eca9a71479",
+        "875897ba6df953541826585a4338e419bf2d6d52e7505a40656abbc8e5f32c4c",
+    ),
 }
-
-# Views reading a recreated view (test reads buma_transaction_list_view):
-# recreated with their stored query, unchanged.
-DEPENDENTS = ("test",)
 
 
 def digest(query: str) -> str:
@@ -656,22 +476,13 @@ def digest(query: str) -> str:
 def rewrite(name: str, query: str, forward: bool) -> str:
     """The query after (forward) or before this migration; refuses any other text."""
     before, after = QUERY_SHA256[name]
-    fragments = CHANGES[name]
     if digest(query) != (before if forward else after):
         raise RuntimeError(f"{name}: unexpected stored view query; refusing to rewrite it")
-    if name in WRAPPED and not forward:
-        head, tail = wrapper(name)
-        query = query.removeprefix(head).removesuffix(tail) + ";"
-    for old, new in fragments if forward else reversed(fragments):
+    for old, new in CHANGES[name] if forward else reversed(CHANGES[name]):
         source, target = (old, new) if forward else (new, old)
         if query.count(source) != 1:
             raise RuntimeError(f"{name}: view query fragment not found exactly once")
         query = query.replace(source, target)
-    if name in WRAPPED and forward:
-        head, tail = wrapper(name)
-        if not query.endswith(";") or query.count(";") != 1:
-            raise RuntimeError(f"{name}: view query does not end with its only ';'")
-        query = head + query[:-1] + tail
     if digest(query) != (after if forward else before):
         raise RuntimeError(f"{name}: rewritten view query differs from the expected one")
     return query
@@ -698,14 +509,9 @@ async def _replace(app, forward: bool) -> None:
         collection, options = await _stored_query(app, name)
         options["query"] = rewrite(name, options["query"], forward)
         targets[name] = (collection, options)
-    dependents = {}
-    for name in DEPENDENTS:
-        collection, options = await _stored_query(app, name)
-        dependents[name] = options["query"]
-    # Dependents first, then the targets (none reads another); no CASCADE, so
-    # an unexpected dependent view fails the migration and rolls it back.
-    for name in dependents:
-        await app.execute_sql(f'DROP VIEW "{name}"')
+    # None of these views reads another, and no other view reads them; no
+    # CASCADE, so an unexpected dependent view fails the migration and rolls
+    # it back.
     for name in targets:
         await app.execute_sql(f'DROP VIEW "{name}"')
     for name, (collection, options) in targets.items():
@@ -714,35 +520,14 @@ async def _replace(app, forward: bool) -> None:
             "UPDATE _collections SET options = CAST(:options AS jsonb) WHERE id = :id",
             {"options": json.dumps(options), "id": collection.id},
         )
-    for name, query in dependents.items():
-        await app.execute_sql(f'CREATE VIEW "{name}" AS {query}')
 
 
 async def up(app):
-    version = (
-        await app.execute_sql("SELECT current_setting('server_version_num')::int")
-    ).scalar_one()
-    if version < MIN_SERVER_VERSION:
-        raise RuntimeError("buma_pb_json_text needs PostgreSQL 16 (pg_input_is_valid)")
-    for domain, base in DOMAINS:
-        await app.execute_sql(f"CREATE DOMAIN {domain} AS {base}")
-    for ddl in (PB_JSON_TEXT, SOURCE_ROWIDS, *COMPARE_FUNCTIONS):
-        await app.execute_sql(ddl)
-    for operator, function, left, right, ddl in COMPARISON_OPERATORS:
-        await app.execute_sql(ddl)
-        await app.execute_sql(operator_ddl(operator, function, left, right))
+    await app.execute_sql(SOURCE_ROWIDS)
     await _replace(app, True)
 
 
 async def down(app):
     await _replace(app, False)
-    # No CASCADE: an object that still uses a domain fails the migration.
-    for operator, function, left, right, _ in reversed(COMPARISON_OPERATORS):
-        await app.execute_sql(f"DROP OPERATOR {operator} ({left}, {right})")
-        await app.execute_sql(f"DROP FUNCTION {function}({left}, {right})")
-    for signature in reversed(COMPARE_SIGNATURES):
-        await app.execute_sql(f"DROP FUNCTION {signature}")
     for function in FUNCTIONS:
         await app.execute_sql(f"DROP FUNCTION {function}")
-    for domain, _ in reversed(DOMAINS):
-        await app.execute_sql(f"DROP DOMAIN {domain}")
