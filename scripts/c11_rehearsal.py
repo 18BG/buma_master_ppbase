@@ -440,37 +440,11 @@ KNOWN_DIVERGENCES["customers_pdv_name_every"] = {
 # divergence_class() or file_divergences(); anything else fails the rehearsal.
 # PPBase lines cited here and above: commit 526397a (branch
 # fix/d0019-relation-maxselect).
+# The error envelope ({code} against {status}), the 401/403 wording and the
+# data.identity detail of a failed login were classes here; BUMA now enables
+# PPBase's PocketBase 0.22 error mode (app/hooks/register.py, D-0034), which
+# answers them like 0.22.34, so any such difference is unexpected again.
 DIVERGENCE_CLASSES = {
-    "error_envelope_code_vs_status": {
-        "cause": (
-            "PocketBase v0.22.34 {code, message, data} (apis/api_error.go:12-15), PPBase "
-            "{status, message, data}"
-        ),
-        "client_impact": (
-            "same HTTP status and message: a client reading the body field code of a native "
-            "error (/api/admins, /api/collections/*, /api/files) gets no value"
-        ),
-        "documented_in": (
-            "docs/contracts/c11-auth-import.md section 5 and the D-0025 gap list; " + TO_RECORD
-        ),
-    },
-    "auth_error_message_wording": {
-        "cause": "401/403 messages of PPBase differ from PocketBase v0.22.34, same status",
-        "client_impact": "a client comparing or displaying the 401/403 message text",
-        "documented_in": "docs/contracts/c11-auth-import.md section 5; " + TO_RECORD,
-    },
-    "failed_login_identity_detail": {
-        "cause": (
-            "PPBase adds data.identity validation_invalid_credentials to the 400 of a failed "
-            "login (ppbase/api/record_auth.py:352-357, ppbase/api/admins.py:172); PocketBase "
-            "v0.22.34 answers data {}"
-        ),
-        "client_impact": (
-            "same 400 and message; a client that shows or tests the data keys of a failed "
-            "login (field errors) sees an identity error"
-        ),
-        "documented_in": TO_RECORD,
-    },
     "empty_date_served_null": {
         "cause": (
             'PocketBase v0.22.34 serves an empty date as "" (tools/types/datetime.go:44-53); '
@@ -897,25 +871,6 @@ def divergence_class(path, reference, mine, *, credential, field_types) -> str |
     """The DIVERGENCE_CLASSES rule a difference path satisfies, or None."""
     parts = _path_parts(path)
     if _error_envelope(reference) and _error_envelope(mine):
-        same_status = reference.get("code") == mine.get("status")
-        if path in ("/code: pocketbase only", "/status: ppbase only") and same_status:
-            return "error_envelope_code_vs_status"
-        if (
-            path == "/message"
-            and same_status
-            and reference["code"]
-            in (
-                ("number", "401"),
-                ("number", "403"),
-            )
-        ):
-            return "auth_error_message_wording"
-        if (
-            path == "/data/identity: ppbase only"
-            and reference["code"] == ("number", "400")
-            and reference["data"] == {}
-        ):
-            return "failed_login_identity_detail"
         return None
     if not parts:
         return None
@@ -975,19 +930,7 @@ def file_divergences(label: str, reference: dict, mine: dict, original: dict | N
             else:
                 unexplained.append("thumbnail")
         else:
-            try:
-                ref, own = json.loads(reference["content"]), json.loads(mine["content"])
-            except ValueError:
-                ref = own = None
-            if (
-                _error_envelope(ref)
-                and _error_envelope(own)
-                and (ref.get("code"), ref["message"], ref["data"])
-                == (own.get("status"), own["message"], own["data"])
-            ):
-                classes.append("error_envelope_code_vs_status")
-            else:
-                unexplained.append("bytes")
+            unexplained.append("bytes")
     if reference["content_disposition"] != mine["content_disposition"]:
         if reference["content_disposition"] and mine["content_disposition"] is None:
             classes.append("file_content_disposition_missing")

@@ -545,25 +545,18 @@ def test_rehearsal_probe_tables_are_consistent():
 @pytest.mark.parametrize(
     ("path", "reference", "mine", "expected"),
     [
-        (
-            "/code: pocketbase only",
-            _error(404),
-            _error(404, key="status"),
-            "error_envelope_code_vs_status",
-        ),
+        # BUMA enables PPBase's PocketBase 0.22 error mode (D-0034): an error
+        # envelope, 401/403 wording or failed-login detail difference is a
+        # regression, never a class.
+        ("/code: pocketbase only", _error(404), _error(404, key="status"), None),
         ("/code: pocketbase only", _error(404), _error(400, key="status"), None),
-        (
-            "/message",
-            _error(401, "a"),
-            _error(401, "b", key="status"),
-            "auth_error_message_wording",
-        ),
+        ("/message", _error(401, "a"), _error(401, "b", key="status"), None),
         ("/message", _error(404, "a"), _error(404, "b", key="status"), None),
         (
             "/data/identity: ppbase only",
             _error(400, "Failed to authenticate."),
             _error(400, "Failed to authenticate.", key="status", data={"identity": {}}),
-            "failed_login_identity_detail",
+            None,
         ),
         (
             "/data/identity: ppbase only",
@@ -641,8 +634,8 @@ def test_file_divergence_classes_are_narrow():
     pb_404 = _file(404, json.dumps(_error(404)).encode(), "application/json; charset=UTF-8")
     pp_404 = _file(404, json.dumps(_error(404, key="status")).encode(), "application/json")
     assert rehearsal.file_divergences("b", pb_404, pp_404, None) == (
-        ["error_envelope_code_vs_status", "json_content_type_charset"],
-        [],
+        ["json_content_type_charset"],
+        ["bytes"],
     )
     assert rehearsal.file_divergences("c", _file(), _file(content=b"y"), None)[1] == ["bytes"]
     assert rehearsal.file_divergences("d", _file(), _file(404), None)[1] == ["status 200 != 404"]
@@ -676,7 +669,7 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
     pocketbase = _answers(
         {
             "declared": _answer(200, {"items": []}),
-            "classed": _answer(404, _error(404)),
+            "classed": _answer(404, _error(404), None, "application/json; charset=UTF-8"),
             "changed": _answer(200, {"name": "a"}),
         }
     )
@@ -684,7 +677,7 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
         {
             # An unhandled error: plain text, its Content-Type part of the divergence.
             "declared": _answer(500, {"non_json_bytes_sha256": "0"}, None, "text/plain"),
-            "classed": _answer(404, _error(404, key="status")),
+            "classed": _answer(404, _error(404)),
             "changed": _answer(200, {"name": "b"}),
         }
     )
@@ -692,8 +685,8 @@ def test_compare_servers_accepts_only_declared_pairs_and_classes(monkeypatch):
     entry = result["declared_divergences"]["declared"]
     assert (entry["state"], entry["ppbase_status"], entry["client_impact"]) == ("present", 500, "i")
     assert entry["content_types"] == {"pocketbase": "application/json", "ppbase": "text/plain"}
-    assert result["divergence_classes"]["error_envelope_code_vs_status"]["probes"] == ["classed"]
-    assert result["divergence_classes"]["error_envelope_code_vs_status"]["state"] == "open"
+    assert result["divergence_classes"]["json_content_type_charset"]["probes"] == ["classed"]
+    assert result["divergence_classes"]["json_content_type_charset"]["state"] == "open"
     assert result["unexpected_differences"] == [{"probe": "changed", "differences": ["/name"]}]
     assert (result["probes"], result["identical"], result["with_open_divergences"]) == (4, 1, 3)
     # Another PPBase status than the declared one is unexpected.

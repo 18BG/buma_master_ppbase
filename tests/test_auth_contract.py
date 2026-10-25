@@ -288,3 +288,92 @@ async def test_username_login_expands_as_the_authenticated_record(monkeypatch) -
     # record, never evaluated server side (no context).
     assert captured["request_context"] == {"auth": {"id": "user_1"}, "marker": True}
     assert captured["context_args"] == (collection, "user_1", body)
+
+
+@pytest.mark.asyncio
+async def test_auth_response_context_carries_the_live_role_keys(monkeypatch) -> None:
+    """PPBase's own auth_response_rule_context, with BUMA's loader, gives the
+    expand of an auth response the logged-in record's live role keys."""
+    from types import SimpleNamespace
+
+    from ppbase.api import record_auth
+    from starlette.requests import Request
+
+    from app.auth import context
+
+    users = SimpleNamespace(id="col_users", name="users")
+    stored = {
+        "users": [
+            {
+                "id": "user_1",
+                "role": "role_1",
+                "password_hash": "not-served",
+                "token_key": "not-served",
+            }
+        ],
+        "roles": [{"id": "role_1", "permission": json.dumps({"customer": {"read": True}})}],
+        "buma_apps_roles": [
+            {"name": "customer", "info": json.dumps({"actions": ["read:Lire", "create:Créer"]})}
+        ],
+    }
+
+    class Result:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.rows[0] if self.rows else None
+
+        def all(self):
+            return self.rows
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, statement, params=None):
+            for table, rows in stored.items():
+                if f'FROM "{table}"' in str(statement):
+                    return Result(rows)
+            raise AssertionError(str(statement))
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    async def resolve(engine, name):
+        assert name == "users"
+        return users
+
+    monkeypatch.setattr(context, "resolve_collection", resolve)
+    monkeypatch.setattr(record_auth, "get_engine", lambda: Engine())
+    app = SimpleNamespace(
+        state=SimpleNamespace(auth_record_rule_context=context.load_auth_record_context)
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/collections/users/auth-with-password",
+            "headers": [],
+            "query_string": b"expand=agent.parent",
+            "app": app,
+        }
+    )
+
+    rule_context = await record_auth.auth_response_rule_context(
+        request, users, {"id": "user_1", "collectionName": "users"}, {}
+    )
+
+    auth = rule_context["auth"]
+    assert auth["id"] == "user_1"
+    assert auth["role.permission.customer.read"] is True
+    assert auth["role.permission.customer.create"] is False
+    assert auth["role.permission.isAdmin"] is False
+    assert "password_hash" not in auth and "token_key" not in auth

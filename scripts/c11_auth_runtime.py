@@ -2585,6 +2585,9 @@ def compare(report: dict) -> None:
             {tuple(v.get("keys", ())) for k, v in ppbase.items() if k not in ACCEPTED}
         ),
     }
+    # BUMA enables PPBase's PocketBase 0.22 error mode (D-0034): the error bodies
+    # must carry the same keys as 0.22.34's ({code, message, data}).
+    assert envelope["pocketbase"] == envelope["ppbase"], envelope
     realtime = compare_realtime(report)
     # C3 claims: PocketBase 0.22.34 issues type=authRecord (tokens/tokens.go:4-7),
     # PPBase issues type=auth after its own login or refresh.
