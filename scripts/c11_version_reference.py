@@ -1534,6 +1534,11 @@ def main() -> None:
             not p["importer_diagnostic_differences"] for p in profiles
         ),
         "only_version_gate_blocks_0_22_34_default_fixture": only_version_gate_blocks(gate),
+        # STATEMENT claims it of the importer as a whole, and the registry reads
+        # its version from the real_shape fixture: every profile must agree.
+        "only_version_gate_blocks_0_22_34_all_profiles": all(
+            only_version_gate_blocks(p["importer_diagnostic"]) for p in profiles
+        ),
         "same_embedded_sqlite": len(embedded) == 1,
     }
     for key, value in binaries.items():

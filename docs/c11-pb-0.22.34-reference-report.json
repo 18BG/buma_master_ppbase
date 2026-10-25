@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-10-24T21:53:41.824590+00:00",
+  "timestamp_utc": "2026-10-25T07:16:31.087559+00:00",
   "scope": "pocketbase_0_22_34_storage_reference",
   "command": "python -m scripts.c11_version_reference --pocketbase-0-22-27 /root/buma-c11-tools/pocketbase-0.22.27/bin/pocketbase --pocketbase-0-22-34 /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --pocketbase-src /root/buma-c11-tools/pocketbase-src --schema /root/projects/buma-master-pb_schema-corrected.json --real-data /root/projects/buma-master-ppbase/backups/c11-master-20260928 --baseline-commit fb381ac --report docs/c11-pb-0.22.34-reference-report.json",
   "production_data_used": true,
@@ -1888,6 +1888,7 @@
     "view_schemas_equal_export_for_both_binaries": true,
     "importer_reads_both_identically": true,
     "only_version_gate_blocks_0_22_34_default_fixture": true,
+    "only_version_gate_blocks_0_22_34_all_profiles": true,
     "same_embedded_sqlite": true,
     "default_profile_vs_fb381ac_identical": true,
     "real_backup_last_writer_is_the_embedded_sqlite": true,

@@ -75,6 +75,9 @@ def test_importer_view_measures_the_assessed_version_without_the_evidence(monkey
 
 def test_importer_view_restores_the_registry_when_diagnose_raises(monkeypatch):
     entry = c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION]
+    # Restored by monkeypatch even if importer_view loses it, so a regression
+    # here does not make later import tests fail too.
+    monkeypatch.setitem(c11_import.VALIDATED_SOURCE_VERSIONS, ASSESSED_VERSION, entry)
     monkeypatch.setattr(c11_import, "diagnose", gate_only_diagnose(raise_for=ASSESSED_VERSION))
     with pytest.raises(RuntimeError, match="diagnose failed"):
         importer_view(Path("unused"), Path("unused"), ASSESSED_VERSION)
