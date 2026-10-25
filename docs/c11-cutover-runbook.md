@@ -37,9 +37,10 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
 ## Conventions
 
 - **L1 à L20** : lignes du tableau des durées (5.1) ; **R1 à R12** : lignes
-  du tableau des ressources (5.2). Ces deux tableaux sont les seuls endroits
-  du runbook où figurent des durées et des ressources mesurées ; ailleurs, le
-  texte renvoie à leurs lignes.
+  du tableau des ressources (5.2). Ces deux tableaux, avec le texte de 5.1 qui
+  explique leurs sources et leurs marges, sont les seuls endroits du runbook
+  où figurent des durées et des ressources mesurées ; ailleurs, le texte
+  renvoie à leurs lignes.
 - **P1, P2** : les deux passages du rapport final de la répétition réelle ;
   **AP1, AP2, AP3** : les deux aperçus et la passe intermédiaire, gardés
   comme mesures de variabilité (5.1).
@@ -72,7 +73,8 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
   données sont passés en arguments. Le serveur PPBase se lance depuis un
   dossier vide (6.1, étape 4).
 - Heures en UTC partout (journal, `T_gel`, `T_ouverture`) : un changement
-  d'heure locale peut tomber dans la fenêtre.
+  d'heure locale peut tomber dans la fenêtre (le serveur de session est passé
+  de CEST à CET pendant la session, le 2026-10-25).
 
 ## 1. Principes
 
@@ -140,11 +142,11 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - **quatre acceptations explicites de l'utilisateur**, exigées avant G0, ou à
   défaut la correction intégrée et revérifiée par les répétitions (annexe A).
   Chacune s'inscrit dans sa section de `docs/decisions-and-divergences.md` par
-  une ligne qui commence par `Statut : acceptée par l'utilisateur le
-  AAAA-MM-JJ`, la convention que lit la répétition réelle
-  (`divergence_decision_convention` du rapport final) ; une telle ligne
-  accepte tous les codes de sa section, une acceptation partielle exige une
-  section propre :
+  une ligne qui commence par
+  `Statut : acceptée par l'utilisateur le AAAA-MM-JJ`, la convention que lit
+  la répétition réelle (`divergence_decision_convention` du rapport final) ;
+  une telle ligne accepte tous les codes de sa section, une acceptation
+  partielle exige une section propre :
   - D-0029 : ordre des clés des objets JSON (`jsonb`) et filtres `= null` sur
     les SQL NULL des champs json (7 objets et 100 valeurs réels) ;
   - D-0036 : filtres et tris sur les colonnes NULL des vues (LEFT JOIN sans
@@ -443,8 +445,9 @@ Infrastructure de production :
   mises à jour automatiques (I25).
 - **I7** — Proxy, DNS et certificats : logiciel et configuration actuelle
   (taille maximale des corps, alors que `buma_ressources.file` accepte des
-  fichiers jusqu'à 120 242 880 octets ; délais ; en-têtes ; SSE), TTL DNS,
-  moyen de changer l'amont.
+  fichiers jusqu'à 120 242 880 octets ; délais ; en-têtes, dont ceux de
+  sécurité qu'il ajoute ou retire, 6.9 ; SSE), TTL DNS, moyen de changer
+  l'amont.
 
 Clients :
 
@@ -727,7 +730,7 @@ cités pour la variabilité.
 | R9 | Mémoire PostgreSQL non récupérable (anon + shmem, maximum échantillonné) | 337 018 880 octets ; 337 723 392 octets | `passes[i].measures.container_memory.sampled_max_anon_plus_shmem_bytes` | limite de 2 Gio atteinte par le cache de pages ; 0 OOM (`oom` et `oom_kill` de `passes[i].measures.container_memory.events`) ; 311 136 256 ; 312 598 528 ; 330 690 560 |
 | R10 | Configuration PostgreSQL de la répétition | 16.15 ; `shared_buffers` 128MB ; `work_mem` 4MB ; `maintenance_work_mem` 64MB ; `max_wal_size` 1GB ; `synchronous_commit` on ; `max_parallel_workers_per_gather` 2 ; `datcollate` `en_US.utf8` | `passes[i].measures.database` | réglages par défaut de l'image ; image musl, texte trié par octets (2.2) ; mêmes valeurs pour AP1 à AP3 |
 | R11 | Pic RSS de l'extraction | 27 Mo | D-0028 | archives synthétiques |
-| R12 | Croissance de la base pendant les lectures HTTP | 393 216 octets | `passes[i].measures.database_bytes_after_http` moins `passes[i].measures.database_bytes_after_import` | 414 requêtes de L16 : journal `_requests` (6.11) et superuser synthétique du banc ; indication du volume du journal ; non comparée (autres contrôles HTTP pour AP1 et AP2) |
+| R12 | Croissance de la base pendant les lectures HTTP | 393 216 octets | `passes[i].measures.database_bytes_after_http` moins `passes[i].measures.database_bytes_after_import` | 414 requêtes de L16 : journal `_requests` (6.11) et superuser synthétique du banc ; indication du volume du journal ; AP3 (414 contrôles) : 368 640 octets ; AP1 et AP2 non comparées (256 contrôles) |
 
 ### 5.3 Fenêtre de maintenance
 
@@ -760,8 +763,9 @@ bascule ; la fenêtre n'est fixée qu'après lui.
 
 1. Installer sur la machine de bascule les checkouts BUMA et PPBase aux
    commits de release, avec un seul venv comme sur le serveur de session
-   (`docs/server-session-plan.md`, section 3) ; consigner les deux commits et
-   `pip freeze`. **C-45** : depuis la racine du checkout BUMA,
+   (`docs/server-session-plan.md`, section 3) ; construire le tableau de bord
+   PPBase (2.2) ; consigner les deux commits et `pip freeze`. **C-45** :
+   depuis la racine du checkout BUMA,
 
    ```sh
    git rev-parse HEAD
@@ -781,7 +785,7 @@ bascule ; la fenêtre n'est fixée qu'après lui.
    `docs/` (le rapport final lui-même est commité après `b7427fe`) ; pour
    PPBase, exactement `code.ppbase.commit` (`069e0bb`) ; deux états vides pour
    les fichiers suivis, critère `tracked_files_clean` de la répétition
-   (`git_state`, `scripts/c11_real_rehearsal.py:288-299`) ; des fichiers non
+   (`git_state`, `scripts/c11_real_rehearsal.py:290-300`) ; des fichiers non
    suivis, consignés, qui ne sont que ceux de l'installation (par exemple
    `buma_master_ppbase.egg-info/`, que `.gitignore` n'exclut pas ; le build du
    tableau de bord, `ppbase/admin/dist/`, est ignoré par Git, 2.2) ; et un
@@ -870,8 +874,8 @@ bascule ; la fenêtre n'est fixée qu'après lui.
    vérificateurs de schéma visent la base locale `55434` si elle manque
    (`scripts/verify_complete_schema.py:61-64`,
    `scripts/verify_view_queries.py:39-42`).
-5. Créer la base PostgreSQL de production neuve et son rôle (I6) : aucune
-   donnée, aucun serveur PPBase dessus.
+5. Créer la base PostgreSQL de production neuve et son rôle (I6), avec la
+   collation retenue (2.2) : aucune donnée, aucun serveur PPBase dessus.
 6. Préparer sans l'activer la configuration du proxy vers PPBase et la page
    de maintenance ; reprendre à l'identique les limites, délais, en-têtes et
    réglages SSE de la configuration PocketBase (I7).
@@ -986,8 +990,8 @@ Méthode B — copie à froid, sous gel G-A ou G-B :
    la méthode B, à consigner comme eux :
    - **C-04 (méthode B)** : le manifeste de l'étape 3, recalculé sur la copie
      après son arrivée sur la machine de bascule, égal à celui de la source
-     arrêtée ; son empreinte (SHA-256 du fichier de manifeste) remplace
-     `archive_sha256` dans C-05, C-06 et le journal ;
+     arrêtée ; l'empreinte de ce manifeste tient lieu, dans le journal, de
+     l'empreinte de la capture ;
    - **C-05 (méthode B)** : à la racine de la copie, un seul `data.db`,
      `data.db-wal` et `data.db-journal` absents ou vides, aucun lien
      symbolique ni fichier spécial dans la copie
@@ -2157,6 +2161,7 @@ D-XXXX avec impact client et test de régression (`AGENTS.md`). Les quatre
 | erreurs restantes du mode 0.22 | statuts et `data` de 0.22.34 | 7 statuts non réécrits, détails de `data`, exception non gérée en 500 texte (`docs/error-compat.md` de PPBase, « Known differences ») | client qui lit ces statuts ou ces détails | D-0034, épinglés par test |
 | fichiers, écarts restants | `http.ServeContent` (`304`, `412`, plages multiples) ; side-car écrit à l'envoi et retiré à la suppression | `ETag` en plus, pas de `304` ni de `412` ni de plages multiples ; pas de side-car pour un fichier envoyé à PPBase, side-car laissé à la suppression | client qui revalide : 200 et fichier entier au lieu de 304 ; retour arrière (8.3) | D-0037 (`docs/file-serving.md` de PPBase) |
 | écarts documentés des relations, règles, filtres et dates | 0.22.34 | voir D-0025 et D-0030 à D-0032 (10.3) | selon chaque décision | décisions publiées, tests de régression cités |
+| requête préparée après un changement de schéma à chaud | sans objet | une requête préparée avant une modification de schéma faite pendant que PPBase tourne (tableau de bord, `executeSql` de la console, D-0018) peut échouer (`InvalidCachedStatement` d'asyncpg) ; les listes réessaient une fois (`ppbase/services/record_service.py:1109-1118`, `:1128-1136`) | une erreur ponctuelle après une modification de schéma | préexistant, relevé par l'orchestrateur pendant la session, sans décision ; non mesuré par WS-F3 : scénario desktop `executeSql` puis lecture de `buma_sql_table` sur staging (6.9), puis correction ou décision |
 | journal de requêtes | `logs.db` séparé | table `_requests`, sans rétention appliquée | données personnelles dans la base | 6.11, I18 |
 | sauvegarde native | sauvegarde de `pb_data` (`core/base_backup.go:30-84`) | refuse cette base : archives de l'import, fonctions et déclencheurs (C-47) | aucun pour les clients ; exploitation | `pg_dump` (C-47) |
 | ordre des textes | octets (SQLite BINARY) | collation de la base : octets sur la cible musl des répétitions, ordre linguistique avec glibc ou ICU | ordre des listes triées sur un texte | 2.2 : ordre des octets ou décision |
@@ -2407,7 +2412,7 @@ accessible à d'autres que son propriétaire ; dossier privé dans le dépôt
 sans être ignoré par Git ; rapport dans le dépôt sans code commité ;
 `--source-migrations` qui n'est pas le `migrationsDir` gelé ; code de
 divergence inconnu ou sans décision). Options et codes relevés par `--help`
-et dans le code à `a99a2a4` (`scripts/c11_real_rehearsal.py:422-455`,
+et dans le code à `a99a2a4` (`scripts/c11_real_rehearsal.py:422-453`,
 `:4518-4529`, `:4661`). Le rapport final publié est
 `docs/c11-real-rehearsal-report.json` (2.2, D-0041).
 
