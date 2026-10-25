@@ -151,10 +151,14 @@ def test_row_numbers_follow_the_sqlite_scan_and_are_text_ids(migrated):
     # PocketBase's normalizeViewQueryId.
     query = migrated["buma_caisse_transaction_by_categorie_list_view"]
     assert "ROW_NUMBER() OVER()" not in query
-    assert query.startswith(
-        "SELECT CAST(ROW_NUMBER() OVER (ORDER BY buma_source_rowid('6y0f0rx6t5eauo1', b.id) "
-        'NULLS LAST, b.created, b.id) AS TEXT) COLLATE "C" as id,'
-    )
+    assert query.startswith("WITH filtered AS MATERIALIZED (\nSELECT b.id, b.amount,")
+    assert (
+        "SELECT CAST(ROW_NUMBER() OVER (ORDER BY f_rowid.source_rowid NULLS LAST, f.created, "
+        'f.id) AS TEXT) COLLATE "C" as id, f.amount, f.created, f."caisseName", f.label\n'
+        "FROM filtered f\n"
+        "LEFT JOIN buma_source_rowids('6y0f0rx6t5eauo1', ARRAY(SELECT id FROM filtered)) "
+        "AS f_rowid ON f_rowid.record_id = f.id"
+    ) in query
     assert migrated["buma_sale_info"].startswith(
         'SELECT CAST(ROW_NUMBER() OVER () AS TEXT) COLLATE "C" as id,'
     )
@@ -183,7 +187,11 @@ def test_bare_columns_take_the_sqlite_row(migrated):
     # isNafama: the first sim (rowid order) holding the greatest network.
     assert (
         '(ARRAY_AGG("isNafama" ORDER BY CAST(network AS TEXT) COLLATE "C" DESC, '
-        "buma_source_rowid('kr6zwb9oabrvxiq', id) NULLS LAST, created, id))[1]"
+        "buma_sim_rowid.source_rowid NULLS LAST, buma_sim.created, buma_sim.id))[1]"
+    ) in mobile
+    assert (
+        "LEFT JOIN buma_source_rowids('kr6zwb9oabrvxiq', ARRAY(SELECT id FROM buma_sim "
+        "WHERE agent != '')) AS buma_sim_rowid ON buma_sim_rowid.record_id = buma_sim.id"
     ) in mobile
     # UserData.user was unquoted, i.e. CURRENT_USER in PostgreSQL.
     assert "        user,\n" not in mobile
@@ -196,12 +204,29 @@ def test_functions_follow_pocketbase_and_the_import_archive(module):
     assert "IN ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '\"', '[', '{')" in body
     assert "pg_input_is_valid(value, 'jsonb')" in body and "to_jsonb(value)" in body
     assert "STABLE STRICT PARALLEL SAFE" in body
-    rowid = module.SOURCE_ROWID
-    assert "to_regclass('public._buma_c11_rowids') IS NULL" in rowid
-    assert "CREATE TABLE" not in rowid  # the importer refuses an existing archive
-    assert module.rowid_order("buma_pdv", "p") == (
-        "buma_source_rowid('l0wk3fy5xnw6et7', p.id) NULLS LAST, p.created, p.id"
+    rowids = module.SOURCE_ROWIDS
+    assert "to_regclass('public._buma_c11_rowids') IS NOT NULL" in rowids
+    assert "archive.record_id = ANY (p_ids)" in rowids
+    assert "CREATE TABLE" not in rowids  # the importer refuses an existing archive
+    assert module.rowid_order("p") == "p_rowid.source_rowid NULLS LAST, p.created, p.id"
+    assert module.PDV_ROWIDS == (
+        "LEFT JOIN buma_source_rowids('l0wk3fy5xnw6et7', ARRAY(SELECT id FROM buma_pdv)) "
+        "AS p_rowid ON p_rowid.record_id = p.id"
     )
+
+
+def test_rowid_orders_read_the_archive_once_per_table(migrated):
+    # No per-row function call: one buma_source_rowids join per ordered table.
+    expected = {
+        "buma_customer_list_view": 1,
+        "buma_customer_list_view_with_users": 2,
+        "buma_customer_mobile_list_view": 3,
+        "buma_return_list_view": 1,
+        "buma_caisse_transaction_by_categorie_list_view": 1,
+    }
+    for name, query in migrated.items():
+        assert query.count("buma_source_rowids(") == expected.get(name, 0), name
+        assert "buma_source_rowid(" not in query, name
 
 
 class Result:
@@ -275,7 +300,7 @@ def test_down_restores_the_previous_queries_and_drops_the_functions(module, tran
     assert app.queries == stored(translated)
     assert [s for s, _ in app.statements if s.startswith("DROP FUNCTION")] == [
         "DROP FUNCTION buma_pb_json_text(text)",
-        "DROP FUNCTION buma_source_rowid(text, text)",
+        "DROP FUNCTION buma_source_rowids(text, text[])",
     ]
 
 

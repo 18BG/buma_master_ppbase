@@ -46,11 +46,13 @@ not touched; ``options.query`` takes the new query.
 
 The SQLite rowid of an imported record is kept by the C11 importer in
 ``_buma_c11_rowids`` (scripts/c11_import.py), a table that only the import
-creates and that must not exist before it. ``buma_source_rowid`` reads it when
-present and returns NULL otherwise, so the rowid order is ``source rowid NULLS
-LAST, created, id``: imported records in their SQLite order, then records
-created afterwards in their creation order, as SQLite gives a new record the
-rowid after the greatest one.
+creates and that must not exist before it. ``buma_source_rowids`` returns the
+archived rowids of the given records when it exists and no row otherwise, so
+the rowid order is ``source rowid NULLS LAST, created, id``: imported records
+in their SQLite order, then records created afterwards in their creation
+order, as SQLite gives a new record the rowid after the greatest one. One
+lookup per query and per table (an id array, then the archive's primary key),
+not one function call per row.
 
 Requires PostgreSQL 16 (``pg_input_is_valid``). Apply with no PPBase server
 running, as the column types of three views change.
@@ -80,21 +82,22 @@ END
 $$
 """
 
-SOURCE_ROWID = """
-CREATE FUNCTION buma_source_rowid(p_collection text, p_record text) RETURNS bigint
-LANGUAGE plpgsql STABLE STRICT PARALLEL SAFE AS $$
+SOURCE_ROWIDS = """
+CREATE FUNCTION buma_source_rowids(p_collection text, p_ids text[])
+RETURNS TABLE (record_id text, source_rowid bigint)
+LANGUAGE plpgsql STABLE PARALLEL SAFE ROWS 1000 AS $$
 BEGIN
     -- The archive of the C11 import, absent before it (never created here).
-    IF to_regclass('public._buma_c11_rowids') IS NULL THEN
-        RETURN NULL;
+    IF to_regclass('public._buma_c11_rowids') IS NOT NULL THEN
+        RETURN QUERY SELECT archive.record_id, archive.source_rowid
+            FROM public._buma_c11_rowids AS archive
+            WHERE archive.collection_id = p_collection AND archive.record_id = ANY (p_ids);
     END IF;
-    RETURN (SELECT archive.source_rowid FROM public._buma_c11_rowids AS archive
-            WHERE archive.collection_id = p_collection AND archive.record_id = p_record);
 END
 $$
 """
 
-FUNCTIONS = ("buma_pb_json_text(text)", "buma_source_rowid(text, text)")
+FUNCTIONS = ("buma_pb_json_text(text)", "buma_source_rowids(text, text[])")
 
 # Collection ids of the corrected export, checked against _collections.
 COLLECTION_IDS = {
@@ -105,13 +108,23 @@ COLLECTION_IDS = {
 }
 
 
-def rowid_order(collection: str, alias: str = "") -> str:
-    """SQLite rowid order: imported rowid, then creation order (see module doc)."""
-    prefix = alias + "." if alias else ""
+def archived_rowids(collection: str, alias: str, ids: str) -> str:
+    """Join of the source rowids of the records of ``alias`` that ``ids`` selects."""
     return (
-        f"buma_source_rowid('{COLLECTION_IDS[collection]}', {prefix}id) NULLS LAST, "
-        f"{prefix}created, {prefix}id"
+        f"LEFT JOIN buma_source_rowids('{COLLECTION_IDS[collection]}', ARRAY({ids})) "
+        f"AS {alias}_rowid ON {alias}_rowid.record_id = {alias}.id"
     )
+
+
+def rowid_order(alias: str) -> str:
+    """SQLite rowid order: imported rowid, then creation order (see module doc)."""
+    return f"{alias}_rowid.source_rowid NULLS LAST, {alias}.created, {alias}.id"
+
+
+PDV_ROWIDS = archived_rowids("buma_pdv", "p", "SELECT id FROM buma_pdv")
+CUSTOMER_USER_ROWIDS = archived_rowids(
+    "buma_customer_user", "buma_customer_user", "SELECT id FROM buma_customer_user"
+)
 
 
 JSON_EMPTY = "'\"\"'::jsonb"
@@ -120,7 +133,7 @@ NUMBER = 'CAST(sim.number AS TEXT) COLLATE "C"'
 # through the covering index (pdv, number).
 SIM_LIST = (
     "buma_pb_json_text(STRING_AGG(CAST(sim.number AS TEXT), ',' ORDER BY "
-    + rowid_order("buma_pdv", "p")
+    + rowid_order("p")
     + ", "
     + NUMBER
     + "))"
@@ -133,10 +146,11 @@ MOBILE = (
     (
         "WITH SimNumbers AS (",
         "WITH PdvOrder AS (\n"
-        "    SELECT id, client, ROW_NUMBER() OVER (ORDER BY "
-        + rowid_order("buma_pdv")
+        "    SELECT p.id, p.client, ROW_NUMBER() OVER (ORDER BY "
+        + rowid_order("p")
         + ") AS position\n"
-        "    FROM buma_pdv\n"
+        "    FROM buma_pdv p\n"
+        "    " + PDV_ROWIDS + "\n"
         "),\n"
         "SimNumbers AS (",
     ),
@@ -180,6 +194,12 @@ MOBILE = (
         + '))[1] AS "isNafama",\n',
     ),
     (
+        "    FROM buma_sim\n    WHERE agent != ''\n    GROUP BY agent\n),\nUserData AS (",
+        "    FROM buma_sim\n    "
+        + archived_rowids("buma_sim", "buma_sim", "SELECT id FROM buma_sim WHERE agent != ''")
+        + "\n    WHERE agent != ''\n    GROUP BY agent\n),\nUserData AS (",
+    ),
+    (
         "        MAX(network) AS agent_sim_network\n",
         '        MAX(CAST(network AS TEXT) COLLATE "C") AS agent_sim_network\n',
     ),
@@ -190,6 +210,12 @@ MOBILE = (
         + rowid_order("buma_customer_user")
         + '))[1] AS "user",\n'
         "        MAX(updated) AS updated\n",
+    ),
+    (
+        "    FROM buma_customer_user\n    GROUP BY customer\n),\nPdvData AS (",
+        "    FROM buma_customer_user\n    "
+        + CUSTOMER_USER_ROWIDS
+        + "\n    GROUP BY customer\n),\nPdvData AS (",
     ),
 )
 
@@ -227,6 +253,10 @@ CHANGES = {
     ),
     "buma_customer_list_view": (
         (
+            "    FROM buma_pdv p\n    LEFT JOIN buma_sim sim \n",
+            "    FROM buma_pdv p\n    " + PDV_ROWIDS + "\n    LEFT JOIN buma_sim sim \n",
+        ),
+        (
             "COALESCE(sim_numbers.sim_list, '') AS pdv_sim,",
             f"COALESCE(sim_numbers.sim_list, {JSON_EMPTY}) AS pdv_sim,",
         ),
@@ -244,6 +274,13 @@ CHANGES = {
         ),
     ),
     "buma_customer_list_view_with_users": (
+        ("  FROM buma_pdv AS p\n", "  FROM buma_pdv AS p\n  " + PDV_ROWIDS + "\n"),
+        (
+            "  FROM buma_customer_user\n  GROUP BY customer\n) AS user_numbers",
+            "  FROM buma_customer_user\n  "
+            + CUSTOMER_USER_ROWIDS
+            + "\n  GROUP BY customer\n) AS user_numbers",
+        ),
         (
             "COALESCE(sim_numbers.sim_list, '')            AS pdv_sim,",
             f"COALESCE(sim_numbers.sim_list, {JSON_EMPTY})            AS pdv_sim,",
@@ -293,6 +330,7 @@ CHANGES = {
         ("    sn.network_list,\n", "    snw.network_list,\n"),
     ),
     "buma_return_list_view": (
+        ("    FROM buma_pdv AS p\n", "    FROM buma_pdv AS p\n    " + PDV_ROWIDS + "\n"),
         (
             "COALESCE(sim_numbers.pdv_sim, '') AS pdv_sim,",
             f"COALESCE(sim_numbers.pdv_sim, {JSON_EMPTY}) AS pdv_sim,",
@@ -332,11 +370,19 @@ CHANGES = {
         (PAYED_PERCENT_OLD, PAYED_PERCENT_NEW),
     ),
     "buma_caisse_transaction_by_categorie_list_view": (
+        # The filtered rows once, then their rowids in one archive lookup.
         (
-            "SELECT (ROW_NUMBER() OVER()) as id,",
+            "SELECT (ROW_NUMBER() OVER()) as id, b.amount,",
+            "WITH filtered AS MATERIALIZED (\nSELECT b.id, b.amount,",
+        ),
+        (
+            "AND b.status = true AND c.type = 'EXPENSE'",
+            "AND b.status = true AND c.type = 'EXPENSE'\n)\n"
             "SELECT CAST(ROW_NUMBER() OVER (ORDER BY "
-            + rowid_order("buma_caisse_transactions", "b")
-            + ') AS TEXT) COLLATE "C" as id,',
+            + rowid_order("f")
+            + ') AS TEXT) COLLATE "C" as id, f.amount, f.created, f."caisseName", f.label\n'
+            "FROM filtered f\n"
+            + archived_rowids("buma_caisse_transactions", "f", "SELECT id FROM filtered"),
         ),
     ),
     "buma_article_with_no_stock_list_view": (
@@ -365,19 +411,19 @@ QUERY_SHA256 = {
     ),
     "buma_customer_list_view": (
         "b62cbb0cf037fd1b181db5fb71189b2f766e26ebd5c1b072a373c0d07c25c715",
-        "4aca8ec94ccded727d3f6460d3f549be8569e28e1f1f9a9af7fbc0998c654730",
+        "0013d6ebe9bccdd3baf891595cf2e6c52b091d134becfa241f0d70fa90738601",
     ),
     "buma_customer_list_view_with_users": (
         "a44ba30eda0a05334df7655aa8f1a23063dc67e8eda2da41d62b9725f840c8d9",
-        "5a11eb4a6390d9b3d6cab4d74fea087c3dcfd81d0a02db99760784225d0b4068",
+        "102417adb7d3cee55bfb670dc0b2e017c489f0664cbf472c7c8dfc889ed2797e",
     ),
     "buma_customer_mobile_list_view": (
         "464885689bf9c5d9f0d30cf9d85892019e46c9f08c5e4b8ede9bb42d2ce93e65",
-        "5f081d20e298ba72cf2ec55f148b78158c3165abb954cc2ce03c2bb6624e63e2",
+        "858a3c5688f4d5bfc39862f14de5432f85a2df0b6626ec9777c155f2413758fa",
     ),
     "buma_return_list_view": (
         "dc5d101242df4af8f7f78b6dbe44ab04b1756bab79929218ff19a06d2c873afc",
-        "07bc8c372f31281ca1947b7260f79c8997b16c2e21b9818b267a8b50f3385853",
+        "16befe75f7946ac3f14647a1817b1989e6def2fbade1f79b7fb52cfea6f82fe8",
     ),
     "buma_transaction_list_view": (
         "f6e6700591d5cd79f43eef80d8636121c0dca5112a432c692c628392a8204796",
@@ -389,7 +435,7 @@ QUERY_SHA256 = {
     ),
     "buma_caisse_transaction_by_categorie_list_view": (
         "3c73d61679edf2179ce3ca31fbf19a629785489442d372bb2505b6ee4c2c430c",
-        "aaef2acb9dace89a38e84bf3120cd595fe4fd3ae17eb0883d188ff4dddfb7c6c",
+        "eb483e4ca694d50bebb65f3942eaa85ac701453a92d16d50d3349a4cb6d1fbfa",
     ),
     "buma_article_with_no_stock_list_view": (
         "0d11d789b11fffa1c1ac8c7a394309bdf14202bd0bc592e5d7e07122e2e1d86a",
@@ -474,7 +520,7 @@ async def up(app):
     if version < MIN_SERVER_VERSION:
         raise RuntimeError("buma_pb_json_text needs PostgreSQL 16 (pg_input_is_valid)")
     await app.execute_sql(PB_JSON_TEXT)
-    await app.execute_sql(SOURCE_ROWID)
+    await app.execute_sql(SOURCE_ROWIDS)
     await _replace(app, True)
 
 

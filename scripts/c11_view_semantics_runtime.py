@@ -83,6 +83,31 @@ TARGET_FIELDS = {
     "buma_article_with_no_stock_list_view": {"stockages"},
     "buma_stockage_no_manager": {"stockage"},
 }
+# Probes whose answer still differs from PocketBase 0.22.34 after 1789236851,
+# each for a documented reason (WS-H decision draft); any other difference
+# fails the run.
+KNOWN_AFTER = {
+    # PocketBase's plan for a view by id reads the stocks without the automatic
+    # covering index (rowid order); its list, which PPBase follows, sorts them.
+    "buma_article_with_no_stock_list_view:by_id": "view_by_id_concatenates_in_rowid_order",
+    "buma_stockage_no_manager:by_id": "view_by_id_concatenates_in_rowid_order",
+    # No sort: PocketBase keeps SQLite's row order, PPBase sorts by the first
+    # column (ORDER BY 1), now the text id.
+    "buma_caisse_transaction_by_categorie_list_view:default": "default_order_is_first_column",
+    # Filters on json fields: PocketBase compares JSON_EXTRACT values; PPBase
+    # compares the PostgreSQL column (jsonb or integer now).
+    'buma_customer_list_view:filter:pdv_sim = "73000001"': "json_filter_semantics",
+    "buma_customer_list_view:filter:pdv_sim = 73000001": "json_filter_semantics",
+    'buma_customer_list_view:filter:pdv_sim = ""': "json_filter_on_jsonb_column",
+    'buma_customer_list_view:filter:agent_sim != ""': "json_filter_on_jsonb_column",
+    "buma_customer_mobile_list_view:filter:isNafama = true": "boolean_filter_on_integer_column",
+    "buma_transaction_list_view:filter:payed = true": "boolean_filter_on_integer_column",
+    "buma_transaction_list_view:filter:salePayed = true": "boolean_filter_on_integer_column",
+    # Sorts: JSON_EXTRACT order (null, numbers, then text) against jsonb's
+    # order; SQLite puts NULL first, PostgreSQL last.
+    "buma_customer_list_view:sort:pdv_sim,id": "json_sort_semantics",
+    "buma_transaction_list_view:sort:payed,id": "null_sort_position",
+}
 SHAPES = (
     "",
     "1e3",
@@ -752,7 +777,7 @@ async def without_archive(engine) -> dict:
                     await conn.execute(
                         text(
                             "SELECT v.amount FROM buma_caisse_transaction_by_categorie_list_view v "
-                            "ORDER BY v.id"
+                            "ORDER BY v.id::bigint"
                         )
                     )
                 )
@@ -851,6 +876,11 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
             await write_sale_phase_postgres(engine, "integer_truncation")
         comparison = compare_all(reference, after)
         report["after_1789236851"] = {"summary": summary(comparison), "probes": comparison}
+        remaining = report["after_1789236851"]["summary"]["not_equal"]
+        report["after_1789236851"]["known_differences"] = {
+            label: KNOWN_AFTER.get(label, "UNEXPECTED") for label in remaining
+        }
+        assert set(remaining) == set(KNOWN_AFTER), sorted(set(remaining) ^ set(KNOWN_AFTER))
         report["without_archive"] = await without_archive(engine)
 
         down = await run_migrations_down(engine, MIGRATIONS, count=1)
