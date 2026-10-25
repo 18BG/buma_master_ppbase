@@ -207,8 +207,8 @@ def test_bare_columns_take_the_sqlite_row(migrated):
         "buma_sim_rowid.source_rowid NULLS LAST, buma_sim.created, buma_sim.id))[1]"
     ) in mobile
     assert (
-        "LEFT JOIN buma_source_rowids('kr6zwb9oabrvxiq', ARRAY(SELECT id FROM buma_sim "
-        "WHERE agent != '')) AS buma_sim_rowid ON buma_sim_rowid.record_id = buma_sim.id"
+        "LEFT JOIN buma_source_rowids('kr6zwb9oabrvxiq') AS buma_sim_rowid "
+        "ON buma_sim_rowid.record_id = buma_sim.id"
     ) in mobile
     # UserData.user was unquoted, i.e. CURRENT_USER in PostgreSQL.
     assert "        user,\n" not in mobile
@@ -228,14 +228,15 @@ def test_functions_follow_pocketbase_and_the_import_archive(module):
     # json keeps the text (key order, \u0000); smallint holds SQLite's 0/1.
     assert module.DOMAINS == (("buma_pb_json", "json"), ("buma_sqlite_integer", "smallint"))
     rowids = module.SOURCE_ROWIDS
-    assert "to_regclass('public._buma_c11_rowids') IS NOT NULL" in rowids
+    assert "to_regclass('public._buma_c11_rowids') IS NULL THEN\n        RETURN;" in rowids
     assert "archive.record_id = ANY (p_ids)" in rowids
     assert "CREATE TABLE" not in rowids  # the importer refuses an existing archive
     assert module.rowid_order("p") == "p_rowid.source_rowid NULLS LAST, p.created, p.id"
+    # A small collection is read whole (no InitPlan: the views stay parallel).
     assert module.PDV_ROWIDS == (
-        "LEFT JOIN buma_source_rowids('l0wk3fy5xnw6et7', ARRAY(SELECT id FROM buma_pdv)) "
-        "AS p_rowid ON p_rowid.record_id = p.id"
+        "LEFT JOIN buma_source_rowids('l0wk3fy5xnw6et7') AS p_rowid ON p_rowid.record_id = p.id"
     )
+    assert "p_ids text[] DEFAULT NULL" in rowids and "IF p_ids IS NULL THEN" in rowids
 
 
 def test_rowid_orders_read_the_archive_once_per_table(migrated):

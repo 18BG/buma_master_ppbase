@@ -95,8 +95,8 @@ in their SQLite order, then records created afterwards in their creation
 order, as SQLite gives a new record the rowid after the greatest one. The
 archive must be kept after the cutover (and in every backup and restore):
 without it the order falls back to ``created, id``. One lookup per query and
-per table (an id array, then the archive's primary key), not one function
-call per row.
+per table, not one function call per row: the archived rows of a small
+collection (pdv, sim, customer user), or of the filtered caisse expenses.
 
 Requires PostgreSQL 16 (``pg_input_is_valid``). Apply with no PPBase server
 running: eight of these views change column types, and a running server keeps
@@ -134,13 +134,21 @@ END AS buma_pb_json)
 $$
 """
 
+# The archived rowids of a collection, or of the given records only.
 SOURCE_ROWIDS = """
-CREATE FUNCTION buma_source_rowids(p_collection text, p_ids text[])
+CREATE FUNCTION buma_source_rowids(p_collection text, p_ids text[] DEFAULT NULL)
 RETURNS TABLE (record_id text, source_rowid bigint)
 LANGUAGE plpgsql STABLE PARALLEL SAFE ROWS 1000 AS $$
 BEGIN
     -- The archive of the C11 import, absent before it (never created here).
-    IF to_regclass('public._buma_c11_rowids') IS NOT NULL THEN
+    IF to_regclass('public._buma_c11_rowids') IS NULL THEN
+        RETURN;
+    END IF;
+    IF p_ids IS NULL THEN
+        RETURN QUERY SELECT archive.record_id, archive.source_rowid
+            FROM public._buma_c11_rowids AS archive
+            WHERE archive.collection_id = p_collection;
+    ELSE
         RETURN QUERY SELECT archive.record_id, archive.source_rowid
             FROM public._buma_c11_rowids AS archive
             WHERE archive.collection_id = p_collection AND archive.record_id = ANY (p_ids);
@@ -283,10 +291,17 @@ COLLECTION_IDS = {
 }
 
 
-def archived_rowids(collection: str, alias: str, ids: str) -> str:
-    """Join of the source rowids of the records of ``alias`` that ``ids`` selects."""
+def archived_rowids(collection: str, alias: str, ids: str | None = None) -> str:
+    """Join of the source rowids of ``alias``: of its collection, or of ``ids``.
+
+    The small collections (about 5,200 pdv and sims in the real backup) are
+    read whole: an id array built by a subquery would be an InitPlan, which
+    keeps PostgreSQL from running buma_return_list_view in parallel. The
+    caisse expenses (15,797 of 317,066 transactions) are looked up by id.
+    """
+    selected = f", ARRAY({ids})" if ids else ""
     return (
-        f"LEFT JOIN buma_source_rowids('{COLLECTION_IDS[collection]}', ARRAY({ids})) "
+        f"LEFT JOIN buma_source_rowids('{COLLECTION_IDS[collection]}'{selected}) "
         f"AS {alias}_rowid ON {alias}_rowid.record_id = {alias}.id"
     )
 
@@ -300,10 +315,8 @@ def sqlite_integer(expression: str) -> str:
     return f"CAST({expression} AS {INTEGER_DOMAIN})"
 
 
-PDV_ROWIDS = archived_rowids("buma_pdv", "p", "SELECT id FROM buma_pdv")
-CUSTOMER_USER_ROWIDS = archived_rowids(
-    "buma_customer_user", "buma_customer_user", "SELECT id FROM buma_customer_user"
-)
+PDV_ROWIDS = archived_rowids("buma_pdv", "p")
+CUSTOMER_USER_ROWIDS = archived_rowids("buma_customer_user", "buma_customer_user")
 
 
 NUMBER = 'CAST(sim.number AS TEXT) COLLATE "C"'
@@ -406,7 +419,7 @@ MOBILE = (
     (
         "    FROM buma_sim\n    WHERE agent != ''\n    GROUP BY agent\n),\nUserData AS (",
         "    FROM buma_sim\n    "
-        + archived_rowids("buma_sim", "buma_sim", "SELECT id FROM buma_sim WHERE agent != ''")
+        + archived_rowids("buma_sim", "buma_sim")
         + "\n    WHERE agent != ''\n    GROUP BY agent\n),\nUserData AS (",
     ),
     (
@@ -595,19 +608,19 @@ QUERY_SHA256 = {
     ),
     "buma_customer_list_view": (
         "b62cbb0cf037fd1b181db5fb71189b2f766e26ebd5c1b072a373c0d07c25c715",
-        "5386a8da76ea72ed47a6dd257294676cb5a56139c8c632eb15696e5318a2c5d9",
+        "24dbab1b2dca61744ea7e27292e0cb5e444af13eb273d69112a1fe1398abe3da",
     ),
     "buma_customer_list_view_with_users": (
         "a44ba30eda0a05334df7655aa8f1a23063dc67e8eda2da41d62b9725f840c8d9",
-        "7aa064d980d27919cf5e898f4e0d8dd45625329e11628b597c2190a4b4ec91c2",
+        "b05318c0e24ffe7ee721eb7be2cd8d3549902661d3a01b0e80be5f0ae03e5319",
     ),
     "buma_customer_mobile_list_view": (
         "464885689bf9c5d9f0d30cf9d85892019e46c9f08c5e4b8ede9bb42d2ce93e65",
-        "d7855fce725d379d586a6320b3a63a91cc0f3c6bea2b4fa999423c30ff4910f8",
+        "a1c9efc0cc4a602ca5e9a2f1eafa124f193b24dc39c838cfd8703b6605832503",
     ),
     "buma_return_list_view": (
         "dc5d101242df4af8f7f78b6dbe44ab04b1756bab79929218ff19a06d2c873afc",
-        "defe5c7a26d769ad63e43fc501ba347af14f1cdb9590b222b25203fa79af8734",
+        "9ac004bb7b97f8e8322dd570d04b4bebbcc2f71a6b6ff02e07db48c43a2b99d1",
     ),
     "buma_transaction_list_view": (
         "f6e6700591d5cd79f43eef80d8636121c0dca5112a432c692c628392a8204796",
