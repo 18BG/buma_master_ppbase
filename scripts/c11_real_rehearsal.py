@@ -3220,7 +3220,8 @@ ACCEPTANCE_CONVENTION = (
     "a '## D-NNNN' section of docs/decisions-and-divergences.md that names the code; "
     "accepted only if the section holds a line starting "
     "« Statut : acceptée par l'utilisateur le AAAA-MM-JJ », otherwise documented with "
-    "the user's acceptance requested"
+    "the user's acceptance requested; one such line accepts every code its section "
+    "names, so a partial acceptance needs its own section for the accepted codes"
 )
 ACCEPTED = "accepted_by_the_user"
 REQUESTED = "documented_acceptance_requested"
@@ -4312,7 +4313,8 @@ def build_parser() -> argparse.ArgumentParser:
             "decision is accepted only if its section holds a line starting "
             "« Statut : acceptée par l'utilisateur le AAAA-MM-JJ »; otherwise the "
             "divergence is documented, acceptance requested: it still passes, and the "
-            "report and its HTTP claims list it as such"
+            "report and its HTTP claims list it as such. One such line accepts every "
+            "code its section names: record a partial acceptance in its own section"
         ),
     )
     parser.add_argument("--passes", type=int, default=2, choices=(1, 2, 3))
@@ -4410,8 +4412,12 @@ def decision_sections(text: str) -> dict[str, str]:
     '## Divergences à décider plus tard', never part of a decision)."""
     sections: dict[str, list[str]] = {}
     current = None
+    fenced = False
     for line in text.splitlines():
-        if re.match(r"#{1,2} ", line):
+        if line.lstrip().startswith("```"):
+            # A '# comment' inside a fenced code block is not a heading.
+            fenced = not fenced
+        if not fenced and re.match(r"#{1,2} ", line):
             match = re.match(r"## (D-[0-9]{4})\b", line)
             current = match.group(1) if match else None
             if current is not None:

@@ -957,6 +957,18 @@ def test_a_section_that_is_not_a_decision_never_accepts_or_names():
     )
 
 
+def test_a_comment_in_a_fenced_block_does_not_end_a_decision():
+    decisions = (
+        "## D-0029 — exemple\n\n- `jsonb_key_order_normalized`\n\n"
+        "```sh\n# a shell comment, not a heading\nselect 1;\n```\n\n"
+        "Statut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    section = rehearsal.decision_sections(decisions)["D-0029"]
+    assert "Statut : acceptée" in section
+    covered = rehearsal.divergence_decisions(["jsonb_key_order_normalized=D-0029"], decisions)
+    assert covered["jsonb_key_order_normalized"]["state"] == rehearsal.ACCEPTED
+
+
 def test_an_impossible_acceptance_date_is_refused():
     refused(
         lambda: rehearsal.divergence_decisions(
