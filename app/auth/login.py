@@ -16,6 +16,7 @@ from ppbase.api.record_auth import (
     _require_auth_collection,
     _trigger_record_auth_request_hook,
     _trigger_record_auth_success_hook,
+    auth_response_rule_context,
 )
 from ppbase.db.engine import get_engine
 from ppbase.ext.events import RecordAuthRequestEvent
@@ -131,12 +132,17 @@ async def _authenticate_legacy_collection(
 
         expand_value = request.query_params.get("expand", "")
         if expand_value and result.get("record"):
+            # As PocketBase 0.22.34 RecordAuthResponse: every expanded record
+            # must satisfy its viewRule for the authenticated record (D-0033).
             records = await expand_records(
                 engine,
                 collection,
                 [result["record"]],
                 expand_value,
                 await get_all_collections(engine),
+                request_context=await auth_response_rule_context(
+                    request, collection, result["record"], body
+                ),
             )
             result["record"] = records[0] if records else result["record"]
 

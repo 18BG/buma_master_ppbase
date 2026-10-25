@@ -46,6 +46,9 @@ def _load_register(module_name: str) -> Callable[[Any], None]:
 def register(pb: Any) -> None:
     """Register foundation, validated auth and business checkpoint modules."""
     logger.info("Loading BUMA Master PPBase foundation/auth/business modules")
+    # The BUMA clients were written against PocketBase 0.22.34: PPBase JSON
+    # errors answer its {code, message, data} envelope and messages (D-0034).
+    pb.set_error_compat("0.22")
     for module_name in HOOK_MODULES:
         logger.info("Loading hook module %s", module_name)
         _load_register(module_name)(pb)

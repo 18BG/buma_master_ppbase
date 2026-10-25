@@ -8,7 +8,11 @@ from fastapi import Depends
 from fastapi.responses import JSONResponse, PlainTextResponse
 from ppbase.api.deps import get_optional_auth
 
-from app.auth.context import is_record_auth, register_context_middleware
+from app.auth.context import (
+    is_record_auth,
+    load_auth_record_context,
+    register_context_middleware,
+)
 from app.auth.login import register_login_middleware
 from app.auth.realtime import install_realtime_context_patch
 
@@ -30,6 +34,9 @@ async def user_health(auth: dict[str, Any] | None) -> PlainTextResponse:
 
 def register(pb: Any) -> None:
     register_context_middleware(pb)
+    # Auth responses expand as the authenticated record (PocketBase 0.22.34
+    # apis/record_helpers.go l.105-116), with its live BUMA role keys (D-0033).
+    pb.set_auth_record_rule_context(load_auth_record_context)
     register_login_middleware(pb)
     install_realtime_context_patch()
 
