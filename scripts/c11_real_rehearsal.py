@@ -2313,16 +2313,23 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
                     value,
                 ),
             }
-        # buma_sale.customer: the most referenced missing target (orphan) and
-        # the most referenced existing one.
-        target = relation_target(definitions, "buma_sale", "customer")
-        for key, exists in (("orphan", "NOT EXISTS"), ("present_single", "EXISTS")):
-            row = db.execute(
-                f"SELECT s.customer, count(*) FROM {q('buma_sale')} s WHERE s.customer != '' "
-                f"AND {exists} (SELECT 1 FROM {q(target)} t WHERE t.id = s.customer) "
-                "GROUP BY s.customer ORDER BY count(*) DESC, s.customer LIMIT 1"
-            ).fetchone()
-            samples[key] = {"value": row[0], "rows": row[1]} if row else None
+        # Single relations: the most referenced missing target of
+        # buma_sale.customer (orphan), and the existing target referenced by
+        # the most rows over every single relation (every buma_sale.customer
+        # reference but one is an orphan in the 2026-09-28 backup).
+        started = time.monotonic()
+        samples["orphan"] = single_relation_sample(db, definitions, "buma_sale", "customer", False)
+        present = [
+            sample
+            for table, field in single_relations(definitions)
+            if (sample := single_relation_sample(db, definitions, table, field, True))
+        ]
+        samples["present_single"] = (
+            min(present, key=lambda s: (-s["rows"], s["collection"], s["field"]))
+            if present
+            else None
+        )
+        facts["seconds"]["single_relation_samples"] = round(time.monotonic() - started, 3)
         # PocketBase 0.22 sorts in SQLite (BINARY collation): the expected orders.
         named = [
             (r[0], r[1])
@@ -2363,6 +2370,35 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
         samples["present_file"] = min(present) if present else None
         samples["missing_file"] = min(missing) if missing else None
     return facts
+
+
+def single_relations(definitions: list[dict]) -> list[tuple[str, str]]:
+    """(collection, field) of every single relation of a base or auth
+    collection, buma_sale.customer first, then by name."""
+    pairs = sorted(
+        (c["name"], f["name"])
+        for c in definitions
+        if c["type"] != "view"
+        for f in c["schema"]
+        if f["type"] == "relation" and not pb_is_multiple(f)
+    )
+    first = [pair for pair in pairs if pair == ("buma_sale", "customer")]
+    return first + [pair for pair in pairs if pair != ("buma_sale", "customer")]
+
+
+def single_relation_sample(db, definitions, table: str, field: str, exists: bool) -> dict | None:
+    """The most referenced target of ``table.field`` that exists (or is missing)."""
+    q = importer.quote
+    target = relation_target(definitions, table, field)
+    row = db.execute(
+        f"SELECT s.{q(field)}, count(*) FROM {q(table)} s WHERE s.{q(field)} != '' "
+        f"AND {'' if exists else 'NOT '}EXISTS (SELECT 1 FROM {q(target)} t "
+        f"WHERE t.id = s.{q(field)}) GROUP BY s.{q(field)} ORDER BY count(*) DESC, "
+        f"s.{q(field)} LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    return {"collection": table, "field": field, "value": row[0], "rows": row[1]}
 
 
 def glibc_order_difference(named: list[tuple[str, str]], locale_name: str = "en_US.utf8") -> dict:
@@ -3308,6 +3344,7 @@ class HttpReads:
             served = body.get("totalItems") if status == 200 and isinstance(body, dict) else None
             filters[code] = {
                 "sampled": True,
+                "collection": name,
                 "expected_total_items": expected,
                 "total_items": served,
             }
@@ -3330,14 +3367,13 @@ class HttpReads:
                 "managers",
             ),
         ]
-        optional = {
-            "single_absent_target": ("orphan", "buma_sale", "customer"),
-            "single_present_target": ("present_single", "buma_sale", "customer"),
-        }
+        optional = {"single_absent_target": "orphan", "single_present_target": "present_single"}
         expanded = {}
-        for code, (sample, name, field) in optional.items():
-            if self.samples.get(sample):
-                cases.append((code, name, f'{field} = "{self.samples[sample]["value"]}"', field))
+        for code, key in optional.items():
+            sample = self.samples.get(key)
+            if sample:
+                name, field = sample["collection"], sample["field"]
+                cases.append((code, name, f'{field} = "{sample["value"]}"', field))
             else:
                 expanded[code] = {"sampled": False}
         for code, name, expression, field in cases:
@@ -3368,6 +3404,7 @@ class HttpReads:
             )
             expanded[code] = {
                 "sampled": True,
+                "relation": f"{name}.{field}",
                 "status": status,
                 "items": len(items),
                 "expected_expand": dict(sorted(kinds.items())),
@@ -3545,27 +3582,18 @@ def filter_cases(samples: dict) -> list[tuple[str, str, str, int]]:
                 sample["rows"] - sample["empty_rows"],
             ),
         ]
-    if samples["orphan"]:
-        orphan = samples["orphan"]
+    for prefix, key, through_target in (
+        ("orphan_single", "orphan", 0),
+        ("single", "present_single", None),
+    ):
+        sample = samples[key]
+        if not sample:
+            continue
+        table, field, value = sample["collection"], sample["field"], sample["value"]
+        target_rows = sample["rows"] if through_target is None else through_target
         cases += [
-            (
-                "orphan_single_equals",
-                "buma_sale",
-                f'customer = "{orphan["value"]}"',
-                orphan["rows"],
-            ),
-            ("orphan_single_target_id", "buma_sale", f'customer.id = "{orphan["value"]}"', 0),
-        ]
-    if samples["present_single"]:
-        present = samples["present_single"]
-        cases += [
-            ("single_equals", "buma_sale", f'customer = "{present["value"]}"', present["rows"]),
-            (
-                "single_target_id",
-                "buma_sale",
-                f'customer.id = "{present["value"]}"',
-                present["rows"],
-            ),
+            (f"{prefix}_equals", table, f'{field} = "{value}"', sample["rows"]),
+            (f"{prefix}_target_id", table, f'{field}.id = "{value}"', target_rows),
         ]
     return cases
 
@@ -3616,12 +3644,13 @@ async def filter_sql_counts(engine, definitions: list[dict], samples: dict) -> d
             f"SELECT count(*) FROM {q(table)} WHERE cardinality({q(field)}) > 0",
             None,
         )
-    for code, table, field, sample in (
-        ("orphan_single", "buma_sale", "customer", samples["orphan"]),
-        ("single", "buma_sale", "customer", samples["present_single"]),
+    for code, sample in (
+        ("orphan_single", samples["orphan"]),
+        ("single", samples["present_single"]),
     ):
         if not sample:
             continue
+        table, field = sample["collection"], sample["field"]
         target = relation_target(definitions, table, field)
         queries[f"{code}_equals"] = (
             f"SELECT count(*) FROM {q(table)} WHERE {q(field)} = :v",

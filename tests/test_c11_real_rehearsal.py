@@ -655,8 +655,13 @@ def test_filter_cases_follow_pocketbase_0_22_semantics():
         "buma_customer.pdv": sample("p1", 7, 0, 7, 90, 100),
         "buma_pilotage_ticket.tag": sample("t1", 2, 0, 2, 0, 4),
         "buma_wallet.managers": sample("a,b", 1, 0, 0, 10, 11),
-        "orphan": {"value": "o1", "rows": 5},
-        "present_single": {"value": "c1", "rows": 3},
+        "orphan": {"collection": "buma_sale", "field": "customer", "value": "o1", "rows": 5},
+        "present_single": {
+            "collection": "buma_stock",
+            "field": "article",
+            "value": "c1",
+            "rows": 3,
+        },
     }
     assert rehearsal.unsampled_filter_codes(samples) == []
     cases = {
@@ -670,9 +675,10 @@ def test_filter_cases_follow_pocketbase_0_22_semantics():
     assert cases["managers_contains"] == ("buma_wallet", 'managers ~ "a,b"', 1)
     assert cases["managers_id_any_equals"] == ("buma_wallet", 'managers.id ?= "a,b"', 0)
     assert cases["orphan_single_target_id"] == ("buma_sale", 'customer.id = "o1"', 0)
-    # The present single relation is buma_sale.customer, whose targets exist.
-    assert cases["single_equals"] == ("buma_sale", 'customer = "c1"', 3)
-    assert cases["single_target_id"] == ("buma_sale", 'customer.id = "c1"', 3)
+    assert cases["orphan_single_equals"] == ("buma_sale", 'customer = "o1"', 5)
+    # The present single relation is the first one whose target exists.
+    assert cases["single_equals"] == ("buma_stock", 'article = "c1"', 3)
+    assert cases["single_target_id"] == ("buma_stock", 'article.id = "c1"', 3)
     assert len(cases) == 19
     assert rehearsal.like_pattern("a_b%c") == "%a\\_b\\%c%"
     # A missing sample is reported as not sampled, never silently dropped.
@@ -1864,3 +1870,71 @@ def test_no_failure_passes_a_code_keyword():
     ]
     assert calls
     assert [c.lineno for c in calls if any(k.arg == "code" for k in c.keywords)] == []
+
+
+def test_the_present_single_relation_is_the_first_one_with_an_existing_target():
+    definitions = [
+        {
+            "id": "c_sale",
+            "name": "buma_sale",
+            "type": "base",
+            "schema": [
+                {
+                    "name": "customer",
+                    "type": "relation",
+                    "options": {"collectionId": "c_cust", "maxSelect": 1},
+                },
+            ],
+        },
+        {"id": "c_cust", "name": "buma_customer", "type": "base", "schema": []},
+        {
+            "id": "c_stock",
+            "name": "buma_stock",
+            "type": "base",
+            "schema": [
+                {
+                    "name": "article",
+                    "type": "relation",
+                    "options": {"collectionId": "c_art", "maxSelect": 1},
+                },
+                {
+                    "name": "tags",
+                    "type": "relation",
+                    "options": {"collectionId": "c_art", "maxSelect": None},
+                },
+            ],
+        },
+        {"id": "c_art", "name": "buma_article", "type": "base", "schema": []},
+        {
+            "id": "c_view",
+            "name": "a_view",
+            "type": "view",
+            "schema": [
+                {
+                    "name": "article",
+                    "type": "relation",
+                    "options": {"collectionId": "c_art", "maxSelect": 1},
+                },
+            ],
+        },
+    ]
+    assert rehearsal.single_relations(definitions) == [
+        ("buma_sale", "customer"),
+        ("buma_stock", "article"),
+    ]
+    db = sqlite3.connect(":memory:")
+    db.executescript(
+        "CREATE TABLE buma_sale (id TEXT, customer TEXT);"
+        "CREATE TABLE buma_customer (id TEXT);"
+        "CREATE TABLE buma_stock (id TEXT, article TEXT, tags TEXT);"
+        "CREATE TABLE buma_article (id TEXT);"
+        "INSERT INTO buma_sale VALUES ('s1', 'gone'), ('s2', 'gone'), ('s3', 'lost'), ('s4', '');"
+        "INSERT INTO buma_stock VALUES ('k1', 'a1', '[]'), ('k2', 'a1', '[]'), ('k3', 'a2', '[]');"
+        "INSERT INTO buma_article VALUES ('a1'), ('a2');"
+    )
+    orphan = rehearsal.single_relation_sample(db, definitions, "buma_sale", "customer", False)
+    assert orphan == {"collection": "buma_sale", "field": "customer", "value": "gone", "rows": 2}
+    # Every buma_sale.customer target is missing: the next single relation is used.
+    assert rehearsal.single_relation_sample(db, definitions, "buma_sale", "customer", True) is None
+    present = rehearsal.single_relation_sample(db, definitions, "buma_stock", "article", True)
+    assert present == {"collection": "buma_stock", "field": "article", "value": "a1", "rows": 2}
