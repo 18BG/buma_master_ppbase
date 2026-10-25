@@ -2041,35 +2041,42 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 
 ## 10. Points ouverts avant une bascule
 
-### 10.1 Intégration encore attendue à la rédaction
+### 10.1 État de l'intégration
 
-- WS-A8 (PPBase), en cours : fusion de WS-A6 dans
-  `fix/d0019-relation-maxselect` (expand filtré par la viewRule de la cible et
-  emails des comptes comme `EnrichRecords`, D-0033 ; mode d'erreur PocketBase
-  0.22, D-0034) et `totalItems` compté en `COUNT(DISTINCT id)` comme
-  PocketBase (D-0035) ; C-33, C-36, C-44, C-45.
-- WS-A7 (PPBase), branche `c11/ws-a7`, en relecture : service des fichiers
-  comme PocketBase (type des `.attrs`, `Content-Disposition`, miniature par
-  défaut, `HEAD`) ; C-37.
-- Raccordement BUMA `c11/hookup` (`d0a6dc8`) : `pb.set_error_compat("0.22")`
-  dans `app/hooks/register.py`, contexte de rôle des réponses d'auth
-  (`app/hooks/auth.py`) et contexte de requête de l'expand de la connexion
-  par username (`app/auth/login.py`) ; il exige le PPBase de WS-A8 (C-44,
-  C-45).
-- WS-G (BUMA) : `scripts/c11_real_rehearsal.py`, de la branche `c11/ws-g`, et
-  le rapport final `docs/c11-real-rehearsal-report.json` (deux passages, code
-  intégré), dont les valeurs remplacent AP1 et AP2 dans 5.1 et 5.2.
-- Publication de D-0030 à D-0035 par l'orchestrateur.
+Intégrés, et vérifiés par la répétition synthétique et la répétition réelle
+finales (D-0040, D-0041) :
+
+- PPBase `fix/d0019-relation-maxselect` à `069e0bb` : correction D-0019
+  (D-0025) ; WS-A5 et WS-A2 (D-0027, D-0030 à D-0032) ; WS-A6, fusionné par
+  WS-A8 (expand, emails des comptes et mode d'erreur 0.22, D-0033 et D-0034),
+  et `totalItems` (D-0035) ; WS-A9 (valeurs zéro, D-0036) ; WS-A7 (service des
+  fichiers, D-0037) ; WS-A10 (noms de fichiers des écritures, D-0038) ;
+  WS-A12 (booléens écrits, D-0042) ;
+- BUMA `c11/integration` : raccordement de `c11/hookup` (`c333e14`) ;
+  répétition réelle `scripts/c11_real_rehearsal.py` (`1edfed1`) ; migration
+  `1789236851` des vues (WS-H, `47c3c47`) ; rapports régénérés sur l'état
+  final (`b7427fe`) et rapport final de la répétition réelle (`a99a2a4`).
+
+Non intégré : le chantier PPBase WS-A11 (branche `c11/ws-a11`, `61bc951`),
+qui corrigeait le placement des NULL de vues dans les filtres et les tris,
+n'a pas été approuvé après deux relectures (régressions hors NULL, D-0036).
+L'écart reste ouvert : G0 exige l'acceptation de D-0036 (2.1) ou la reprise
+du chantier, sa relecture indépendante, son intégration et les bancs de
+l'annexe A rejoués.
+
+D-0024 à D-0039 sont publiées dans `docs/decisions-and-divergences.md` ;
+D-0040 à D-0042 sont publiées par l'orchestrateur avec cette version du
+runbook.
 
 ### 10.2 Outils non attribués
 
 - **import de production** (6.6, étape 5) et retrait des graines C5 de la
   base neuve (6.6, étape 4) : sans eux, aucune bascule ;
 - contrôles de conservation indépendants sur la base de production (6.7) et
-  empreintes des 72 tables avant et après les contrôles (C-41) ;
-- manifeste SHA-256 et tailles d'un dossier : copie à froid (6.3),
-  `storage/` de `H_stop` (C-03), copie de `storage/` de PPBase (C-30) et
-  sauvegarde de 8.3 ;
+  contrôle des écritures pendant les contrôles, au périmètre de C-41 ;
+- manifeste SHA-256 et tailles d'un dossier : copie à froid (6.3) et ses
+  équivalents de C-04 et C-05, `storage/` de `H_stop` (C-03), copie de
+  `storage/` de PPBase (C-30) et sauvegarde de 8.3 ;
 - preuve de révision : hooks déployés contre un build de `530018c`,
   migrations déployées contre la source et `_migrations` (2.2) ;
 - `_migrations` par catégorie, comparé à sa référence privée (C-08 b et c) ;
@@ -2081,9 +2088,13 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
   écriture (C-40) ;
 - chargement du staging depuis un backup réel, avec des secrets propres au
   staging, et parcours SDK, fichiers et realtime paramétrable (6.9) ;
+- mesure de L11 et L13 sur un PostgreSQL qui n'est pas local (6.1, étape 7 ;
+  validité de M1) ;
+- comparaison de la numérotation des vues et de l'ordre des concaténations
+  entre la base et sa restauration d'essai (C-47) ;
 - taux d'erreurs habituel de PocketBase (6.11) ;
-- relevé des écritures PPBase après ouverture et outil de rejeu éventuel
-  (8.3) ;
+- relevé des écritures PPBase après ouverture et outil de rejeu éventuel,
+  qui écrit le side-car `.attrs` de chaque fichier recopié (8.3) ;
 - comparaison des routes enregistrées par PPBase avec celles de 0.22.34
   (10.4).
 
@@ -2091,8 +2102,10 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 
 Toujours en vigueur : D-0016 (rowid), D-0018 (console PostgreSQL), D-0021
 (historique réel), D-0022 (index d'idempotence source), D-0023 (ordre du
-lookup). D-0019 est résolu par D-0025. D-0030 à D-0035 sont des projets de
-l'orchestrateur, publiés sous ces numéros (marqués « projet » ci-dessous).
+lookup). D-0019 est résolu par D-0025. D-0024 à D-0039 sont publiées ;
+D-0040 à D-0042 le sont par l'orchestrateur avec cette version (10.1).
+Quatre décisions attendent l'acceptation de l'utilisateur avant G0 : D-0029,
+D-0036, D-0039 et D-0042 (2.1).
 
 | Décision | Effet pour les clients ou l'exploitation | Dans ce runbook |
 | --- | --- | --- |
@@ -2101,44 +2114,66 @@ l'orchestrateur, publiés sous ces numéros (marqués « projet » ci-dessous).
 | D-0026 | historiques importés tels quels, anomalies comprises, sans troncature ni conversion ; une seule transaction ; SIGTERM et SIGHUP annulent proprement sous `cancelled_by_termination` ; après SIGKILL ou OOM, seul le staging privé reste | 6.6 ; C-17 à C-23 ; L11, L12 |
 | D-0027 | sessions 0.22 reprises, sans reconnexion forcée ; nouveaux jetons de type `auth` (SDK JS 0.21 : `isAuthRecord` faux, à vérifier sur les clients, I8) ; `PATCH /api/settings` ne révoque rien, la rotation SQL est la seule révocation globale mesurée (`PUT /api/collections/import` non mesuré, à ne pas utiliser) ; emails d'authentification par `PPBASE_SMTP_*`, mais email de test par le SMTP importé de production, interdit tant que `smtp` vient de la production ; liens sur `meta.appURL` (défaut `http://localhost:8090`) ; jamais `request-*`, `confirm-*` ni email de test pendant une répétition sur données réelles ; gel avant le backup frais ; au retour arrière, un jeton à usage 0.22 consommé sur PPBase reste utilisable sur PocketBase (mesuré) ; journaux PPBase confidentiels | I16, 6.1, C-26, C-33, C-34, 6.9, 6.11, 6.12, 8.3, annexe A |
 | D-0028 | extraction plus stricte que PocketBase ; à lancer dans `tmux` ou `screen` | 6.4 ; L5 |
-| D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; acceptation de l'utilisateur demandée | 2.1, G0 ; règles de comparaison de 6.9 |
-| D-0030 (projet) | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; écart restant : `data.rule` au lieu de `data: {}` sur une création refusée | staging (6.9) ; 10.4 |
-| D-0031 (projet) | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
-| D-0032 (projet) | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
-| D-0033 (projet) | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) ; emails des comptes montrés à l'admin, au propriétaire et à qui satisfait la manageRule, comme `EnrichRecords` ; réponses d'auth développées comme le record authentifié (raccordement `c11/hookup`) ; écarts restants : ordre des back-relations `_via_`, `fields=id,expand` qui retire l'expand | C-36 [à confirmer à l'intégration : WS-A8, `c11/hookup`] |
-| D-0034 (projet) | erreurs JSON au format PocketBase 0.22 (`{code, message, data}` et messages de 0.22.34), mode activé par BUMA (`pb.set_error_compat("0.22")`) ; statuts jamais modifiés ; écarts restants : 7 statuts non réécrits, détails de `data`, exception non gérée servie en 500 texte | 6.1, C-33, C-44 ; 10.4 |
-| D-0035 (projet) | `totalItems` et `totalPages` comptés sur `COUNT(DISTINCT id)` comme PocketBase ; items servis inchangés ; une vue publique réelle a 989 lignes pour 42 ids | C-36 [à confirmer à l'intégration : WS-A8] |
+| D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; **acceptation de l'utilisateur exigée** | 2.1, G0 ; règles de comparaison de 6.9 |
+| D-0030 | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; l'écart restant (`data.rule` au lieu de `data: {}` sur une création refusée) est réécrit en `data: {}` sous le mode 0.22 d'après le code de PPBase (`ppbase/middleware/error_compat.py:103-110`), non remesuré par WS-F3 | staging (6.9) ; 10.4 |
+| D-0031 | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
+| D-0032 | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
+| D-0033 | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) ; emails des comptes montrés à l'admin, au propriétaire et à qui satisfait la manageRule, comme `EnrichRecords` ; réponses d'auth développées comme le record authentifié (raccordement BUMA, `app/hooks/auth.py:39`, `app/auth/login.py:133-147`) ; écarts restants : ordre des back-relations `_via_`, `fields=id,expand` qui retire l'expand, événements realtime `delete` réduits à l'id | C-36, C-38 ; 10.4 |
+| D-0034 | erreurs JSON au format PocketBase 0.22 (`{code, message, data}` et messages de 0.22.34), mode activé par BUMA (`app/hooks/register.py:51`) ; statuts jamais modifiés ; écarts restants : 7 statuts non réécrits, détails de `data`, exception non gérée servie en 500 texte, `Content-Type` sans `charset` | 6.1, C-33, C-44 ; 10.4 |
+| D-0035 | `totalItems` et `totalPages` comptés sur `COUNT(DISTINCT id)` comme PocketBase ; items servis inchangés ; une vue publique réelle a 989 lignes pour 42 ids | C-36 |
+| D-0036 | NULL d'une colonne de vue servi comme la valeur zéro de son type (`""`, `0`, `false`, `[]` ; `null` pour json), comme PocketBase ; **acceptation de l'utilisateur exigée** pour l'écart restant : filtres `= ""` et tris sur une colonne NULL de vue, PPBase gardant la sémantique NULL de PostgreSQL (WS-A11 non intégré, 10.1) | 2.1, G0 ; C-36 ; staging (6.9) |
+| D-0037 | fichiers servis comme PocketBase 0.22.34 sous le mode 0.22 : type des `.attrs`, `Content-Disposition`, miniature `100x100`, en-têtes, `HEAD` ; écarts restants : aucun side-car `.attrs` pour un fichier envoyé à PPBase et side-car laissé à la suppression, pas de `304`, `412` ni plages multiples, `ETag` en plus, octets des miniatures générées, S3 par l'extension | 6.8, C-37, 6.11, 8.3 ; 10.4 |
+| D-0038 | noms de fichiers d'une écriture vérifiés comme PocketBase : référencer un fichier non téléversé dans le record est refusé (400) ; écart assumé : un nom posé par un hook de requête est refusé sous le mode 0.22 | staging (6.9) |
+| D-0039 | treize vues recréées par `1789236851` avec les valeurs des vues SQLite de PocketBase (numérotation `ROW_NUMBER()`, concaténations, `payedPercent`, `isNafama`, `uvUser`) et fonction `buma_source_rowids` sur l'archive `_buma_c11_rowids` ; **acceptation de l'utilisateur exigée** pour les écarts restants : nombres servis en chaîne et entiers 1/0 servis en booléens, filtres et tris inchangés sur ces colonnes, nombre comparé à l'id d'une vue numérotée en 500, ordre par défaut des vues numérotées, concaténation de la lecture par id des vues stock, sommes, coût de la vue des dépenses ; archive et fonction conservées par `pg_dump` | 2.1, G0 ; C-15, C-36, C-47 ; 6.11 ; L20 |
+| D-0040 | répétition synthétique complète sur le code final (profil `real_shape`, binaire 0.22.34) : 84 réponses sur 84 identiques en statut et en corps, seule classe ouverte `json_content_type_charset` ; toute autre différence fait échouer le banc | annexe A ; C-33, C-44 ; 10.4 |
+| D-0041 | répétition réelle sans octets de fichiers : deux passages passés et identiques ; ne prouve ni les octets des fichiers, ni les jetons des comptes réels, ni l'ordre des tableaux à plusieurs éléments, ni les clients, les écritures et le realtime sur ces données, ni la collation glibc ou ICU, ni la production | 2.2, 5.1, 5.2 ; annexe A |
+| D-0042 | booléens écrits convertis comme `cast.ToBool` (FormData, chaîne JSON, clé répétée, clé modificatrice) ; **acceptation de l'utilisateur exigée** pour l'écart ouvert : à la mise à jour, PPBase ne valide que les champs modifiés, PocketBase tous les champs du record (872 des 989 `buma_article_stock` réels ont un `status` requis à `false`) | 2.1, G0 ; staging (6.9) ; 6.11 |
 
 ### 10.4 Écarts PPBase restants, à corriger ou à décider avant G0
 
-État à la rédaction (PPBase `237b403`, répétition synthétique
-`docs/c11-synthetic-rehearsal-report.json`, clés
-`comparison_with_pocketbase.divergence_classes.<classe>`, mesurée sur PPBase
-`526397a`). Chacun reçoit une correction, ou une décision D-XXXX avec impact
-client et test de régression (`AGENTS.md`).
+État à la rédaction : PPBase `069e0bb`, répétition synthétique sur le même
+état (`docs/c11-synthetic-rehearsal-report.json`, clés
+`comparison_with_pocketbase.divergence_classes.<classe>`, D-0040) et
+répétition réelle (D-0041). Chacun reçoit une correction, ou une décision
+D-XXXX avec impact client et test de régression (`AGENTS.md`). Les quatre
+écarts dont l'acceptation est exigée (D-0029, D-0036, D-0039, D-0042) sont en
+2.1.
 
-| Écart | PocketBase 0.22.34 | PPBase | Impact client | Suite |
+| Écart | PocketBase 0.22.34 | PPBase `069e0bb` | Impact client | Suite |
 | --- | --- | --- | --- | --- |
-| enveloppe des erreurs natives | `{code, message, data}` (`apis/api_error.go:11-16`) | `{status, message, data}` avec `code` ajouté (`ppbase/app.py:426-429`, `:534-578`) | client qui lit `code` ou `status` d'une erreur native | mode 0.22, D-0034 (WS-A8, `c11/hookup`) ; C-44 |
-| libellés de refus | « Only admins can perform this action. » (`apis/record_crud.go:57`, `:155`) | « Only superusers… » | client qui affiche ou compare le message | mode 0.22, D-0034 |
-| échec de connexion | `data: {}` (C-33) | `data.identity` (`ppbase/api/record_auth.py:286-291`) | client qui lit `data` d'un échec de connexion | classe `failed_login_identity_detail` ; le mode 0.22 réécrit `data` en `{}` pour les connexions natives, effet sur la connexion par username de BUMA à confirmer (C-33) |
-| `totalItems` d'une liste | `COUNT(DISTINCT id)` (`tools/search/provider.go:238-256`) | `COUNT(*)` (`ppbase/services/record_service.py:889-898`) | pagination d'une vue à ids répétés : 989 au lieu de 42 sur une vue publique réelle | D-0035, WS-A8 ; C-36 |
-| `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte | ouvert (classe `json_content_type_charset`) |
-| type, disposition et miniature des fichiers | type des `.attrs`, `inline` ou `attachment; filename=` (`tools/filesystem/filesystem.go:367-377`, `:393-430`) ; miniature 100x100 par défaut (`apis/file.go:26-27`, `:162-193`) | type par l'extension, `Content-Disposition` seulement avec `download` (`ppbase/api/files.py:141-145`, `:1117-1145`) ; original servi pour `thumb=100x100` | nom et mode d'ouverture dans le navigateur ; taille des vignettes | classes `file_content_disposition_missing` et `default_thumb_size_serves_original` ; WS-A7 (C-37) |
-| emails des comptes et manageRule | visibles par les admins, le propriétaire et la manageRule (`apis/record_helpers.go:216-279`) | superusers et propriétaire | session `isAdmin` sans les emails des autres comptes | D-0033 (WS-A6, fusionné par WS-A8) |
+| en-têtes de sécurité | `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` et `X-Xss-Protection: 1; mode=block` sur toute réponse (`apis/base.go:53`), `X-Frame-Options` retiré des fichiers (`apis/file.go:203-206`) ; aucun en-tête `Server` | `X-Content-Type-Options` et `X-XSS-Protection` sur les seuls fichiers servis (`ppbase/storage/serving.py:121-129`), aucun des trois ailleurs ; `server: uvicorn` en plus | aucun pour les SDK ; navigateur : le tableau de bord `/_/` et les réponses JSON peuvent être encadrés par une autre page ou interprétés hors de leur type | nouveau, mesuré par WS-F3 (6.9) : correction PPBase sous le mode 0.22, ou ajout au proxy (I7), ou décision D-XXXX |
+| `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte ; sans effet sur les SDK (D-0034) | classe `json_content_type_charset`, seule ouverte de la répétition synthétique (D-0040) : à accepter ou corriger |
+| emails d'authentification | modèles de `meta` (sujet, corps HTML), expéditeur `meta.senderName` et `meta.senderAddress` (`mails/record.go:61-74`) | modèles importés stockés mais ignorés : textes intégrés en anglais, en texte brut, expéditeur `PPBASE_SMTP_FROM` (`ppbase/services/mail_service.py:75-141` ; contrat `docs/contracts/c11-auth-import.md` §3) | contenu, langue et expéditeur des emails de vérification, de réinitialisation et de changement d'email | nouveau, ouvert : correction ou décision ; I16 |
+| TLS du SMTP | `smtp.tls` vrai : TLS implicite (`mailyak.NewWithTLS`), sinon connexion `mailyak.New` ; méthode d'authentification et `localName` des paramètres (`tools/mailer/smtp.go:60-85`, `core/base.go:495-509`) | emails d'authentification : STARTTLS imposé hors du port 25, jamais de TLS implicite, ni `authMethod` ni `localName` (`ppbase/services/mail_service.py:29-46`) ; email de test : STARTTLS si `smtp.tls` est vrai (`ppbase/api/settings.py:359-366`) | avec un SMTP en TLS implicite (port 465 en général) ou sans STARTTLS hors du port 25, aucun email ne part (erreur journalisée) | nouveau, ouvert : port et mode TLS du SMTP retenu vérifiés (I16), puis correction ou décision |
+| envoi des emails d'authentification | en arrière-plan : la requête répond sans attendre l'envoi (`routine.FireAndForget`, `apis/record_auth.go:395-403`, `:487-495`) | envoi `smtplib` synchrone, sans délai d'attente, dans la boucle d'événements de la requête (`ppbase/services/mail_service.py:40`, `:68-69`, appelé par `await` depuis `ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895`), sauf le reset admin, envoyé dans un thread (`ppbase/services/mail_service.py:193-194`) | pendant chaque envoi, et sans limite si le SMTP ne répond pas, la requête et les autres requêtes du processus PPBase attendent [lu dans le code, non mesuré] | nouveau, ouvert : correction ou décision ; envoi essayé avant G0 avec un SMTP de test, jamais avec le staging chargé de données réelles (6.9, I16) |
 | `GET /api/health` | `data.canBackup` (`apis/health.go:23-42`) | `data.version` en plus (`ppbase/api/health.py:14-26`) | sonde qui compare le corps | ouvert, non consigné |
-| routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) | `GET /` JSON de santé (`app/hooks/health.py`), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
-| `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2009`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
+| routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) ; 404 JSON sans `pb_public` (mesuré par WS-F3) | `GET /` JSON de santé, 200 (`app/hooks/health.py`, mesuré par WS-F3), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
+| `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2234`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
 | type des jetons de record | `authRecord` | `auth` | `isAuthRecord` du SDK JS 0.21 | D-0027 : à vérifier sur les clients (I8) |
 | révocation globale | `PATCH /api/settings` révoque | 200 sans effet | procédure 0.22 inopérante | D-0027 : rotation SQL (6.12) |
-| forme de `GET /api/settings`, pages de confirmation des liens email, `POST /api/files/token` sans auth, corps des refus des jetons à usage | 0.22 | forme actuelle ; pages absentes ; 401 au lieu de 400 ; autres corps | outils d'administration, liens ouverts dans le navigateur | contrat `docs/contracts/c11-auth-import.md` §4 et §5 |
+| forme de `GET /api/settings`, pages de confirmation des liens email, `POST /api/files/token` sans auth, corps des refus des jetons à usage | 0.22 | forme actuelle ; pages absentes ; 401 au lieu de 400 ; autres corps | outils d'administration, liens ouverts dans le navigateur | contrat `docs/contracts/c11-auth-import.md` §4 et §5 ; D-0027, D-0034 |
 | identité realtime | ID seul | `collectionId:id` | aucun ID partagé dans le backup réel | D-0027, écart délibéré |
+| événements realtime `delete` | record complet développé, à chaque abonné dont règle et filtre correspondaient | `{id}` seul, aux admins et aux abonnements à règle publique sans filtre | client abonné qui lit les champs d'une suppression | D-0033, écart ouvert du côté restrictif ; staging (C-38) |
+| erreurs restantes du mode 0.22 | statuts et `data` de 0.22.34 | 7 statuts non réécrits, détails de `data`, exception non gérée en 500 texte (`docs/error-compat.md` de PPBase, « Known differences ») | client qui lit ces statuts ou ces détails | D-0034, épinglés par test |
+| fichiers, écarts restants | `http.ServeContent` (`304`, `412`, plages multiples) ; side-car écrit à l'envoi et retiré à la suppression | `ETag` en plus, pas de `304` ni de `412` ni de plages multiples ; pas de side-car pour un fichier envoyé à PPBase, side-car laissé à la suppression | client qui revalide : 200 et fichier entier au lieu de 304 ; retour arrière (8.3) | D-0037 (`docs/file-serving.md` de PPBase) |
+| écarts documentés des relations, règles, filtres et dates | 0.22.34 | voir D-0025 et D-0030 à D-0032 (10.3) | selon chaque décision | décisions publiées, tests de régression cités |
 | journal de requêtes | `logs.db` séparé | table `_requests`, sans rétention appliquée | données personnelles dans la base | 6.11, I18 |
+| sauvegarde native | sauvegarde de `pb_data` (`core/base_backup.go:30-84`) | refuse cette base : archives de l'import, fonctions et déclencheurs (C-47) | aucun pour les clients ; exploitation | `pg_dump` (C-47) |
+| ordre des textes | octets (SQLite BINARY) | collation de la base : octets sur la cible musl des répétitions, ordre linguistique avec glibc ou ICU | ordre des listes triées sur un texte | 2.2 : ordre des octets ou décision |
 | TLS vers la base | sans objet (SQLite) | désactivé (`ppbase/db/engine.py:50`) | aucun ; exploitation | I6 |
+
+Résolus depuis la version WS-F2 (PPBase `237b403`), mesurés par la
+répétition synthétique (D-0040) et la répétition réelle (D-0041) :
+enveloppe des erreurs natives et libellés de refus (D-0034), détail `data`
+d'un échec de connexion (C-33), `totalItems` d'une vue à ids répétés
+(D-0035), type, disposition et miniature des fichiers (D-0037, sur données
+synthétiques), emails des comptes et manageRule (D-0033), NULL de vue servi
+`null` (D-0036).
 
 Autres constats sans décision : SMTP de PPBase lu dans son environnement,
 sauf l'email de test qui utilise le SMTP importé (I16, D-0027) ; règle
-`buma_sql_table` si la console a servi depuis l'export (2.4).
+`buma_sql_table` si la console a servi depuis l'export (2.4) ; tableau de
+bord PPBase à construire avant G0 (2.2).
 
 ## 11. Références
 
