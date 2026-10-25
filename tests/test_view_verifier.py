@@ -136,3 +136,19 @@ def test_view_query_verifier_checks_the_migrated_queries() -> None:
         i["name"] for i in dependency_order(definitions)
     ]
     assert migrated["test"] == original["test"]
+
+
+def test_complete_schema_verifier_checks_the_translation_without_1789236851() -> None:
+    # A database migrated through 1789236850 only (``_migrations`` without
+    # 1789236851, detected by the scripts): the translated queries.
+    definitions, _, _ = load_schema(SCHEMA, include_views=True)
+    rows = compat_rows(definitions)
+    report = verify_complete(definitions, rows, view_semantics=False)
+    assert report["metadata_mismatches"] == sorted(
+        f"{name}: options" for name in VIEW_SEMANTICS.CHANGES
+    )
+    translated = {i["name"]: i["options"]["query"] for i in definitions if i["type"] == "view"}
+    for row in rows:
+        if row["name"] in VIEW_SEMANTICS.CHANGES:
+            row["options"]["query"] = translated[row["name"]]
+    assert verify_complete(definitions, rows, view_semantics=False)["ok"] is True

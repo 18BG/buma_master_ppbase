@@ -7,8 +7,10 @@ failed query is rolled back to its savepoint and reported without hiding the
 remaining failures.
 
 The ten views recreated by migration 1789236851 are checked with the query
-that migration stores (``migrated_view_definitions``): it calls the functions
-the migration creates, so the database must be migrated through 1789236851.
+that migration stores (``migrated_view_definitions``), which calls the
+functions and domains it creates, on a database where 1789236851 is applied
+(``_migrations``); on one migrated through 1789236850 only, with the translated
+query (``view_semantics`` overrides the detection).
 """
 
 from __future__ import annotations
@@ -55,6 +57,24 @@ def _view_semantics_module():
 VIEW_SEMANTICS = _view_semantics_module()
 
 
+async def applied_view_semantics(database_url: str) -> bool:
+    """Whether the database recorded migration 1789236851 (``_migrations``)."""
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            if (
+                await connection.execute(text("SELECT to_regclass('_migrations')"))
+            ).scalar_one() is None:
+                return False
+            found = await connection.execute(
+                text("SELECT 1 FROM _migrations WHERE file = :file"),
+                {"file": VIEW_SEMANTICS_MIGRATION.name},
+            )
+            return found.first() is not None
+    finally:
+        await engine.dispose()
+
+
 def migrated_view_definitions(definitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The definitions with the view queries stored by migration 1789236851.
 
@@ -92,12 +112,21 @@ def dependency_order(definitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
-async def verify(database_url: str, definitions: list[dict[str, Any]]) -> list[dict[str, str]]:
+async def verify(
+    database_url: str,
+    definitions: list[dict[str, Any]],
+    *,
+    view_semantics: bool | None = None,
+) -> list[dict[str, str]]:
+    if view_semantics is None:
+        view_semantics = await applied_view_semantics(database_url)
+    if view_semantics:
+        definitions = migrated_view_definitions(definitions)
     engine = create_async_engine(database_url)
     results: list[dict[str, str]] = []
     try:
         async with engine.begin() as connection:
-            for definition in dependency_order(migrated_view_definitions(definitions)):
+            for definition in dependency_order(definitions):
                 name = str(definition["name"])
                 query = str((definition.get("options") or {}).get("query") or "")
                 savepoint = await connection.begin_nested()
@@ -121,9 +150,11 @@ async def main() -> int:
     args = parser.parse_args()
 
     definitions, digest, _ = load_schema(args.schema, include_views=True)
-    results = await verify(args.db, definitions)
+    view_semantics = await applied_view_semantics(args.db)
+    results = await verify(args.db, definitions, view_semantics=view_semantics)
     report = {
         "schema_sha256": digest,
+        "view_queries_of": "1789236851" if view_semantics else "the translation (no 1789236851)",
         "total": len(results),
         "ok": sum(item["status"] == "OK" for item in results),
         "fail": sum(item["status"] == "FAIL" for item in results),
