@@ -910,8 +910,9 @@ Dans les deux cas :
    0700 et fichiers 0600, CRC-32 et SHA-256 de chaque membre, relecture
    complète, archive inchangée du début à la fin, manifeste privé publié
    atomiquement ; la sortie standard porte un seul résumé agrégé, sans nom
-   de membre, et la progression va sur la sortie d'erreur. `--expect-manifest <manifeste>` compare en plus à un manifeste
-   existant de la même capture. Codes de sortie (`--help`) :
+   de membre, et la progression va sur la sortie d'erreur.
+   `--expect-manifest <manifeste>` compare en plus à un manifeste existant de
+   la même capture. Codes de sortie (`--help`) :
    - 0 : extrait et vérifié, manifeste écrit (`"ok": true`) ;
    - 1 : refus ou échec ; rien ne reste, sauf le manifeste quand seul le
      contenu vérifié diffère de `--expect-manifest` ;
@@ -924,9 +925,11 @@ Dans les deux cas :
 
    Après un arrêt brutal (SIGKILL, coupure), supprimer à la main la
    destination partielle et les fichiers cachés `.c11-extract-*` voisins du
-   manifeste, puis relancer avec des chemins neufs. **C-06** : code 0,
-   `"ok": true`, 100 % des membres vérifiés, `archive_sha256` égal à C-04,
-   `members` égal à C-05. Durée : L5. Avec la méthode B, la copie à froid et
+   manifeste, puis relancer avec des chemins neufs. **C-06** : code 0 ;
+   dans le résumé, `"ok": true`, `crc_all_files_ok`,
+   `sha256_all_files_recorded`, `destination_reread_verified` et
+   `archive_unchanged` vrais, `archive_sha256` égal à C-04, `members` égal à
+   C-05. Durée : L5. Avec la méthode B, la copie à froid et
    son manifeste tiennent lieu d'extraction et de C-06.
 
 ### 6.5 Diagnostic de la capture (porte G2)
@@ -1339,16 +1342,15 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   `.attrs` à l'envoi, avec `Content-Disposition` `inline; filename=<nom>`
   ou `attachment; filename=<nom>`, et retire `X-Frame-Options`
   (`tools/filesystem/filesystem.go:168-215`, `:367-377`, `:393-430` ;
-  `apis/file.go:203-206`) ;
-  PPBase `237b403` déduit le type de l'extension et n'envoie
-  `Content-Disposition` qu'avec `download` (`ppbase/api/files.py:141-145`,
-  `:1117-1145`) : sans correction (WS-A7, en relecture) ni décision avant
-  G0, C-37 échoue.
-  Une référence de fichier absent répond 404 « The requested resource wasn't
-  found. » dans les deux systèmes (`apis/file.go:213-215`,
-  `apis/api_error.go:31-38` ; `ppbase/api/files.py:84-92`), dans l'enveloppe
-  de C-44. Aucune miniature avant l'ouverture : la demande en crée une
-  (`apis/file.go:162-193`) ; les miniatures sont testées sur staging.
+  `apis/file.go:203-206`) ; PPBase `237b403` déduit le type de l'extension et
+  n'envoie `Content-Disposition` qu'avec `download`
+  (`ppbase/api/files.py:141-145`, `:1117-1145`) : sans correction (WS-A7, en
+  relecture) ni décision avant G0, C-37 échoue. Une référence de fichier
+  absent répond 404 « The requested resource wasn't found. » dans les deux
+  systèmes (`apis/file.go:213-215`, `apis/api_error.go:31-38` ;
+  `ppbase/api/files.py:84-92`), dans l'enveloppe de C-44. Aucune miniature
+  avant l'ouverture : la demande en crée une (`apis/file.go:162-193`) ; les
+  miniatures sont testées sur staging.
 - **C-38** : realtime : connexion `GET /api/realtime` reçue avec
   `PB_CONNECT`, abonnement accepté ; la réception d'événements, qui demande
   une écriture, est testée sur staging.
@@ -1653,8 +1655,9 @@ mesure :
 
 ### 8.3 Après ouverture, PPBase ayant reçu des écritures
 
-1. Geler PPBase immédiatement (maintenance au proxy) ; noter `T_gel2`. Plus
-   aucun client n'écrit.
+1. Geler PPBase immédiatement (maintenance au proxy) et suspendre les tâches
+   externes redirigées vers lui (6.10, étape 4), chacune consignée ; noter
+   `T_gel2`. Plus aucun client ni aucune tâche n'écrit.
 2. Conserver PPBase : sauvegarde complète de la base de production (par
    exemple `pg_dump` au format personnalisé), manifeste de `storage/`
    [outil non attribué, celui de C-30] et journaux, dans `<privé>`,
