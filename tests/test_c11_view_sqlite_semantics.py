@@ -106,8 +106,9 @@ def test_rewrite_refuses_any_other_stored_query(module, translated):
         module.rewrite("buma_sale_info", forward, True)  # already migrated
 
 
-def test_number_like_texts_are_jsonb_served_like_pocketbase(migrated):
-    # (a) json PrepareValue of a text: jsonb, the fallback '' is the string "".
+def test_number_like_texts_are_json_served_like_pocketbase(module, migrated, translated):
+    # (a) json PrepareValue of a text: the json domain, the fallback '' is the
+    # string "".
     assert (
         "buma_pb_json_text(COALESCE(si.number, '')) as number" in (migrated["buma_agent_list_view"])
     )
@@ -118,21 +119,37 @@ def test_number_like_texts_are_jsonb_served_like_pocketbase(migrated):
         "buma_return_list_view",
     ):
         query = migrated[name]
+        # DISTINCT / GROUP BY need an equality json lacks: text inside, json
+        # in the outer projection, every column in the order of the view.
+        head, tail = module.wrapper(name)
+        assert query.startswith(head) and query.endswith(tail), name
         assert query.count("buma_pb_json_text(") == 2, name
-        assert re.search(r"COALESCE\([a-z_]+\.(sim_list|pdv_sim), '\"\"'::jsonb\)", query), name
-        assert re.search(r"COALESCE\([a-z_]+\.agent_sim_number, '\"\"'::jsonb\)", query), name
+        assert "buma_pb_json_text(w.pdv_sim) AS pdv_sim" in head, name
+        assert "buma_pb_json_text(w.agent_sim) AS agent_sim" in head, name
+        columns = module.WRAPPED[name].split()
+        fields = [f["name"] for f in translated[name]["schema"]]
+        assert set(columns) - {"id", "created", "updated"} == set(fields), name
+        assert re.search(r"COALESCE\([a-z_]+\.(sim_list|pdv_sim), ''\)", query), name
+        assert re.search(r"COALESCE\([a-z_]+\.agent_sim_number, ''\)", query), name
         assert 'MAX(CAST(number AS TEXT) COLLATE "C")' in query, name
+        assert "jsonb" not in query, name
 
 
 def test_sqlite_integer_booleans_are_integers(migrated):
-    # (b) SQLite has no boolean storage class: 1/0 integers.
+    # (b) SQLite has no boolean storage class: 1/0 integers of the domain
+    # whose operators compare them with true/false like PocketBase.
     mobile = migrated["buma_customer_mobile_list_view"]
-    assert 'COALESCE(asn."isNafama"::integer, 0) AS "isNafama"' in mobile
+    assert (
+        'CAST(COALESCE(asn."isNafama"::integer, 0) AS buma_sqlite_integer) AS "isNafama"'
+    ) in mobile
     assert "BOOL_OR" not in mobile
     transactions = migrated["buma_transaction_list_view"]
-    assert "THEN (sale.amount = sale.payed)::integer" in transactions
-    assert "ELSE retour.payed::integer" in transactions
-    assert 'THEN 1\n    ELSE 0\n  END) AS "salePayed"' in transactions
+    assert "THEN CAST((sale.amount = sale.payed)::integer AS buma_sqlite_integer)" in transactions
+    assert "ELSE CAST(retour.payed::integer AS buma_sqlite_integer)" in transactions
+    assert (
+        "THEN CAST(1 AS buma_sqlite_integer)\n    ELSE CAST(0 AS buma_sqlite_integer)\n"
+        '  END) AS "salePayed"'
+    ) in transactions
     assert "THEN true" not in transactions
 
 
@@ -200,10 +217,16 @@ def test_bare_columns_take_the_sqlite_row(migrated):
 
 def test_functions_follow_pocketbase_and_the_import_archive(module):
     body = module.PB_JSON_TEXT
-    assert "IN ('null', 'true', 'false')" in body
+    assert "RETURNS buma_pb_json" in body
+    assert "WHEN value = 'null' THEN NULL" in body  # JSON_EXTRACT's NULL, served null
+    assert "WHEN value IN ('true', 'false') THEN value::json" in body
     assert "IN ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '\"', '[', '{')" in body
-    assert "pg_input_is_valid(value, 'jsonb')" in body and "to_jsonb(value)" in body
-    assert "STABLE STRICT PARALLEL SAFE" in body
+    assert "pg_input_is_valid(value, 'json')" in body and "to_json(value)" in body
+    assert "jsonb" not in body
+    # A SQL function PostgreSQL inlines (no STRICT, no plpgsql call per row).
+    assert "LANGUAGE sql STABLE PARALLEL SAFE" in body and "STRICT" not in body
+    # json keeps the text (key order, \u0000); smallint holds SQLite's 0/1.
+    assert module.DOMAINS == (("buma_pb_json", "json"), ("buma_sqlite_integer", "smallint"))
     rowids = module.SOURCE_ROWIDS
     assert "to_regclass('public._buma_c11_rowids') IS NOT NULL" in rowids
     assert "archive.record_id = ANY (p_ids)" in rowids
@@ -278,8 +301,13 @@ def test_up_recreates_the_views_in_dependency_order(module, translated, migrated
     app = App(module, stored(translated))
     asyncio.run(module.up(app))
     ddl = app.ddl()
+    # Domains, then functions and operators, then the views.
+    assert ddl[:2] == ["CREATE DOMAIN buma_pb_json", "CREATE DOMAIN buma_sqlite_integer"]
     functions = [s for s in ddl if s.startswith("CREATE FUNCTION")]
-    assert len(functions) == 2
+    assert len(functions) == 2 + 4 + 48
+    assert len([s for s in ddl if s.startswith("CREATE OPERATOR")]) == 48
+    first_view = next(i for i, s in enumerate(ddl) if "VIEW" in s)
+    assert all("VIEW" in s for s in ddl[first_view:])
     views = [s for s in ddl if "VIEW" in s]
     assert views[0] == 'DROP VIEW "test"'
     assert views[1:11] == [f'DROP VIEW "{n}"' for n in module.CHANGES]
@@ -293,15 +321,35 @@ def test_up_recreates_the_views_in_dependency_order(module, translated, migrated
     assert app.queries["test"] == translated["test"]["options"]["query"]
 
 
-def test_down_restores_the_previous_queries_and_drops_the_functions(module, translated):
+def test_down_restores_the_previous_queries_and_drops_what_up_created(module, translated):
     app = App(module, stored(translated))
     asyncio.run(module.up(app))
+    up = len(app.statements)
     asyncio.run(module.down(app))
     assert app.queries == stored(translated)
-    assert [s for s, _ in app.statements if s.startswith("DROP FUNCTION")] == [
+    down = [s for s, _ in app.statements[up:]]
+    assert "CASCADE" not in " ".join(down)
+    # The views first (their old queries use none of these objects), then the
+    # operators and functions, the domains last.
+    last_view = max(i for i, s in enumerate(down) if "VIEW" in s)
+    assert not any("VIEW" in s for s in down[last_view + 1 :])
+    dropped = [s for s in down[last_view + 1 :]]
+    assert len([s for s in dropped if s.startswith("DROP OPERATOR")]) == 48
+    assert dropped[-4:] == [
         "DROP FUNCTION buma_pb_json_text(text)",
         "DROP FUNCTION buma_source_rowids(text, text[])",
+        "DROP DOMAIN buma_sqlite_integer",
+        "DROP DOMAIN buma_pb_json",
     ]
+    created = [s for s, _ in app.statements[:up] if s.startswith("CREATE OPERATOR")]
+    assert len(created) == 48
+    functions = {
+        s.split("CREATE FUNCTION ", 1)[1].split(")", 1)[0]
+        for s, _ in app.statements[:up]
+        if s.strip().startswith("CREATE FUNCTION")
+    }
+    assert len(functions) == 54
+    assert len([s for s in dropped if s.startswith("DROP FUNCTION")]) == 54
 
 
 @pytest.mark.parametrize(
@@ -325,3 +373,62 @@ def test_up_refuses_an_unexpected_stored_query_before_any_view_change(module, tr
     with pytest.raises(RuntimeError, match="unexpected stored view query"):
         asyncio.run(module.up(app))
     assert not [s for s in app.ddl() if "VIEW" in s]
+
+
+def test_operators_cover_every_form_ppbase_sends_and_no_domain_pair(module):
+    # PPBase sends column <op> value: an untyped string, an integer or numeric
+    # literal, TRUE/FALSE; in either operand order.
+    operators = {(op, left, right) for op, _, left, right, _ in module.COMPARISON_OPERATORS}
+    expected = set()
+    for other in ("text", "double precision", "boolean"):
+        for op in ("=", "<>", "<", "<=", ">", ">="):
+            expected |= {(op, "buma_pb_json", other), (op, other, "buma_pb_json")}
+    for op in ("=", "<>", "<", "<=", ">", ">="):
+        expected |= {(op, "buma_sqlite_integer", "boolean"), (op, "boolean", "buma_sqlite_integer")}
+    assert operators == expected
+    # No domain = domain: PostgreSQL would then type an untyped parameter as
+    # the domain and parse "" with the json input (typeconv-oper.html step 2).
+    assert not [o for o in operators if o[1] == o[2]]
+    restricts = {
+        module.operator_ddl(op, function, left, right).rsplit(", ", 1)[-1]
+        for op, function, left, right, _ in module.COMPARISON_OPERATORS
+        if op in ("=", "<>")
+    }
+    assert restricts == {"RESTRICT = eqsel)", "RESTRICT = neqsel)"}
+
+
+def test_equal_and_not_equal_are_null_safe_like_pocketbase_is(module):
+    # PocketBase: json fields compare with IS / IS NOT (filter.go l.308-317).
+    bodies = {
+        (function, left, right): ddl
+        for _, function, left, right, ddl in module.COMPARISON_OPERATORS
+    }
+    eq = bodies[("buma_pb_json_eq", "buma_pb_json", "text")]
+    assert (
+        "SELECT COALESCE(buma_pb_json_cmp(a, b) = 0, "
+        "(a IS NULL OR json_typeof(a) = 'null') AND b IS NULL)"
+    ) in eq
+    ne = bodies[("buma_sqlite_integer_ne", "boolean", "buma_sqlite_integer")]
+    assert "(b boolean, a buma_sqlite_integer)" in ne
+    assert "SELECT NOT COALESCE(buma_sqlite_integer_cmp(a, b) = 0, a IS NULL AND b IS NULL)" in ne
+    # The reversed operand order flips the ordering operators.
+    lt = bodies[("buma_pb_json_lt", "double precision", "buma_pb_json")]
+    assert "SELECT buma_pb_json_cmp(a, b) > 0 $$" in lt
+    assert (
+        "SELECT buma_pb_json_cmp(a, b) < 0 $$"
+        in bodies[("buma_pb_json_lt", "buma_pb_json", "double precision")]
+    )
+
+
+def test_compare_functions_follow_sqlite_storage_classes(module):
+    text_cmp, number_cmp, boolean_cmp, integer_cmp = module.COMPARE_FUNCTIONS
+    # NULL < INTEGER/REAL < TEXT, text by BINARY (datatype3.html 4.1, 7).
+    assert "WHEN json_typeof(a) IN ('number', 'boolean') THEN -1" in text_cmp
+    assert '(a #>> \'{}\') COLLATE "C" < b COLLATE "C"' in text_cmp
+    assert "WHEN json_typeof(a) IN ('string', 'array', 'object') THEN 1" in number_cmp
+    assert "(a #>> '{}')::numeric < b::numeric" in number_cmp
+    # true/false are the SQL literals 1/0 for PocketBase (filter.go l.250-258).
+    assert "buma_pb_json_cmp(a, b::integer::double precision)" in boolean_cmp
+    assert "a < b::integer" in integer_cmp
+    for body in module.COMPARE_FUNCTIONS:
+        assert "LANGUAGE sql IMMUTABLE PARALLEL SAFE" in body

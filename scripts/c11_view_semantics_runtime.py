@@ -11,11 +11,18 @@ recorded over HTTP, then the stopped snapshot is diagnosed and imported by
 BUMA migration, and the same requests are sent to PPBase.
 
 Checks: every served value of the ten views (each page sorted by id, default
-page, view by id, filters and sorts on the changed fields), ``payedPercent``
-over five data phases written in both stores (integer truncation, negative,
-real, zero divisor, no row), the order without the rowid archive (SQL only),
-then 1789236851 down (the previous answers) and up again (same answers).
-Reports contain field names, counts and synthetic values only.
+page, view by id), filters on every changed field (the review forms = "",
+!= "", = true, = false, != true, = 1, = 0, id = 3, and the other operators,
+values and operand orders) and sorts on them, ``payedPercent`` over five data
+phases written in both stores (integer truncation, negative, real, zero
+divisor, no row), the order without the rowid archive (SQL only), the
+1789236851 operators against SQLite's JSON_EXTRACT comparisons (a grid, with
+Python's sqlite3) and what they do outside their domains, then 1789236851 down
+(the previous answers: regressions and new errors are listed and pinned) and up
+again (same answers). The remaining differences are pinned with their
+PocketBase and PPBase statuses (``KNOWN_AFTER``), for a PPBase with or without
+WS-A11 (its json sort and empty/NULL json filters). Reports contain field
+names, counts and synthetic values only.
 """
 
 from __future__ import annotations
@@ -83,31 +90,116 @@ TARGET_FIELDS = {
     "buma_article_with_no_stock_list_view": {"stockages"},
     "buma_stockage_no_manager": {"stockage"},
 }
-# Probes whose answer still differs from PocketBase 0.22.34 after 1789236851,
-# each for a documented reason (WS-H decision draft); any other difference
-# fails the run.
+# Probes whose answer still differs from PocketBase 0.22.34 after 1789236851:
+# label -> (reason, PocketBase status, PPBase status). Any other difference
+# fails the run, and so does a status other than the one pinned here.
+BY_ID_ROWID_ORDER = "view_by_id_concatenates_in_rowid_order"
 KNOWN_AFTER = {
     # PocketBase's plan for a view by id reads the stocks without the automatic
     # covering index (rowid order); its list, which PPBase follows, sorts them.
-    "buma_article_with_no_stock_list_view:by_id": "view_by_id_concatenates_in_rowid_order",
-    "buma_stockage_no_manager:by_id": "view_by_id_concatenates_in_rowid_order",
+    "buma_article_with_no_stock_list_view:by_id": (BY_ID_ROWID_ORDER, 200, 200),
+    "buma_stockage_no_manager:by_id": (BY_ID_ROWID_ORDER, 200, 200),
     # No sort: PocketBase keeps SQLite's row order, PPBase sorts by the first
-    # column (ORDER BY 1), now the text id.
-    "buma_caisse_transaction_by_categorie_list_view:default": "default_order_is_first_column",
-    # Filters on json fields: PocketBase compares JSON_EXTRACT values; PPBase
-    # compares the PostgreSQL column (jsonb or integer now).
-    'buma_customer_list_view:filter:pdv_sim = "73000001"': "json_filter_semantics",
-    "buma_customer_list_view:filter:pdv_sim = 73000001": "json_filter_semantics",
-    'buma_customer_list_view:filter:pdv_sim = ""': "json_filter_on_jsonb_column",
-    'buma_customer_list_view:filter:agent_sim != ""': "json_filter_on_jsonb_column",
-    "buma_customer_mobile_list_view:filter:isNafama = true": "boolean_filter_on_integer_column",
-    "buma_transaction_list_view:filter:payed = true": "boolean_filter_on_integer_column",
-    "buma_transaction_list_view:filter:salePayed = true": "boolean_filter_on_integer_column",
-    # Sorts: JSON_EXTRACT order (null, numbers, then text) against jsonb's
-    # order; SQLite puts NULL first, PostgreSQL last.
-    "buma_customer_list_view:sort:pdv_sim,id": "json_sort_semantics",
-    "buma_transaction_list_view:sort:payed,id": "null_sort_position",
+    # column (ORDER BY 1), now the text id ("1", "10", "11", "2"...).
+    "buma_caisse_transaction_by_categorie_list_view:default": (
+        "default_order_is_the_text_id",
+        200,
+        200,
+    ),
+    # A number compared with the text id: PocketBase compares '3' with '3.0'
+    # (TEXT affinity applied to the float64 parameter) and finds nothing;
+    # PostgreSQL has no text = integer. id = "3" works.
+    "buma_caisse_transaction_by_categorie_list_view:filter:id = 3": (
+        "number_compared_with_text_id_is_an_error",
+        200,
+        500,
+    ),
+    # A string compared with a SQLite integer: PocketBase finds nothing
+    # (INTEGER < TEXT); PPBase binds the string as a smallint (an error, as
+    # with the boolean columns before 1789236851).
+    'buma_customer_mobile_list_view:filter:isNafama = "1"': (
+        "string_compared_with_sqlite_integer_is_an_error",
+        200,
+        500,
+    ),
+    # PocketBase filters JSON_EXTRACT of the stored text, where a JSON value
+    # may follow whitespace (' 70000011' is the number 70000011), and serves
+    # PrepareValue, for which that text is a string: PPBase holds the served
+    # value (no such sim number in the real backup).
+    "buma_customer_list_view:filter:pdv_sim < 73000002": (
+        "json_text_with_leading_whitespace_filters_as_its_value",
+        200,
+        200,
+    ),
 }
+# Only on a PPBase without WS-A11 (detected by its json sort): it sorts a json
+# field by its own column, and json has no ordering operator; it compares
+# x = "" with an untyped parameter, which a smallint cannot take.
+KNOWN_AFTER_BEFORE_WS_A11 = {
+    "buma_customer_list_view:sort:pdv_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
+    "buma_customer_list_view:sort:-pdv_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
+    "buma_customer_list_view:sort:agent_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
+    "buma_agent_list_view:sort:number,id": ("sort_on_json_domain_is_an_error", 200, 500),
+    # A string compared with a SQLite integer, see isNafama = "1"; WS-A11
+    # rewrites x = "" of a json field as to_jsonb(x) = '""'.
+    'buma_customer_mobile_list_view:filter:isNafama = ""': (
+        "string_compared_with_sqlite_integer_is_an_error",
+        200,
+        500,
+    ),
+    'buma_transaction_list_view:filter:payed = ""': (
+        "string_compared_with_sqlite_integer_is_an_error",
+        200,
+        500,
+    ),
+    'buma_customer_mobile_list_view:filter:isNafama != ""': (
+        "string_compared_with_sqlite_integer_is_an_error",
+        200,
+        500,
+    ),
+    # json != value is not NULL-safe there (PocketBase uses IS NOT): the rows
+    # whose payed is NULL are missing; and a NULL sorts last, first in SQLite.
+    "buma_transaction_list_view:filter:payed != 1": ("json_not_equal_skips_null_rows", 200, 200),
+    "buma_transaction_list_view:sort:payed,id": ("null_sorts_last", 200, 200),
+}
+# Only on a PPBase with WS-A11, which sorts json fields by
+# NULLIF(to_jsonb(column), 'null'): jsonb order (strings before numbers)
+# against JSON_EXTRACT's (numbers before text).
+KNOWN_AFTER_WITH_WS_A11 = {
+    "buma_customer_list_view:sort:pdv_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
+    "buma_customer_list_view:sort:-pdv_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
+    "buma_customer_list_view:sort:agent_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
+    "buma_agent_list_view:sort:number,id": ("json_sort_order_is_jsonb_order", 200, 200),
+}
+# Probes equal to PocketBase before 1789236851 that may differ after it: a
+# view by id of the two stock views (PPBase now serves the list's order, the
+# one PocketBase serves for a list; PocketBase serves rowid order by id).
+REGRESSIONS = {
+    "buma_article_with_no_stock_list_view:by_id",
+    "buma_stockage_no_manager:by_id",
+}
+# Answered 200 before 1789236851 and an error after it.
+REGRESSIONS_BEFORE_WS_A11 = {
+    label
+    for label, (_, _, status) in KNOWN_AFTER_BEFORE_WS_A11.items()
+    if ":sort:" in label and status == 500
+}
+
+
+def ppbase_sorts_json_by_jsonb() -> bool:
+    """PPBase WS-A11 sorts a json field by NULLIF(to_jsonb(column), 'null')."""
+    import inspect
+
+    from ppbase.services import record_service
+
+    return "json_fields" in inspect.signature(record_service._sort_term).parameters
+
+
+def known_after() -> dict:
+    variant = KNOWN_AFTER_WITH_WS_A11 if ppbase_sorts_json_by_jsonb() else KNOWN_AFTER_BEFORE_WS_A11
+    return {**KNOWN_AFTER, **variant}
+
+
 SHAPES = (
     "",
     "1e3",
@@ -444,6 +536,134 @@ async def write_sale_phase_postgres(engine, phase: str) -> None:
             )
 
 
+CUSTOMERS = "buma_customer_list_view"
+MULTIPLE = "72000001,72000002,71000001"  # pdv_sim of client 1 (rowid order)
+# Filters on every changed field: the forms of the WS-H review (= "", != "",
+# = true, = false, != true, = 1, = 0, id = 3) and the other operators, values
+# and operand orders a PocketBase filter can send.
+FILTERS = (
+    *(
+        (CUSTOMERS, f"pdv_sim {form}")
+        for form in (
+            '= ""',
+            '!= ""',
+            "= null",
+            "!= null",
+            '= "73000001"',
+            "= 73000001",
+            f'= "{MULTIPLE}"',
+            f'!= "{MULTIPLE}"',
+            "= true",
+            "= false",
+            "!= true",
+            "= 1",
+            "= 0",
+            '> "7"',
+            "< 73000002",
+            ">= 1000",
+            '<= "73000001"',
+            '~ "7200"',
+            '!~ "7200"',
+            '= "x"',
+            '= "1e3"',
+            "= 1000",
+            "= 12.5",
+            '= "070000009"',
+            "= -5",
+        )
+    ),
+    (CUSTOMERS, '"" = pdv_sim'),
+    (CUSTOMERS, "73000001 = pdv_sim"),
+    (CUSTOMERS, "true = pdv_sim"),
+    *(
+        (CUSTOMERS, f"agent_sim {form}")
+        for form in (
+            '= ""',
+            '!= ""',
+            "= 79000003",
+            '= "79000003"',
+            '= "070000023"',
+            '~ "7900"',
+        )
+    ),
+    *(
+        (view, f"{field} {form}")
+        for view in (
+            "buma_customer_list_view_with_users",
+            "buma_customer_mobile_list_view",
+            "buma_return_list_view",
+        )
+        for field in ("pdv_sim", "agent_sim")
+        for form in ('= ""', '!= ""', "= 73000001", '= "73000001"')
+    ),
+    *(
+        ("buma_agent_list_view", f"number {form}")
+        for form in (
+            '= ""',
+            '!= ""',
+            "= 79000003",
+            '= "79000003"',
+            '~ "7900"',
+            "= true",
+        )
+    ),
+    *(
+        ("buma_customer_mobile_list_view", f"isNafama {form}")
+        for form in (
+            "= true",
+            "= false",
+            "!= true",
+            "!= false",
+            "= 1",
+            "= 0",
+            "= null",
+            "> false",
+            '= ""',
+            '!= ""',
+            '= "1"',
+        )
+    ),
+    *(
+        ("buma_transaction_list_view", f"payed {form}")
+        for form in (
+            "= true",
+            "= false",
+            "!= true",
+            "!= false",
+            "= 1",
+            "= 0",
+            "!= 1",
+            "= null",
+            '= ""',
+        )
+    ),
+    ("buma_transaction_list_view", "true = payed"),
+    *(
+        ("buma_transaction_list_view", f"salePayed {form}")
+        for form in (
+            "= true",
+            "= false",
+            "!= true",
+            "= 1",
+            "= 0",
+        )
+    ),
+    ("buma_caisse_transaction_by_categorie_list_view", "id = 3"),
+    ("buma_caisse_transaction_by_categorie_list_view", 'id = "3"'),
+    ("buma_sale_info", "payedPercent > 50"),
+)
+SORTS = (
+    (CUSTOMERS, "pdv_sim,id"),
+    (CUSTOMERS, "-pdv_sim,id"),
+    (CUSTOMERS, "agent_sim,id"),
+    ("buma_agent_list_view", "number,id"),
+    ("buma_customer_mobile_list_view", "-isNafama,id"),
+    ("buma_customer_mobile_list_view", "isNafama,id"),
+    ("buma_transaction_list_view", "payed,id"),
+    ("buma_transaction_list_view", "-salePayed,id"),
+)
+
+
 def probes() -> list[tuple[str, str, dict]]:
     """(label, path, params): identical requests for both servers."""
     items: list[tuple[str, str, dict]] = []
@@ -460,21 +680,7 @@ def probes() -> list[tuple[str, str, dict]]:
             items.append((f"{view}:by_id", path + "/3", {}))
         else:
             items.append((f"{view}:all", path, {"perPage": 500, "sort": "id"}))
-    filters = (
-        ("buma_customer_list_view", 'pdv_sim = "73000001"'),
-        ("buma_customer_list_view", "pdv_sim = 73000001"),
-        ("buma_customer_list_view", 'pdv_sim ~ "7200"'),
-        ("buma_customer_list_view", 'pdv_sim = ""'),
-        ("buma_customer_list_view", 'agent_sim != ""'),
-        ("buma_customer_mobile_list_view", "isNafama = 1"),
-        ("buma_customer_mobile_list_view", "isNafama = true"),
-        ("buma_transaction_list_view", "payed = 1"),
-        ("buma_transaction_list_view", "payed = true"),
-        ("buma_transaction_list_view", "salePayed = true"),
-        ("buma_agent_list_view", 'number ~ "7900"'),
-        ("buma_sale_info", "payedPercent > 50"),
-    )
-    for view, expression in filters:
+    for view, expression in FILTERS:
         items.append(
             (
                 f"{view}:filter:{expression}",
@@ -482,11 +688,7 @@ def probes() -> list[tuple[str, str, dict]]:
                 {"filter": expression, "sort": "id", "perPage": 500},
             )
         )
-    for view, sort in (
-        ("buma_customer_list_view", "pdv_sim,id"),
-        ("buma_customer_mobile_list_view", "-isNafama,id"),
-        ("buma_transaction_list_view", "payed,id"),
-    ):
+    for view, sort in SORTS:
         items.append(
             (
                 f"{view}:sort:{sort}",
@@ -812,6 +1014,167 @@ async def without_archive(engine) -> dict:
     }
 
 
+GRID_TEXTS = (
+    None,
+    "",
+    "73000001",
+    MULTIPLE,
+    "070000009",
+    "1e3",
+    "12.50",
+    "-5",
+    "null",
+    "true",
+    "false",
+    "[1,2]",
+    '"x"',
+    '{"b":1,"a":2}',
+    "abc",
+    "Abc",
+    "7",
+)
+GRID_VALUES = (
+    "",
+    "73000001",
+    MULTIPLE,
+    "7",
+    "abc",
+    "x",
+    "1000",
+    73000001,
+    1000,
+    12.5,
+    -5,
+    0,
+    1,
+    7,
+    True,
+    False,
+)
+GRID_OPERATORS = ("=", "!=", "<", "<=", ">", ">=")
+GRID_INTEGERS = (None, 0, 1)
+
+
+def sqlite_filter(value, operator: str, other, *, json_field: bool) -> bool | None:
+    """PocketBase's SQL for ``field <operator> other`` evaluated by SQLite."""
+    with closing(sqlite3.connect(":memory:")) as db:
+        left = (
+            "(CASE WHEN json_valid(:v) THEN JSON_EXTRACT(:v, '$') "
+            "ELSE JSON_EXTRACT(json_object('pb', :v), '$.pb') END)"
+            if json_field
+            else ":v"
+        )
+        sql_operator = {"=": "IS", "!=": "IS NOT"}.get(operator, operator)
+        if isinstance(other, bool):
+            right, params = ("1" if other else "0"), {"v": value}
+        else:
+            number = isinstance(other, int | float)
+            right, params = ":o", {"v": value, "o": float(other) if number else other}
+        row = db.execute(f"SELECT {left} {sql_operator} {right}", params).fetchone()
+    return None if row[0] is None else bool(row[0])
+
+
+def ppbase_operand(other) -> tuple[str, dict]:
+    """The operand as PPBase renders it: TRUE/FALSE, a literal, an untyped parameter."""
+    if isinstance(other, bool):
+        return ("TRUE" if other else "FALSE"), {}
+    if isinstance(other, int | float):
+        return str(other), {}
+    return ":o", {"o": other}
+
+
+async def operator_grid(engine) -> dict:
+    """The 1789236851 operators against SQLite, both operand orders (rolled back)."""
+    mismatches, checked = [], 0
+    async with engine.connect() as conn:
+        transaction = await conn.begin()
+        try:
+            await conn.execute(text("CREATE TEMP TABLE wsh_grid (k int, v text, i int)"))
+            for k, value in enumerate(GRID_TEXTS):
+                await conn.execute(
+                    text("INSERT INTO wsh_grid VALUES (:k, :v, :i)"),
+                    {"k": k, "v": value, "i": GRID_INTEGERS[k % 3]},
+                )
+            await conn.execute(
+                text(
+                    "CREATE TEMP VIEW wsh_grid_view AS SELECT k, buma_pb_json_text(v) AS j, "
+                    "CAST(i AS buma_sqlite_integer) AS i FROM wsh_grid"
+                )
+            )
+            for k, value in enumerate(GRID_TEXTS):
+                for operator in GRID_OPERATORS:
+                    flipped = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}.get(operator, operator)
+                    for other in GRID_VALUES:
+                        expected = sqlite_filter(value, operator, other, json_field=True)
+                        operand, params = ppbase_operand(other)
+                        for sql in (
+                            f"SELECT j {operator} {operand} FROM wsh_grid_view WHERE k = {k}",
+                            f"SELECT {operand} {flipped} j FROM wsh_grid_view WHERE k = {k}",
+                        ):
+                            served = (await conn.execute(text(sql), params)).scalar_one()
+                            checked += 1
+                            if served != expected:
+                                mismatches.append([value, sql.split(" FROM")[0], other])
+                    for other in (True, False):
+                        integer = GRID_INTEGERS[k % 3]
+                        expected = sqlite_filter(integer, operator, other, json_field=False)
+                        operand, _ = ppbase_operand(other)
+                        for sql in (
+                            f"SELECT i {operator} {operand} FROM wsh_grid_view WHERE k = {k}",
+                            f"SELECT {operand} {flipped} i FROM wsh_grid_view WHERE k = {k}",
+                        ):
+                            served = (await conn.execute(text(sql))).scalar_one()
+                            checked += 1
+                            if served != expected:
+                                mismatches.append([integer, sql.split(" FROM")[0], other])
+        finally:
+            await transaction.rollback()
+    return {
+        "sqlite_version": sqlite3.sqlite_version,
+        "stored_texts": len(GRID_TEXTS),
+        "compared_values": len(GRID_VALUES),
+        "checked": checked,
+        "mismatches": mismatches,
+    }
+
+
+async def operator_scope(engine) -> dict:
+    """What the operators do outside the two domains (each probe rolled back)."""
+    probes = {
+        "integer_equals_boolean": ("SELECT 1::integer = TRUE", {}),
+        "text_equals_integer": ("SELECT 'a'::text = 3", {}),
+        "text_equals_boolean": ("SELECT 'a'::text = TRUE", {}),
+        "jsonb_equals_empty_parameter": ("SELECT '1'::jsonb = :p", {"p": ""}),
+        "jsonb_equals_parameter": ("SELECT '1'::jsonb = :p", {"p": "1"}),
+        "text_equals_parameter": ("SELECT 'a'::text = :p", {"p": "a"}),
+        "smallint_equals_boolean": ("SELECT 1::smallint = TRUE", {}),
+        "json_equals_parameter": ("SELECT '1'::json = :p", {"p": "1"}),
+        "domain_equals_domain": ("SELECT buma_pb_json_text('1') = buma_pb_json_text('1')", {}),
+    }
+    out = {}
+    for label, (sql, params) in probes.items():
+        async with engine.connect() as conn:
+            try:
+                out[label] = {"value": (await conn.execute(text(sql), params)).scalar_one()}
+            except Exception as exc:  # noqa: BLE001 - the error itself is the result
+                message = str(getattr(exc, "orig", exc)).splitlines()[0]
+                out[label] = {"error": message.split(": ", 1)[-1][:120]}
+    expected_errors = {
+        "integer_equals_boolean",
+        "text_equals_integer",
+        "text_equals_boolean",
+        "jsonb_equals_empty_parameter",
+        "domain_equals_domain",
+    }
+    assert {k for k, v in out.items() if "error" in v} == expected_errors, out
+    assert out["jsonb_equals_parameter"]["value"] is True
+    assert out["text_equals_parameter"]["value"] is True
+    # Documented: an implicit cast lets the operators reach smallint and json.
+    assert out["smallint_equals_boolean"]["value"] is True
+    assert out["json_equals_parameter"]["value"] is False  # a number is not the text '1'
+    return out
+
+
 async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_postgres) -> None:
     data = build_fixture(root, binary, schema)
     report["fixture"] = source_facts(data)
@@ -876,12 +1239,27 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
             await write_sale_phase_postgres(engine, "integer_truncation")
         comparison = compare_all(reference, after)
         report["after_1789236851"] = {"summary": summary(comparison), "probes": comparison}
+        known = known_after()
+        report["ppbase_sorts_json_by_jsonb"] = ppbase_sorts_json_by_jsonb()
         remaining = report["after_1789236851"]["summary"]["not_equal"]
         report["after_1789236851"]["known_differences"] = {
-            label: KNOWN_AFTER.get(label, "UNEXPECTED") for label in remaining
+            label: (
+                dict(
+                    zip(("reason", "pocketbase_status", "ppbase_status"), known[label], strict=True)
+                )
+                if label in known
+                else "UNEXPECTED"
+            )
+            for label in remaining
         }
-        assert set(remaining) == set(KNOWN_AFTER), sorted(set(remaining) ^ set(KNOWN_AFTER))
+        assert set(remaining) == set(known), sorted(set(remaining) ^ set(known))
+        for label, (_, pocketbase_status, ppbase_status) in known.items():
+            statuses = [reference[label]["status"], after[label]["status"]]
+            assert statuses == [pocketbase_status, ppbase_status], (label, statuses)
         report["without_archive"] = await without_archive(engine)
+        report["operator_grid"] = await operator_grid(engine)
+        assert report["operator_grid"]["mismatches"] == [], report["operator_grid"]
+        report["operator_scope"] = await operator_scope(engine)
 
         down = await run_migrations_down(engine, MIGRATIONS, count=1)
         assert down == [MIGRATION], down
@@ -896,6 +1274,23 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
             "summary": summary(comparison),
             "probes": comparison,
         }
+        not_equal_before = set(report["before_1789236851_after_down"]["summary"]["not_equal"])
+        regressions = sorted(set(remaining) - not_equal_before)
+        new_errors = sorted(
+            label
+            for label in reference
+            if before[label]["status"] == 200 and after[label]["status"] != 200
+        )
+        expected_errors = {"buma_caisse_transaction_by_categorie_list_view:filter:id = 3"}
+        if not report["ppbase_sorts_json_by_jsonb"]:
+            expected_errors |= REGRESSIONS_BEFORE_WS_A11
+        report["regressions"] = {
+            "equal_to_pocketbase_before_and_not_after": regressions,
+            "status_200_before_and_not_after": new_errors,
+            "fixed_by_1789236851": sorted(not_equal_before - set(remaining)),
+        }
+        assert set(new_errors) == expected_errors, new_errors
+        assert set(regressions) <= expected_errors | REGRESSIONS, regressions
         report["filters_and_sorts"] = {
             label: {
                 side: {
