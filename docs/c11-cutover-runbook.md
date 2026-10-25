@@ -638,7 +638,7 @@ décideur, et laisse le temps de l'étape 12 avant sa fin. L'étape 9 peut se
 dérouler en parallèle des étapes 5 à 8 si les disques de la machine de
 bascule le permettent ; à décider après mesure. Un redémarrage de PocketBase
 sous gel (6.3) refait les étapes 2 et suivantes. Le diagnostic à blanc
-(6.1), hors fenêtre, mesure L5 à L9 en mode complet sur la machine de
+(6.1), hors fenêtre, mesure L4 à L9 en mode complet sur la machine de
 bascule ; la fenêtre n'est fixée qu'après lui.
 
 ## 6. Procédure
