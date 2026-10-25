@@ -211,3 +211,80 @@ def test_auth_compat_migration_declares_source_identity_policy() -> None:
     assert '"agent_users": ["email", "username"]' in migration
     assert '"users": 5' in migration
     assert '"agent_users": 8' in migration
+
+
+def test_register_selects_pocketbase_0_22_errors_and_the_auth_response_context() -> None:
+    from app.auth.context import load_auth_record_context
+
+    pb = make_ppbase()
+    register(pb)
+    assert pb.error_compat == "0.22"
+    app = pb.get_app()
+    assert app.state.error_compat == "0.22"
+    assert app.state.auth_record_rule_context is load_auth_record_context
+
+
+@pytest.mark.asyncio
+async def test_username_login_expands_as_the_authenticated_record(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.auth import login
+
+    collection = SimpleNamespace(id="col_users", name="users")
+    body = {"identity": "user", "password": "secret"}
+    captured: dict = {}
+
+    async def resolve(engine, name):
+        return collection
+
+    async def authenticate(engine, coll, identity, password, settings, identity_field=None):
+        return {"token": "token", "record": {"id": "user_1", "collectionName": "users"}}
+
+    async def passes(*args, **kwargs):
+        return True
+
+    async def all_collections(engine):
+        return []
+
+    async def response_context(request, coll, record, data):
+        captured["context_args"] = (coll, record["id"], data)
+        return {"auth": {"id": record["id"]}, "marker": True}
+
+    async def expand(engine, coll, records, expand_value, collections, request_context=None):
+        captured["expand"] = expand_value
+        captured["request_context"] = request_context
+        return records
+
+    async def run_request_hook(request, hook, event, handler):
+        return await handler(event)
+
+    async def run_success_hook(request, event, result):
+        return result
+
+    monkeypatch.setattr(login, "get_engine", lambda: object())
+    monkeypatch.setattr(login, "resolve_collection", resolve)
+    monkeypatch.setattr(login, "_require_auth_collection", lambda coll: None)
+    monkeypatch.setattr(login, "auth_with_password", authenticate)
+    monkeypatch.setattr(login, "_build_rule_request_context", lambda *args, **kwargs: {})
+    monkeypatch.setattr(login, "_passes_auth_rule", passes)
+    monkeypatch.setattr(login, "get_all_collections", all_collections)
+    monkeypatch.setattr(login, "auth_response_rule_context", response_context)
+    monkeypatch.setattr(login, "expand_records", expand)
+    monkeypatch.setattr(login, "_trigger_record_auth_request_hook", run_request_hook)
+    monkeypatch.setattr(login, "_trigger_record_auth_success_hook", run_success_hook)
+
+    class Request:
+        query_params = {"expand": "agent.parent"}
+        app = SimpleNamespace(state=SimpleNamespace(settings=None))
+
+        async def json(self):
+            return dict(body)
+
+    response = await login._authenticate_legacy_collection(Request(), "users")
+
+    assert response.status_code == 200
+    assert captured["expand"] == "agent.parent"
+    # The expand is filtered by each target's viewRule for the logged-in
+    # record, never evaluated server side (no context).
+    assert captured["request_context"] == {"auth": {"id": "user_1"}, "marker": True}
+    assert captured["context_args"] == (collection, "user_1", body)
