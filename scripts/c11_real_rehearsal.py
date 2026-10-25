@@ -20,7 +20,8 @@ buma_c11_rehearsal, and:
    (indexes and view bodies included), every view's rows and distinct IDs
    against the same view in SQLite;
 5. starts an isolated PPBase server (BUMA hooks, jobs and migrations off, a
-   fresh data directory without file bytes) and reads it over HTTP as an
+   fresh data directory without file bytes, the database URL in its
+   environment, never on its command line) and reads it over HTTP as an
    anonymous client and as a synthetic superuser created in this database
    only (random credentials, never written anywhere). Expected values come
    from the SQLite source with PocketBase 0.22.34 semantics: totalItems as
@@ -83,6 +84,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote as url_quote
+from urllib.parse import urlsplit
 
 PROJECT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).resolve()
@@ -2765,6 +2767,11 @@ async def check_tokens_and_settings(engine, definitions: list[dict], facts: dict
 # Isolated PPBase server and HTTP reads.
 # ---------------------------------------------------------------------------
 
+# The server reads its database URL from this variable (PPBase ppbase/config.py:
+# 20-28 and :119, env_prefix PPBASE_; BUMA app/core/config.py:29), never from
+# its command line: /proc/<pid>/cmdline is readable by every local user, the
+# environment only by the owner.
+SERVER_DATABASE_ENV = "PPBASE_DATABASE_URL"
 SERVER_PROBE = (
     "import importlib.util, json, app, ppbase; print(json.dumps({'ppbase': ppbase.__file__, "
     "'app': app.__file__, 'multiplicity': "
@@ -2789,6 +2796,7 @@ class PPBaseServer:
                 "PPBASE_AUTO_MIGRATE": "false",
                 "PPBASE_STORAGE_BACKEND": "local",
                 "BUMA_MASTER_ENABLE_INTERNAL_JOBS": "false",
+                SERVER_DATABASE_ENV: url,
             }
         )
         self.process: subprocess.Popen | None = None
@@ -2799,12 +2807,23 @@ class PPBaseServer:
     def base(self) -> str:
         return f"http://127.0.0.1:{self.port}"
 
+    def command_line(self) -> list[str]:
+        """The server's command: no database URL (it is in the environment)."""
+        return [
+            sys.executable, "-m", "ppbase", "serve",
+            "--dir", str(self.data_dir), "--migrations-dir", str(MIGRATIONS),
+            "--hooks", "app.hooks.register:register", "--host", "127.0.0.1",
+            "--port", str(self.port), "--no-automigrate", "--no-apply-migrations-on-start",
+            "--no-generate-migrations",
+        ]  # fmt: skip
+
     def loaded_modules(self) -> dict:
-        """ppbase and app as the server's interpreter, environment and cwd resolve them."""
+        """ppbase and app as the server's interpreter, environment and cwd resolve them
+        (the database URL, which plays no part in that, is left out of the probe)."""
         probe = subprocess.run(
             [sys.executable, "-c", SERVER_PROBE],
             cwd=self.cwd,
-            env=self.env,
+            env={key: value for key, value in self.env.items() if key != SERVER_DATABASE_ENV},
             capture_output=True,
             text=True,
             check=True,
@@ -2817,16 +2836,27 @@ class PPBaseServer:
         return {"ppbase_from_selected_checkout": True, "app_from_this_checkout": True}
 
     def live_process(self) -> dict:
-        """PYTHONPATH, cwd and command of the running server, read from /proc."""
+        """PYTHONPATH, cwd, command and database URL of the running server, read from /proc."""
         proc = Path("/proc") / str(self.process.pid)
         variables = (proc / "environ").read_bytes().decode().split("\0")
         environment = dict(item.split("=", 1) for item in variables if "=" in item)
         cwd = Path(os.readlink(proc / "cwd"))
         argv = (proc / "cmdline").read_bytes().decode().split("\0")
+        return self.check_process(environment, cwd, argv)
+
+    def check_process(self, environment: dict, cwd: Path, argv: list[str]) -> dict:
+        """The live server is this checkout's, in its private cwd, and its
+        command line holds neither the database URL nor its password."""
         require(environment.get("PYTHONPATH") == self.env["PYTHONPATH"], "server_pythonpath")
         require(cwd == self.cwd.resolve(), "server_cwd")
         require(argv[:4] == [sys.executable, "-m", "ppbase", "serve"], "server_command")
         require("app.hooks.register:register" in argv, "server_hooks")
+        password = urlsplit(self.url).password or self.url
+        require(
+            not any(arg == "--db" or arg.startswith("--db=") or password in arg for arg in argv),
+            "server_database_url_on_command_line",
+        )
+        require(environment.get(SERVER_DATABASE_ENV) == self.url, "server_database_url_environment")
         return {
             "source": "/proc/<server pid>",
             "pythonpath_is_this_checkout_then_selected_ppbase": True,
@@ -2835,6 +2865,7 @@ class PPBaseServer:
             "auto_migrate_disabled": environment.get("PPBASE_AUTO_MIGRATE") == "false",
             "loopback_only": argv[argv.index("--host") + 1] == "127.0.0.1",
             "smtp_variables": sum(1 for key in environment if "SMTP" in key),
+            "database_url_in_environment_not_command_line": True,
         }
 
     async def start(self) -> dict:
@@ -2846,15 +2877,12 @@ class PPBaseServer:
         fd = os.open(self.log_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         self.log = os.fdopen(fd, "w")
         self.process = subprocess.Popen(
-            [
-                sys.executable, "-m", "ppbase", "serve", "--db", self.url,
-                "--dir", str(self.data_dir), "--migrations-dir", str(MIGRATIONS),
-                "--hooks", "app.hooks.register:register", "--host", "127.0.0.1",
-                "--port", str(self.port), "--no-automigrate", "--no-apply-migrations-on-start",
-                "--no-generate-migrations",
-            ],
-            cwd=self.cwd, env=self.env, stdout=self.log, stderr=subprocess.STDOUT,
-        )  # fmt: skip
+            self.command_line(),
+            cwd=self.cwd,
+            env=self.env,
+            stdout=self.log,
+            stderr=subprocess.STDOUT,
+        )
         started = time.monotonic()
         async with httpx.AsyncClient() as client:
             for _ in range(1800):

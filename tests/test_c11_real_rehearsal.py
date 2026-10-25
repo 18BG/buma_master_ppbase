@@ -1999,3 +1999,65 @@ def test_the_present_single_relation_is_the_first_one_with_an_existing_target():
     assert rehearsal.single_relation_sample(db, definitions, "buma_sale", "customer", True) is None
     present = rehearsal.single_relation_sample(db, definitions, "buma_stock", "article", True)
     assert present == {"collection": "buma_stock", "field": "article", "value": "a1", "rows": 2}
+
+
+# --- isolated server: the database URL never on a command line -----------------
+
+
+SERVER_PASSWORD = "p" * 48
+SERVER_URL = f"postgresql+asyncpg://c11:{SERVER_PASSWORD}@127.0.0.1:54321/buma_c11_rehearsal"
+
+
+def test_the_server_gets_the_database_url_from_its_environment_only(tmp_path, monkeypatch):
+    import asyncio
+
+    server = rehearsal.PPBaseServer(SERVER_URL, tmp_path, tmp_path / "ppbase")
+    spawned = {}
+
+    class Exited:
+        returncode = 1
+
+        def __init__(self, argv, **kwargs):
+            spawned.update(argv=argv, env=kwargs["env"])
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(rehearsal.subprocess, "Popen", Exited)
+    monkeypatch.setattr(server, "loaded_modules", lambda: {})
+    with pytest.raises(rehearsal.RehearsalFailure):
+        asyncio.run(server.start())
+    server.log.close()
+    argv, env = spawned["argv"], spawned["env"]
+    assert argv[:4] == [sys.executable, "-m", "ppbase", "serve"]
+    assert "--db" not in argv and not any(SERVER_PASSWORD in arg for arg in argv)
+    assert env[rehearsal.SERVER_DATABASE_ENV] == SERVER_URL
+
+    # The /proc check: the live command line must not carry the URL either.
+    live = [*argv, ""]
+    checked = server.check_process(env, server.cwd, live)
+    assert checked["database_url_in_environment_not_command_line"] is True
+    assert checked["pythonpath_is_this_checkout_then_selected_ppbase"] is True
+    for leaked in (
+        [*argv[:4], "--db", SERVER_URL, *argv[4:], ""],
+        [*argv[:4], f"--db={SERVER_URL}", *argv[4:], ""],
+        [*argv, f"--other={SERVER_PASSWORD}", ""],
+    ):
+        refused(
+            lambda leaked=leaked: server.check_process(env, server.cwd, leaked),
+            "server_database_url_on_command_line",
+        )
+    refused(
+        lambda: server.check_process(
+            {**env, rehearsal.SERVER_DATABASE_ENV: "postgresql+asyncpg://elsewhere/db"},
+            server.cwd,
+            live,
+        ),
+        "server_database_url_environment",
+    )
+    refused(
+        lambda: server.check_process({**env, "PYTHONPATH": "/elsewhere"}, server.cwd, live),
+        "server_pythonpath",
+    )
+    refused(lambda: server.check_process(env, tmp_path, live), "server_cwd")
+    refused(lambda: server.check_process(env, server.cwd, ["python", *argv[1:]]), "server_command")
