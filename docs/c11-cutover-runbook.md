@@ -2164,7 +2164,7 @@ D-XXXX avec impact client et test de régression (`AGENTS.md`). Les quatre
 | erreurs restantes du mode 0.22 | statuts et `data` de 0.22.34 | 7 statuts non réécrits, détails de `data`, exception non gérée en 500 texte (`docs/error-compat.md` de PPBase, « Known differences ») | client qui lit ces statuts ou ces détails | D-0034, épinglés par test |
 | fichiers, écarts restants | `http.ServeContent` (`304`, `412`, plages multiples) ; side-car écrit à l'envoi et retiré à la suppression | `ETag` en plus, pas de `304` ni de `412` ni de plages multiples ; pas de side-car pour un fichier envoyé à PPBase, side-car laissé à la suppression | client qui revalide : 200 et fichier entier au lieu de 304 ; retour arrière (8.3) | D-0037 (`docs/file-serving.md` de PPBase) |
 | écarts documentés des relations, règles, filtres et dates | 0.22.34 | voir D-0025 et D-0030 à D-0032 (10.3) | selon chaque décision | décisions publiées, tests de régression cités |
-| requête préparée après un changement de schéma à chaud | sans objet | une requête préparée avant une modification de schéma faite pendant que PPBase tourne (tableau de bord, `executeSql` de la console, D-0018) peut échouer (`InvalidCachedStatement` d'asyncpg) ; les listes réessaient une fois (`ppbase/services/record_service.py:1109-1118`, `:1128-1136`) | une erreur ponctuelle après une modification de schéma | préexistant, relevé par l'orchestrateur pendant la session, sans décision ; non mesuré par WS-F3 : scénario desktop `executeSql` puis lecture de `buma_sql_table` sur staging (6.9), puis correction ou décision |
+| requête préparée après un changement de schéma à chaud | sans objet | une requête préparée avant une modification de schéma faite pendant que PPBase tourne (tableau de bord, `executeSql` de la console, D-0018) peut échouer (`InvalidCachedStatement` d'asyncpg) ; les listes réessaient une fois (`ppbase/services/record_service.py:1109-1118`, `:1128-1136`) | une erreur ponctuelle après une modification de schéma | préexistant, relevé par l'orchestrateur (`docs/progress/ledger.md`, entrée de fin de session du 2026-10-25), sans décision ; non mesuré par WS-F3 : scénario desktop `executeSql` puis lecture de `buma_sql_table` sur staging (6.9), puis correction ou décision |
 | journal de requêtes | `logs.db` séparé | table `_requests`, sans rétention appliquée | données personnelles dans la base | 6.11, I18 |
 | sauvegarde native | sauvegarde de `pb_data` (`core/base_backup.go:30-84`) | refuse cette base : archives de l'import, fonctions et déclencheurs (C-47) | aucun pour les clients ; exploitation | `pg_dump` (C-47) |
 | ordre des textes | octets (SQLite BINARY) | collation de la base : octets sur la cible musl des répétitions, ordre linguistique avec glibc ou ICU | ordre des listes triées sur un texte | 2.2 : ordre des octets ou décision |
@@ -2433,8 +2433,8 @@ avant G0, attente du test comparée au comportement de PocketBase 0.22.34,
 source citée, ou corrigé. Au commit `c6821aa`, la phase 0 de la session
 serveur en a relevé dix (`docs/progress/ledger.md`). À `237b403` puis à
 `069e0bb`, l'orchestrateur en a relevé cinq, les mêmes, tous parmi ces dix
-(à `069e0bb` : 2 120 passés, 72 sautés, 5 échecs ; journal de session de
-l'orchestrateur, à consigner au ledger) : collision de routes
+(à `069e0bb` : 2 120 passés, 72 sautés, 5 échecs ; `docs/progress/ledger.md`,
+entrée de fin de session du 2026-10-25) : collision de routes
 (`test_flask_like_pb_routing::test_route_collision_with_core_routes_is_blocking`),
 routeur des hooks (`test_hooks_api::test_hooks_api_router_is_registered`) et
 options ou durées de jeton attendues (deux tests de
