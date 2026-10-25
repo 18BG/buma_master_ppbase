@@ -180,7 +180,9 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
   `request_context=auth_response_rule_context(…)` dans l'expand de la
   connexion par username (`app/auth/login.py:133-147`, D-0033). Ce commit est
   `code.buma.commit` du rapport final (`b7427fe`) ou un descendant dont la
-  différence avec lui ne touche que `docs/` (C-45) ; sinon la répétition réelle
+  différence avec lui ne touche que la documentation (`docs/`, `AGENTS.md`,
+  aucun fichier de `app/`, `scripts/`, `tests/` ni `pb_migrations/`) (C-45) ;
+  sinon la répétition réelle
   est rejouée au commit de release. PPBase : branche
   `fix/d0019-relation-maxselect` à la révision que relève le rapport final,
   `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`, soit
@@ -597,15 +599,19 @@ Sources :
   (`real_backup.file_bytes_available` faux) ; contrôle d'idempotence de
   D-0022 compris (`--source-migrations`, L8).
 - **Mesures de variabilité** : même outil, mêmes données et mêmes conditions
-  de conteneur, un passage chacune (`passes[0]`), copies en lecture seule,
-  non versionnées, gardées par l'orchestrateur :
-  - **AP1** : `/tmp/buma-c11-session/previews/real-preview-1-orch.json`,
+  de conteneur, un passage chacune (`passes[0]`), rapports agrégés non
+  versionnés, copiés en lecture seule (0400) dans le dossier privé de la session
+  `backups/c11-session-20261024/previews/` (ignoré par Git), avec leur SHA-256 :
+  - **AP1** : `real-preview-1-orch.json` (SHA-256
+    `ae4420c7b900014642c467406bbeea0bc642c43ed22d774f7f70dd739ebe4286`),
     aperçu du 2026-10-24 (`timestamp_utc` 17:01:48 UTC) ; aucun autre
     conteneur, charge de 0,82 au départ, jusqu'à 2,66 pendant l'import ;
-  - **AP2** : `/tmp/buma-c11-session/previews/real-preview-2-review.json`,
+  - **AP2** : `real-preview-2-review.json` (SHA-256
+    `78a3d5a54c408afa3de37033954fb8ff6ca679c7589a7ee869991e7cd38e14fd`),
     aperçu du 2026-10-24 (21:23:52 UTC) ; serveur chargé : 3 autres
     conteneurs, charge de 1,85 au départ, jusqu'à 6,09 pendant l'import ;
-  - **AP3** : `/tmp/buma-c11-session/int2-real-20261025T064807Z.json`, passe
+  - **AP3** : `int2-real-20261025T064807Z.json` (SHA-256
+    `5363279d86544b218fc0d54eeaefecad647f33f23ebf236ed7ecee8f9846497c`), passe
     intermédiaire du 2026-10-25 (06:48:09 UTC) ; aucun autre conteneur,
     charge de 1,02 au départ, jusqu'à 4,35 pendant l'import.
 
@@ -1834,7 +1840,7 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | Porte | Critère | Seuil |
 | --- | --- | --- |
 | G0 | autorisations (2.1) et informations I1 à I25 | 100 % fournies |
-| G0 | code de release et PPBase exigé (2.2, C-45) | BUMA : `code.buma.commit` du rapport final ou descendant dont la différence ne touche que `docs/` ; PPBase : `code.ppbase.commit` (`069e0bb`) ; fichiers suivis inchangés ; modules de C-45 présents |
+| G0 | code de release et PPBase exigé (2.2, C-45) | BUMA : `code.buma.commit` du rapport final ou descendant dont la différence ne touche que la documentation (`docs/`, `AGENTS.md`) ; PPBase : `code.ppbase.commit` (`069e0bb`) ; fichiers suivis inchangés ; modules de C-45 présents |
 | G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques ; après les acceptations de 2.1, `acceptance_still_requested` vide et `accepted_divergences` limité aux trois codes acceptés ; durées de 5.1 et ressources de 5.2 reportées |
 | G0 | acceptations de l'utilisateur (2.1) : D-0029, D-0036, D-0039, D-0042 | une ligne `Statut : acceptée par l'utilisateur le AAAA-MM-JJ` dans chacune des quatre sections, ou correction intégrée et bancs de l'annexe A rejoués |
 | G0 | tableau de bord PPBase et collation de la base de production (2.2) | `/_/` construit et servi sur staging ; texte trié par octets, ou écart décidé |
@@ -2155,7 +2161,7 @@ D-XXXX avec impact client et test de régression (`AGENTS.md`). Les quatre
 | `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte ; sans effet sur les SDK (D-0034) | classe `json_content_type_charset`, seule ouverte de la répétition synthétique (D-0040) : à accepter ou corriger |
 | emails d'authentification | modèles de `meta` (sujet, corps HTML), expéditeur `meta.senderName` et `meta.senderAddress` (`mails/record.go:61-74`) | modèles importés stockés mais ignorés : textes intégrés en anglais, en texte brut, expéditeur `PPBASE_SMTP_FROM` (`ppbase/services/mail_service.py:75-141` ; contrat `docs/contracts/c11-auth-import.md` §3) | contenu, langue et expéditeur des emails de vérification, de réinitialisation et de changement d'email | nouveau, ouvert : correction ou décision ; I16 |
 | TLS du SMTP | `smtp.tls` vrai : TLS implicite (`mailyak.NewWithTLS`), sinon connexion `mailyak.New` ; méthode d'authentification et `localName` des paramètres (`tools/mailer/smtp.go:60-85`, `core/base.go:495-509`) | emails d'authentification : STARTTLS imposé hors du port 25, jamais de TLS implicite, ni `authMethod` ni `localName` (`ppbase/services/mail_service.py:29-46`) ; email de test : STARTTLS si `smtp.tls` est vrai (`ppbase/api/settings.py:359-366`) | avec un SMTP en TLS implicite (port 465 en général) ou sans STARTTLS hors du port 25, aucun email ne part (erreur journalisée) | nouveau, ouvert : port et mode TLS du SMTP retenu vérifiés (I16), puis correction ou décision |
-| envoi des emails d'authentification | en arrière-plan : la requête répond sans attendre l'envoi (`routine.FireAndForget`, `apis/record_auth.go:395-403`, `:487-495`) | envoi `smtplib` synchrone, sans délai d'attente, dans la boucle d'événements de la requête (`ppbase/services/mail_service.py:40`, `:68-69`, appelé par `await` depuis `ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895`), sauf le reset admin, envoyé dans un thread (`ppbase/services/mail_service.py:193-194`) | pendant chaque envoi, et sans limite si le SMTP ne répond pas, la requête et les autres requêtes du processus PPBase attendent [lu dans le code, non mesuré] | nouveau, ouvert : correction ou décision ; envoi essayé avant G0 avec un SMTP de test, jamais avec le staging chargé de données réelles (6.9, I16) |
+| envoi des emails d'authentification | en arrière-plan pour la réinitialisation, la vérification et le reset admin : la requête répond sans attendre l'envoi (`routine.FireAndForget`, `apis/record_auth.go:395-403`, `:487-495`) ; la demande de changement d'e-mail envoie de façon synchrone | envoi `smtplib` synchrone, sans délai d'attente, dans la boucle d'événements de la requête (`ppbase/services/mail_service.py:40`, `:68-69`, appelé par `await` depuis `ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895`), sauf le reset admin, envoyé dans un thread (`ppbase/services/mail_service.py:193-194`) | pendant chaque envoi, et sans limite si le SMTP ne répond pas, la requête et les autres requêtes du processus PPBase attendent [lu dans le code, non mesuré] | nouveau, ouvert : correction ou décision ; envoi essayé avant G0 avec un SMTP de test, jamais avec le staging chargé de données réelles (6.9, I16) |
 | `GET /api/health` | `data.canBackup` (`apis/health.go:23-42`) | `data.version` en plus (`ppbase/api/health.py:14-26`) | sonde qui compare le corps | ouvert, non consigné |
 | routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) ; 404 JSON sans `pb_public` (mesuré par WS-F3) | `GET /` JSON de santé, 200 (`app/hooks/health.py`, mesuré par WS-F3), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
 | `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2234`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
@@ -2310,8 +2316,8 @@ D-0042 publiées par l'orchestrateur avec cette version),
 `pb_migrations/1789236850_c11_relation_multiple_columns.py`,
 `pb_migrations/1789236851_c11_view_sqlite_semantics.py` ; le raccordement
 de `c11/hookup` y est fusionné (`c333e14`). Mesures de variabilité AP1 à AP3
-(5.1) : copies non versionnées de l'orchestrateur, sous
-`/tmp/buma-c11-session/`.
+(5.1) : rapports agrégés non versionnés, en lecture seule sous
+`backups/c11-session-20261024/previews/` (SHA-256 en 5.1).
 Source gelée `buma_master_hooks@530018c` : `src/entries/index.pb.ts`,
 `src/entries/master.article.ts`, `src/entries/master.pb.ts`,
 `src/entries/master.rupture.ts`, `src/entries/master.setup.ts`,

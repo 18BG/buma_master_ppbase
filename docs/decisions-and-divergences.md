@@ -1236,7 +1236,13 @@ token. » ; l'en-tête `Content-Type` des réponses JSON est `application/json` 
 synthétique, en-tête seulement ; propre à 0.22.34, qui l'hérite d'echo v5 ; v0.40.6
 envoie `application/json`, `tools/router/event.go` l.206 ; sans effet sur les SDK : le
 SDK Dart v0.18.1 décode le corps par `response.stream.bytesToString()`, en UTF-8 par
-défaut quel que soit l'en-tête, le SDK JS par `response.json()`). Mesures avec le raccordement BUMA : répétition
+défaut quel que soit l'en-tête, le SDK JS par `response.json()`). En-têtes de sécurité : PocketBase 0.22.34 envoie sur chaque réponse
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` et
+`X-Xss-Protection: 1; mode=block` (`middleware.Secure()`, `apis/base.go` l.53) ; PPBase ne
+les envoie que sur les fichiers servis (D-0037), pas sur les réponses JSON ni le dashboard
+(mesuré par WS-F3) ; impact : protections du navigateur (cadrage, détection de type)
+absentes si aucun proxy ne les ajoute ; à poser par le proxy de bascule (runbook).
+Mesures avec le raccordement BUMA : répétition
 synthétique complète 0.22.34 passante, 84 sondes dont 82 identiques en statut et corps,
 0 différence inattendue, enveloppes d'erreur identiques à l'octet ; banc des sessions :
 33 sur 33.
@@ -1423,7 +1429,10 @@ identique à SQLite pour 15 797 lignes sur 15 797 (avant : 4 778), 2 611 sur 2 6
 - sommation compensée de SQLite pour les SUM des vues, nombres en float8, notation `7e2`
   servie `700` (catégorie de D-0029) ;
 - coût : la vue des dépenses est 2,5 à 3,5 fois plus lente (count 111 → 383 ms, première
-  page 122 → 301 ms, getFullList 4,3 → 11,2 s ; `buma_return_list_view` inchangée) ;
+  page 122 → 301 ms, getFullList 4,3 → 11,2 s ; `buma_return_list_view` inchangée ;
+  mesures de WS-H par `EXPLAIN (ANALYZE, BUFFERS)` à charge égale sur une base réelle
+  jetable, avant et après la migration, médianes de cinq passages alternés des requêtes
+  de PPBase) ;
 - exploitation : `_buma_c11_rowids` porte désormais la numérotation et l'ordre des
   concaténations : il doit être conservé par les sauvegardes et restaurations après la
   bascule (la sauvegarde native de PPBase refuse cette table et la fonction, comme pour

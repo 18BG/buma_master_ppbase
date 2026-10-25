@@ -2974,7 +2974,9 @@ intactes). `data.db` vérifié intact à chaque étape (empreinte publiée).
 - **Non fait** : répétition avec le ZIP complet et les octets des fichiers (archive non
   présente sur le serveur, D-0028) ; tests des clients sur un staging ; révocation globale
   par `PATCH /api/settings` (seule la rotation SQL est mesurée) ; plan préparé périmé après un
-  changement de schéma à chaud (préexistant PPBase).
+  changement de schéma à chaud (préexistant PPBase) ; en-têtes de sécurité de PocketBase
+  (`X-Content-Type-Options`, `X-Frame-Options`, `X-Xss-Protection`) absents des réponses JSON
+  et du dashboard de PPBase (D-0034, à poser par le proxy, runbook).
 - **Production** : import de production et bascule **ni demandés, ni autorisés, ni
   exécutés**.
 
