@@ -14,15 +14,23 @@ buma_c11_rehearsal, and:
    (child process): ``import_snapshot`` stages data.db, never a file byte, and
    loads records, accounts and settings in one transaction;
 4. checks conservation after the commit, in new sessions: counts, per-table
-   fingerprints re-read, rowid archive and native rowids, the three multiple
-   relation arrays, preserved anomalies, accounts, token configs, settings,
-   schema unchanged, every view counted;
+   fingerprints of the converted rows re-read, rowid archive and native
+   rowids, the three multiple relation arrays against the raw SQLite lists,
+   preserved anomalies, accounts, token configs, settings, schema unchanged
+   (indexes and view bodies included), every view's rows and distinct IDs
+   against the same view in SQLite;
 5. starts an isolated PPBase server (BUMA hooks, jobs and migrations off, a
    fresh data directory without file bytes) and reads it over HTTP as an
    anonymous client and as a synthetic superuser created in this database
-   only (random credentials, never written anywhere);
-6. stops the server, removes the staging copy, the server files and the
-   container, and proves it.
+   only (random credentials, never written anywhere). Expected values come
+   from the SQLite source with PocketBase 0.22.34 semantics: totalItems as
+   COUNT(DISTINCT id), list and view rules read statically for a request
+   without auth, served values modeled from the raw SQLite values
+   independently of the importer, expand from the targets that exist, sort
+   in SQLite's BINARY order;
+6. stops the server, checks that it and the reads changed nothing (the
+   synthetic superuser aside), removes the staging copy, the server files and
+   the container (by force if its stop fails), and proves it.
 
 The backup directory is only read (SQLite mode=ro&immutable=1); its listing
 and data.db SHA-256 are compared before and after the run. The public report
@@ -30,7 +38,9 @@ holds aggregates only (counts, statuses, codes, names of the public schema,
 durations, sizes) and is written only after an automatic privacy check against
 the real values of the snapshot; record-level evidence stays in --private-dir
 (0700, files 0600). Token continuity is proven on the synthetic fixture by
-WS-C (docs/c11-auth-runtime-report.json), referenced, not repeated here.
+WS-C (docs/c11-auth-runtime-report.json), referenced, not repeated here. A
+divergence from PocketBase 0.22.34 passes only through --accept-divergence
+CODE=D-NNNN naming a recorded decision; every other problem fails the pass.
 
 Run from a BUMA checkout, never from the backup directory, with an isolated
 interpreter (-I keeps PYTHONPATH and the current directory out of sys.path;
@@ -101,11 +111,25 @@ MULTIPLE_RELATIONS = (
     ("buma_wallet", "managers"),
 )
 AUTH_RUNTIME_REPORT = "docs/c11-auth-runtime-report.json"
+DECISIONS = PROJECT / "docs" / "decisions-and-divergences.md"
+# PocketBase 0.22.34 MaxPerPage (tools/search/provider.go:17): pages of the
+# served-value, sort and full-collection reads.
+SERVED_PAGE = 500
+# Every record of these collections is read over HTTP and compared with the
+# source (the three multiple relations and the auth collections).
+FULL_READ_COLLECTIONS = (
+    "buma_customer",
+    "buma_pilotage_ticket",
+    "buma_wallet",
+    "users",
+    "agent_users",
+)
 CHILD_TIMEOUT_SECONDS = 7200
 VIEW_TIMEOUT_MS = 900_000
 HTTP_TIMEOUT_SECONDS = 900
 ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "TZ")
 SAMPLE_PAGE = 50
+MISMATCH_SAMPLES = 5  # per collection.field, in the private evidence only
 # Option keys import_auth may change in an auth collection (token kinds and
 # the 0.22 mail templates copied into record auth collections).
 IMPORTED_OPTION_KEYS = frozenset(
@@ -293,11 +317,16 @@ def as_json(value):
 
 
 class Phases:
-    """Wall time of each named phase, with the container memory of that phase."""
+    """Wall time of each named phase, with the container memory of that phase.
+
+    ``completed`` lists the phases that ended without an exception: only their
+    durations time the runbook.
+    """
 
     def __init__(self):
         self.seconds: dict[str, float] = {}
         self.memory: dict[str, dict] = {}
+        self.completed: list[str] = []
         self.monitor = None
 
     @contextmanager
@@ -305,6 +334,7 @@ class Phases:
         started = time.monotonic()
         try:
             yield
+            self.completed.append(name)
         finally:
             self.seconds[name] = round(time.monotonic() - started, 3)
             if self.monitor is not None and self.monitor.root is not None:
@@ -721,8 +751,15 @@ def kind_matches(value, kind: str) -> bool:
     return isinstance(value, str)
 
 
-def record_shape_problems(collection: dict, record, *, email_visible: bool) -> list[str]:
-    """Keys and JSON kinds of a served base/auth record (problem codes, no value)."""
+def record_shape_problems(
+    collection: dict, record, *, email_visible: bool, source: dict | None = None
+) -> list[str]:
+    """Keys and JSON kinds of a served base/auth record (problem codes, no value).
+
+    A date served as null is ``empty_date_served_as_null`` only when ``source``
+    (the raw SQLite row) holds an empty date there; any other null date, or one
+    without its source row, is ``kind:<field>``.
+    """
     if not isinstance(record, dict):
         return ["not_an_object"]
     problems = []
@@ -741,9 +778,472 @@ def record_shape_problems(collection: dict, record, *, email_visible: bool) -> l
     for field in collection["schema"]:
         name = field["name"]
         if name in record and not kind_matches(record[name], expected_kind(field)):
-            empty_date = field["type"] == "date" and record[name] is None
+            empty_source = source is not None and source.get(name) in (None, "")
+            empty_date = field["type"] == "date" and record[name] is None and empty_source
             problems.append(("empty_date_served_as_null:" if empty_date else "kind:") + name)
     return problems
+
+
+# ---------------------------------------------------------------------------
+# PocketBase 0.22.34 list and view rules for a request without auth, read
+# statically (unit-tested). PocketBase applies a list rule as a filter
+# (apis/record_crud.go:71-72) and a view rule to the fetch (:158-173). For a
+# request without auth record every @request.auth.* field resolves to NULL
+# (resolvers/record_field_resolver.go:175-189, record_field_resolve_runner.go:
+# 185-194), and tools/search/filter.go:290-366 compiles a comparison with an
+# empty operand as follows: both empty ('' or "" or null or NULL) -> '' = ''
+# or '' IS NOT ''; one known non-empty literal (text, number, true, false) ->
+# '' = literal; a column -> ('' = col OR col IS NULL). LIKE and ordering
+# operators with NULL give NULL (:155-176). The expressions are joined in SQL
+# order (:87-127): AND binds before OR.
+# ---------------------------------------------------------------------------
+
+RULE_TOKEN = re.compile(
+    r"""(?P<ws>\s+)
+    |(?P<text>'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")
+    |(?P<number>-?[0-9]+(?:\.[0-9]+)?)
+    |(?P<ident>[A-Za-z_@#][A-Za-z0-9_@#.:]*)
+    |(?P<sign>\?!=|\?!~|\?<=|\?>=|\?=|\?~|\?<|\?>|!=|!~|<=|>=|=|~|<|>)
+    |(?P<join>&&|\|\|)
+    |(?P<open>\()
+    |(?P<close>\))""",
+    re.X,
+)
+OPERAND_TOKENS = ("ident", "text", "number")
+EQUAL_SIGNS = frozenset({"=", "?="})
+NOT_EQUAL_SIGNS = frozenset({"!=", "?!="})
+NULL_SIGNS = frozenset({"~", "!~", "?~", "?!~", "<", "<=", ">", ">=", "?<", "?<=", "?>", "?>="})
+
+
+def rule_tokens(rule: str) -> list[tuple[str, str]] | None:
+    tokens, position = [], 0
+    while position < len(rule):
+        match = RULE_TOKEN.match(rule, position)
+        if match is None:
+            return None
+        position = match.end()
+        if match.lastgroup != "ws":
+            tokens.append((match.lastgroup, match.group()))
+    return tokens
+
+
+def parse_rule(tokens: list[tuple[str, str]]) -> list | None:
+    """[(join, node)]: node ("group", [...]) or ("expr", left, sign, right); None if unparsed."""
+    position = 0
+
+    def item():
+        nonlocal position
+        if position < len(tokens) and tokens[position][0] == "open":
+            position += 1
+            inner = sequence(nested=True)
+            return None if inner is None else ("group", inner)
+        if position + 3 > len(tokens):
+            return None
+        left, sign, right = tokens[position : position + 3]
+        if left[0] not in OPERAND_TOKENS or sign[0] != "sign" or right[0] not in OPERAND_TOKENS:
+            return None
+        position += 3
+        return ("expr", left, sign[1], right)
+
+    def sequence(nested: bool):
+        nonlocal position
+        items, join = [], None
+        while True:
+            node = item()
+            if node is None:
+                return None
+            items.append((join, node))
+            if position == len(tokens):
+                return None if nested else items
+            kind, value = tokens[position]
+            position += 1
+            if kind == "close":
+                return items if nested else None
+            if kind != "join":
+                return None
+            join = value
+
+    return sequence(nested=False) if tokens else None
+
+
+def _rule_operand(token: tuple[str, str], ids_never_empty: bool) -> str:
+    kind, value = token
+    if kind == "text":
+        return "empty" if len(value) == 2 else "non_empty"
+    if kind == "number":
+        return "non_empty"
+    if value.startswith("@request.auth.") and ":" not in value:
+        return "null"
+    if value.lower() == "null":
+        return "empty"
+    if value.lower() in ("true", "false"):
+        return "non_empty"
+    # A base or auth record id is never empty (importer record_id_value).
+    return "record_id" if value == "id" and ids_never_empty else "other"
+
+
+def _comparison_never_true(left: str, sign: str, right: str) -> bool:
+    if "null" not in (left, right):
+        return False
+    other = right if left == "null" else left
+    if sign in EQUAL_SIGNS:
+        return other in ("non_empty", "record_id")  # '' = 'x', '' = id
+    if sign in NOT_EQUAL_SIGNS:
+        return other in ("empty", "null")  # '' IS NOT ''
+    return sign in NULL_SIGNS  # NULL LIKE x, x LIKE NULL, NULL < x
+
+
+def _sequence_never_true(items: list, ids_never_empty: bool) -> bool:
+    branches: list[list] = [[]]
+    for join, node in items:
+        if join == "||":
+            branches.append([])
+        branches[-1].append(node)
+    return all(any(_node_never_true(n, ids_never_empty) for n in chain) for chain in branches)
+
+
+def _node_never_true(node, ids_never_empty: bool) -> bool:
+    if node[0] == "group":
+        return _sequence_never_true(node[1], ids_never_empty)
+    _, left, sign, right = node
+    return _comparison_never_true(
+        _rule_operand(left, ids_never_empty), sign, _rule_operand(right, ids_never_empty)
+    )
+
+
+def anonymous_rule_outcome(rule: str, *, ids_never_empty: bool) -> str:
+    """ "never_true" when no record can match without auth, else "undetermined"."""
+    tokens = rule_tokens(rule)
+    parsed = parse_rule(tokens) if tokens is not None else None
+    if parsed is not None and _sequence_never_true(parsed, ids_never_empty):
+        return "never_true"
+    return "undetermined"
+
+
+# ---------------------------------------------------------------------------
+# PocketBase 0.22.34 serialization of a raw SQLite value, written from its
+# source and independent of the importer's conversion (unit-tested). PB reads
+# every column as a database/sql NullString (models/record.go:65-91), then
+# Record.Set normalizes it (models/record.go:292-325) with
+# SchemaField.PrepareValue (models/schema/schema_field.go:305-392) and
+# PublicExport serves it (models/record.go:528-560).
+# ---------------------------------------------------------------------------
+
+
+class Unmodeled(ValueError):
+    """A raw value outside this model: counted, never compared."""
+
+
+PB_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
+GO_DECIMAL = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+# strconv.ParseBool, through cast.ToBool of the NullString text.
+GO_PARSE_BOOL = {
+    **dict.fromkeys(("1", "t", "T", "TRUE", "true", "True"), True),
+    **dict.fromkeys(("0", "f", "F", "FALSE", "false", "False"), False),
+}
+TEXT_KINDS = frozenset({"text", "email", "url", "editor"})
+
+
+def pb_is_multiple(field: dict) -> bool:
+    """IsMultiple: select and file maxSelect > 1, relation maxSelect nil or > 1
+    (models/schema/schema_field.go:626-627, 667-668, 715-716)."""
+    options = field.get("options") or {}
+    if field["type"] == "relation":
+        maximum = options.get("maxSelect")
+        return maximum is None or (isinstance(maximum, int) and maximum > 1)
+    if field["type"] in ("select", "file"):
+        maximum = options.get("maxSelect")
+        return isinstance(maximum, int) and not isinstance(maximum, bool) and maximum > 1
+    return False
+
+
+def _no_constant(_):
+    raise ValueError("constant")
+
+
+def pb_date(raw) -> str:
+    """types.DateTime served for a stored date: "" when empty (tools/types/datetime.go)."""
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, str) and PB_DATE.fullmatch(raw):
+        try:
+            datetime.fromisoformat(raw[:-1] + "+00:00")
+        except ValueError:
+            raise Unmodeled("date") from None
+        return raw
+    raise Unmodeled("date")
+
+
+def pb_string_list(raw) -> list[str]:
+    """list.ToUniqueStringSlice of the NullString text (tools/list/list.go:90-140)."""
+    if raw is None or raw == "":
+        return []
+    if not isinstance(raw, str):
+        raise Unmodeled("list")
+    items = [raw]
+    if "[" in raw:
+        try:
+            parsed = json.loads(raw, parse_constant=_no_constant)
+        except (ValueError, RecursionError):
+            parsed = None  # not JSON: the text itself, as Go appends it
+        if isinstance(parsed, list):
+            if any(item is not None and not isinstance(item, str) for item in parsed):
+                raise Unmodeled("list")  # Go's partial unmarshal is not modeled
+            items = ["" if item is None else item for item in parsed]
+        elif parsed is not None:
+            raise Unmodeled("list")
+    return [item for item in dict.fromkeys(items) if item != ""]  # NonzeroUniques
+
+
+def pb_json(raw):
+    """JsonRaw served for a stored json value (schema_field.go:312-343)."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise Unmodeled("json")
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        if not math.isfinite(raw):
+            raise Unmodeled("json")
+        return raw
+    if not isinstance(raw, str):
+        raise Unmodeled("json")
+    if raw == "":
+        return ""
+    if raw in ("null", "true", "false") or raw[0] in '0123456789-"[{':
+        try:
+            return json.loads(raw, parse_constant=_no_constant)
+        except (ValueError, RecursionError):
+            pass  # not valid JSON: PocketBase quotes it
+    return raw
+
+
+def pb_served(field: dict, raw):
+    """JSON value PocketBase 0.22.34 serves for the raw SQLite value of a schema field."""
+    kind = field["type"]
+    if kind in TEXT_KINDS:
+        if raw is None:
+            return ""
+        if isinstance(raw, str):
+            return raw
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return str(raw)
+        raise Unmodeled(kind)
+    if kind == "number":
+        if raw is None:
+            return 0.0
+        if isinstance(raw, int | float) and not isinstance(raw, bool):
+            try:
+                value = float(raw)
+            except OverflowError:
+                raise Unmodeled(kind) from None
+            if math.isfinite(value):
+                return value
+        if isinstance(raw, str) and GO_DECIMAL.fullmatch(raw):
+            value = float(raw)
+            if math.isfinite(value):  # out of range: ParseFloat fails, cast gives 0
+                return value
+        raise Unmodeled(kind)
+    if kind == "bool":
+        return pb_bool(raw)
+    if kind == "date":
+        return pb_date(raw)
+    if kind == "json":
+        return pb_json(raw)
+    if kind in ("select", "file", "relation"):
+        items = pb_string_list(raw)
+        if pb_is_multiple(field):
+            return items
+        return items[-1] if items else ""
+    raise Unmodeled(kind)
+
+
+def pb_bool(raw) -> bool:
+    """cast.ToBool of the NullString text: strconv.ParseBool, false otherwise."""
+    if raw is None:
+        return False
+    if isinstance(raw, bool):
+        raise Unmodeled("bool")
+    if isinstance(raw, int | float):
+        return raw == 1  # the text "1" parses as true, "0" and anything else as false
+    if isinstance(raw, str):
+        return GO_PARSE_BOOL.get(raw, False)
+    raise Unmodeled("bool")
+
+
+def pb_text(raw) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    raise Unmodeled("text")
+
+
+def same_json(left, right) -> bool:
+    """Equal JSON values: true is not 1, numbers by value, object keys in any order."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, int | float) and isinstance(right, int | float):
+        if isinstance(left, int) and isinstance(right, int):
+            return left == right
+        return float(left) == float(right)
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, str) or isinstance(right, str):
+        return isinstance(left, str) and isinstance(right, str) and left == right
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(map(same_json, left, right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(same_json(left[k], right[k]) for k in left)
+    return False
+
+
+def same_key_order(left, right) -> bool:
+    """Same order of object keys at every level (values already equal)."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        return list(left) == list(right) and all(same_key_order(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return all(map(same_key_order, left, right))
+    return True
+
+
+def expected_record(collection: dict, raw: dict, *, email_visible: bool) -> dict:
+    """{key: served value or Unmodeled} of one record, as PublicExport builds it."""
+    expected: dict = {}
+
+    def put(key, model, value):
+        try:
+            expected[key] = model(value)
+        except Unmodeled as exc:
+            expected[key] = exc
+
+    put("id", pb_text, raw.get("id"))
+    view = collection["type"] == "view"
+    for key in ("created", "updated"):
+        # A view omits a zero created/updated (models/record.go:544-550).
+        if not view or raw.get(key) not in (None, ""):
+            put(key, pb_date, raw.get(key))
+    expected["collectionId"] = collection["id"]
+    expected["collectionName"] = collection["name"]
+    for field in collection["schema"]:
+        put(field["name"], lambda value, f=field: pb_served(f, value), raw.get(field["name"]))
+    if collection["type"] == "auth":
+        put("username", pb_text, raw.get("username"))
+        put("verified", pb_bool, raw.get("verified"))
+        put("emailVisibility", pb_bool, raw.get("emailVisibility"))
+        if email_visible:
+            put("email", pb_text, raw.get("email"))
+    return expected
+
+
+def date_keys(collection: dict) -> set[str]:
+    """Keys PocketBase 0.22.34 serves as types.DateTime."""
+    return {"created", "updated"} | {f["name"] for f in collection["schema"] if f["type"] == "date"}
+
+
+def compare_served_record(collection: dict, served, raw: dict, *, email_visible: bool) -> dict:
+    """Outcome per key: equal, json_key_order (D-0029), empty_date_null (an
+    empty source date served as null), unmodeled or differs."""
+    expected = expected_record(collection, raw, email_visible=email_visible)
+    if not isinstance(served, dict):
+        return dict.fromkeys(expected, "differs")
+    dates = date_keys(collection)
+    outcomes = {}
+    for key, value in expected.items():
+        if isinstance(value, Unmodeled):
+            outcomes[key] = "unmodeled"
+        elif key in dates and value == "" and key in served and served[key] is None:
+            outcomes[key] = "empty_date_null"
+        elif key not in served or not same_json(served[key], value):
+            outcomes[key] = "differs"
+        elif not same_key_order(served[key], value):
+            outcomes[key] = "json_key_order"
+        else:
+            outcomes[key] = "equal"
+    for key in set(served) - set(expected) - {"expand"}:
+        outcomes[key] = "unexpected_key"
+    return outcomes
+
+
+class ServedValues:
+    """Aggregated outcomes of the served-value comparison (counts and field names only)."""
+
+    def __init__(self):
+        self.records = Counter()
+        self.outcomes = Counter()
+        self.by_type: dict[str, Counter] = {}
+        self.differing: Counter = Counter()
+        self.key_order: Counter = Counter()
+        self.empty_date_null: Counter = Counter()
+        self.unmodeled: Counter = Counter()
+
+    def add(self, collection: dict, outcomes: dict) -> None:
+        self.records[collection["type"]] += 1
+        types = {f["name"]: f["type"] for f in collection["schema"]}
+        for key, outcome in outcomes.items():
+            kind = types.get(key, "system")
+            self.outcomes[outcome] += 1
+            self.by_type.setdefault(kind, Counter())[outcome] += 1
+            name = f"{collection['name']}.{key}"
+            if outcome in ("differs", "unexpected_key"):
+                self.differing[name] += 1
+            elif outcome == "json_key_order":
+                self.key_order[name] += 1
+            elif outcome == "empty_date_null":
+                self.empty_date_null[name] += 1
+            elif outcome == "unmodeled":
+                self.unmodeled[name] += 1
+
+    def summary(self) -> dict:
+        return {
+            "records_compared": dict(sorted(self.records.items())),
+            "values": dict(sorted(self.outcomes.items())),
+            "values_by_field_type": {
+                kind: dict(sorted(counter.items()))
+                for kind, counter in sorted(self.by_type.items())
+            },
+            "differing_fields": dict(sorted(self.differing.items())),
+            "json_key_order_fields_d0029": dict(sorted(self.key_order.items())),
+            "empty_date_served_as_null_fields": dict(sorted(self.empty_date_null.items())),
+            "unmodeled_fields": dict(sorted(self.unmodeled.items())),
+        }
+
+
+def expected_expand_ids(stored, existing: set, *, multiple: bool):
+    """Expand PocketBase 0.22.34 serves: the existing targets of the served
+    list (NonzeroUniques), in that order; one object when single; None (no
+    expand key) when none exists (daos/record_expand.go:217-263,
+    models/record.go:557-559)."""
+    items = stored if isinstance(stored, list) else ([stored] if stored else [])
+    valid = [item for item in dict.fromkeys(items) if item != "" and item in existing]
+    if not valid:
+        return None
+    return valid if multiple else valid[0]
+
+
+def expand_problems(items: list, field: str, expected: list) -> list[str]:
+    """Served expand of ``field`` against ``expected`` (one entry per item:
+    a list of IDs, one ID, or None for no expand key)."""
+    problems = [] if items else ["no_items"]
+    if len(items) != len(expected):
+        return sorted(set(problems + ["items_differ"]))
+    for item, wanted in zip(items, expected, strict=True):
+        expand = item.get("expand") if isinstance(item, dict) else None
+        if wanted is None:
+            if expand == {}:
+                problems.append("expand_key_without_related_record")
+            elif isinstance(item, dict) and "expand" in item:
+                problems.append("expand_served_for_absent_record")
+            continue
+        value = expand.get(field) if isinstance(expand, dict) else None
+        if isinstance(wanted, list):
+            served = [r.get("id") if isinstance(r, dict) else None for r in value or []]
+            if not isinstance(value, list) or served != wanted:
+                problems.append("expand_not_the_existing_targets_in_order")
+        elif not isinstance(value, dict) or value.get("id") != wanted:
+            problems.append("expand_not_one_object")
+    return sorted(set(problems))
 
 
 def error_body_problems(body, status: int, message: str) -> list[str]:
@@ -751,9 +1251,14 @@ def error_body_problems(body, status: int, message: str) -> list[str]:
     if not isinstance(body, dict):
         return ["not_an_object"]
     problems = []
-    if set(body) == {"status", "message", "data"} and body.get("status") == status:
+    keys = set(body)
+    if keys == {"status", "message", "data"} and body.get("status") == status:
         # The current PocketBase envelope (v0.23.0 tools/router/error.go:41).
         problems.append("error_status_key_instead_of_code")
+    elif keys == {"code", "status", "message", "data"} and body["code"] == body["status"] == status:
+        # PPBase's additive envelope: 0.22's code next to status
+        # (ppbase docs/error-envelope.md, middleware/error_envelope.py).
+        problems.append("error_status_key_next_to_code")
     else:
         if set(body) != {"code", "message", "data"}:
             problems.append("keys")
@@ -850,14 +1355,26 @@ def import_changes_allowed(changes: dict[str, list[str]], auth_collections: set[
 
 
 def runbook_durations(passes: list[dict]) -> dict:
-    """Per phase: seconds of each passed pass (runbook timing)."""
-    durations: dict[str, list[float]] = {}
+    """Per phase: seconds of every pass in which it completed (runbook timing).
+
+    A phase that raised is left out (its time is partial); the pass status
+    stays beside each measure, so a failed HTTP check does not hide the
+    import timings.
+    """
+    durations: dict[str, dict] = {}
     for summary in passes:
-        if summary.get("status") != "passed":
-            continue
-        for name, seconds in summary["measures"]["phase_seconds"].items():
-            durations.setdefault(name, []).append(seconds)
-    return {name: {"seconds": values, "max": max(values)} for name, values in durations.items()}
+        measures = summary.get("measures") or {}
+        completed = set(measures.get("completed_phases") or [])
+        for name, seconds in (measures.get("phase_seconds") or {}).items():
+            if name in completed:
+                entry = durations.setdefault(name, {"seconds": [], "passes": []})
+                entry["seconds"].append(seconds)
+                entry["passes"].append(
+                    {"pass": summary.get("pass"), "status": summary.get("status")}
+                )
+    for entry in durations.values():
+        entry["max"] = max(entry["seconds"])
+    return durations
 
 
 # ---------------------------------------------------------------------------
@@ -866,13 +1383,19 @@ def runbook_durations(passes: list[dict]) -> dict:
 
 
 class Container:
+    """The pass's own PostgreSQL container: created with --rm, stopped, and
+    removed by force (with its anonymous volumes) when the stop fails or when
+    ``docker run`` failed after the daemon created it."""
+
     def __init__(self, run_id: str, memory: str, cpus: str, shm: str, workdir: Path):
         self.run_id = run_id
         self.name = CONTAINER_PREFIX + run_id
         self.memory, self.cpus, self.shm = memory, cpus, shm
         self.workdir = workdir
         self.password = secrets.token_hex(24)
+        self.attempted = False
         self.created = False
+        self.forced_removal = False
         self.id = ""
         self.info: dict = {}
         self.url = ""
@@ -887,6 +1410,7 @@ class Container:
                 f"POSTGRES_USER=c11\nPOSTGRES_PASSWORD={self.password}\nPOSTGRES_DB={DATABASE}\n"
             ).encode(),
         )
+        self.attempted = True
         try:
             command(
                 "docker", "run", "--detach", "--rm", "--name", self.name,
@@ -896,6 +1420,13 @@ class Container:
                 "--env-file", env_file, IMAGE,
             )  # fmt: skip
             self.created = True
+        except BaseException:
+            # A timed-out or interrupted run may have created the container.
+            try:
+                self.force_remove()
+            except (OSError, subprocess.SubprocessError):
+                pass  # the cleanup's stop() tries again
+            raise
         finally:
             env_file.unlink(missing_ok=True)
         inspected = json.loads(command("docker", "inspect", self.name))[0]
@@ -917,6 +1448,40 @@ class Container:
             raise RehearsalFailure("postgresql_not_ready")
         return self.info
 
+    def owned(self) -> list[str]:
+        """IDs of containers with this pass's name AND labels (never another's)."""
+        listed = command(
+            "docker", "ps", "--all", "--quiet", "--filter", f"name=^/{self.name}$",
+            "--filter", f"label=buma.scope={SCOPE_LABEL}",
+            "--filter", f"label=buma.run={self.run_id}",
+        )  # fmt: skip
+        return listed.split()
+
+    def present(self) -> bool:
+        """Anything still named like this pass's container."""
+        return bool(command("docker", "ps", "--all", "--quiet", "--filter", f"name=^/{self.name}$"))
+
+    def force_remove(self) -> None:
+        for container_id in self.owned():
+            self.forced_removal = True
+            command("docker", "rm", "--force", "--volumes", container_id, timeout=300)
+
+    def wait_removed(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while self.present():
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.2)
+        return True
+
+    def libc(self) -> str | None:
+        """The C library of the image: musl's strcoll compares bytes (strcmp)."""
+        try:
+            command("docker", "exec", self.name, "sh", "-c", "ls /lib/ld-musl-*", timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return "musl"
+
     def data_bytes(self) -> int | None:
         try:
             return int(command("docker", "exec", self.name, "du", "-sb", PGDATA).split()[0])
@@ -924,25 +1489,35 @@ class Container:
             return None
 
     def stop(self) -> None:
+        """Stop (auto-removed by --rm); remove by force whatever remains."""
+        if not self.attempted:
+            return
+        stopped = False
         if self.created:
-            command("docker", "stop", "--time", "20", self.name, timeout=300)
+            try:
+                command("docker", "stop", "--time", "20", self.name, timeout=300)
+                stopped = True
+            except (OSError, subprocess.SubprocessError):
+                pass  # removed by force below
+        if stopped and self.wait_removed(60):
+            return
+        self.force_remove()
+        require(self.wait_removed(60), "container_not_removed")
 
     def removal_evidence(self) -> dict:
-        """Container gone (auto-removed) and its anonymous volume with it."""
-        gone = False
-        for _ in range(300):
-            listed = command("docker", "ps", "--all", "--quiet", "--filter", f"name=^/{self.name}$")
-            if not listed:
-                gone = True
-                break
-            time.sleep(0.2)
+        """Container gone (auto-removed or forced) and its anonymous volume with it."""
+        gone = self.wait_removed(60)
         left = 0
         for volume in self.info.get("anonymous_volumes", []):
             inspected = subprocess.run(
                 ["docker", "volume", "inspect", volume], capture_output=True, text=True
             )
             left += inspected.returncode == 0
-        return {"container_removed": gone, "anonymous_volumes_left": left}
+        return {
+            "container_removed": gone,
+            "anonymous_volumes_left": left,
+            "forced_removal": self.forced_removal,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1307,18 +1882,37 @@ async def prepare_target(engine, url: str, schema: Path, definitions: list[dict]
     }
 
 
+# Plain indexes and view bodies, which the benchmark signature leaves out.
+EXTRA_SIGNATURE_SQL = """
+SELECT 'index ' || tablename || '.' || indexname || ' ' || indexdef
+FROM pg_indexes WHERE schemaname = 'public'
+UNION ALL
+SELECT 'view ' || c.relname || ' ' || md5(pg_get_viewdef(c.oid))
+FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('v', 'm')
+"""
+
+
 async def target_signature(engine) -> list[str]:
+    """Schema signature: the benchmark's (tables, columns, defaults, constraints,
+    triggers, functions, event triggers) plus every index and view body."""
+    from sqlalchemy import text
+
     from scripts.c11_volume_benchmark import target_signature as signature
 
-    return await signature(engine)
+    lines = await signature(engine)
+    async with engine.connect() as conn:
+        lines += [row[0] for row in (await conn.execute(text(EXTRA_SIGNATURE_SQL))).all()]
+    return sorted(lines)
 
 
 async def table_fingerprints(engine, definitions: list[dict], spec: dict) -> dict:
     """Full typed re-read of every table in a new session, as load_isolated does.
 
-    Same digest as the importer's (``_reread``: multiset of the typed row keys),
-    so that it is compared with the source digest taken before COPY; plus the
-    sum of PostgreSQL's hash of every stored row.
+    Same digest as the importer's (``_reread``: multiset of the typed row
+    keys), compared with the importer's digest of the CONVERTED source rows
+    taken before COPY. It proves that the committed rows are the converted
+    rows, not that the conversion kept each value: the served-value
+    comparison (``compare_served_record``) checks that independently.
     """
     result = {}
     async with engine.connect() as conn:
@@ -1340,16 +1934,34 @@ async def table_fingerprints(engine, definitions: list[dict], spec: dict) -> dic
     return result
 
 
-async def stored_row_hashes(engine, tables: list[str]) -> dict[str, str]:
-    """count:sum of PostgreSQL's hash of each stored row, per table (cheap, server side)."""
-    result = {}
+def fingerprint_mismatches(fingerprints: dict, loaded: dict) -> list[str]:
+    """Tables whose re-read digest differs from the load report's source or target digest."""
+    return sorted(
+        name
+        for name, value in fingerprints.items()
+        if not loaded.get(name)
+        or not value["fingerprint"]
+        == loaded[name].get("source_fingerprint")
+        == loaded[name].get("target_fingerprint")
+    ) + sorted(set(loaded) - set(fingerprints))
+
+
+async def stored_row_hashes(
+    engine, tables: list[str], exclude_ids: dict[str, str] | None = None
+) -> dict[str, str]:
+    """count:sum of PostgreSQL's hash of each stored row, per table (cheap, server side).
+
+    ``exclude_ids`` leaves one row out by id (the synthetic superuser)."""
+    result, exclude_ids = {}, exclude_ids or {}
     async with engine.connect() as conn:
         for table in tables:
+            where = " WHERE t.id <> :excluded" if table in exclude_ids else ""
             row = (
                 await rows_of(
                     conn,
                     "SELECT count(*) AS n, coalesce(sum(hashtextextended(t::text, 0)), 0)::text "
-                    f"AS s FROM {importer.quote(table)} t",
+                    f"AS s FROM {importer.quote(table)} t{where}",
+                    {"excluded": exclude_ids[table]} if where else None,
                 )
             )[0]
             result[table] = f"{row['n']}:{row['s']}"
@@ -1357,7 +1969,7 @@ async def stored_row_hashes(engine, tables: list[str]) -> dict[str, str]:
 
 
 async def count_views(engine, definitions: list[dict]) -> tuple[dict, dict, dict]:
-    """Row count of each view on the imported data: counts, seconds, failures."""
+    """Rows and distinct IDs of each view on the imported data: counts, seconds, failures."""
     counts, seconds, failures = {}, {}, {}
     for c in definitions:
         if c["type"] != "view":
@@ -1366,13 +1978,131 @@ async def count_views(engine, definitions: list[dict]) -> tuple[dict, dict, dict
         try:
             async with engine.connect() as conn:
                 await conn.exec_driver_sql(f"SET statement_timeout = {VIEW_TIMEOUT_MS}")
-                counts[c["name"]] = await scalar(
-                    conn, f"SELECT count(*) FROM {importer.quote(c['name'])}"
-                )
+                row = (
+                    await rows_of(
+                        conn,
+                        "SELECT count(*) AS n, count(DISTINCT id) AS d "
+                        f"FROM {importer.quote(c['name'])}",
+                    )
+                )[0]
+                counts[c["name"]] = {"rows": row["n"], "distinct_ids": row["d"]}
         except Exception as exc:  # recorded by SQLSTATE, never by message
             failures[c["name"]] = failure_entry(exc)
         seconds[c["name"]] = round(time.monotonic() - started, 3)
     return counts, seconds, failures
+
+
+VIEW_COUNT_KEYS = ("rows", "distinct_ids")
+
+
+def view_count_differences(target: dict, source: dict) -> list[str]:
+    """Views whose PostgreSQL rows or distinct IDs differ from the SQLite source."""
+
+    def counts(entry):
+        return None if entry is None else tuple(entry.get(key) for key in VIEW_COUNT_KEYS)
+
+    return sorted(
+        name
+        for name in set(target) | set(source)
+        if counts(target.get(name)) != counts(source.get(name))
+    )
+
+
+def view_not_compared(view: dict) -> str | None:
+    """Why the served values of a view are not compared at all.
+
+    Pages sorted by id pair a served record with a SQLite row only when the
+    IDs are distinct and never null. PocketBase 0.22.34 creates every view
+    as ``SELECT * FROM (SELECT cast(id as text) id, ...)`` (daos/view.go), so
+    a non-text ID would mean a view PocketBase did not create.
+    """
+    if view["rows"] != view["distinct_ids"]:
+        return "duplicate_or_null_ids"
+    if view.get("non_text_ids"):
+        return "non_text_ids"
+    return None
+
+
+# (ROW_NUMBER() OVER ()) as id: a position in an order neither SQLite nor
+# PostgreSQL defines, so the same ID may name another row on each engine.
+ROW_NUMBER_ID = re.compile(r"ROW_NUMBER\s*\(\s*\)\s*OVER\s*\(\s*\)\s*\)?\s*AS\s+[`\"']?id\b", re.I)
+
+
+def row_number_ids(collection: dict) -> bool:
+    """The view numbers its rows with ROW_NUMBER() OVER () as its id."""
+    query = (collection.get("options") or {}).get("query") or ""
+    return collection["type"] == "view" and bool(ROW_NUMBER_ID.search(query))
+
+
+def canonical_json(value):
+    """A JSON value for multiset keys: numbers by value, true never 1."""
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, list):
+        return [canonical_json(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): canonical_json(item) for key, item in value.items()}
+    return repr(value)
+
+
+def multiset_comparison(expected: list[dict], served: list) -> tuple[list[str], dict, dict]:
+    """A ROW_NUMBER() view compared as multisets of records, IDs aside.
+
+    ``expected`` holds ``expected_record`` of every SQLite row, ``served``
+    every record of every page. Keys unmodeled in any row are left out on
+    both sides. The IDs must be the same set ("1".."N" on both engines).
+    Returns (problem codes, counts, private samples).
+    """
+    unmodeled = sorted(
+        {k for record in expected for k, value in record.items() if isinstance(value, Unmodeled)}
+    )
+    ignored = {"id", "expand", *unmodeled}
+
+    def key(record) -> str:
+        if not isinstance(record, dict):
+            return "<" + type(record).__name__ + ">"
+        kept = {k: canonical_json(v) for k, v in record.items() if k not in ignored}
+        return json.dumps(kept, sort_keys=True, ensure_ascii=True)
+
+    wanted = Counter(key(record) for record in expected)
+    got = Counter(key(record) for record in served)
+    only_source, only_served = wanted - got, got - wanted
+    ids = Counter(str(r.get("id")) for r in expected if not isinstance(r.get("id"), Unmodeled))
+    served_ids = Counter(str(r.get("id")) for r in served if isinstance(r, dict))
+    problems = []
+    if only_source or only_served:
+        problems.append("rows_differ_from_sqlite_ids_aside")
+    if ids != served_ids:
+        problems.append("ids_differ_from_sqlite")
+    counts = {
+        "rows": len(expected),
+        "served": len(served),
+        "rows_only_in_source": sum(only_source.values()),
+        "rows_only_served": sum(only_served.values()),
+        "unmodeled_keys": unmodeled,
+    }
+    samples = {
+        "only_in_source": list(only_source)[:MISMATCH_SAMPLES],
+        "only_served": list(only_served)[:MISMATCH_SAMPLES],
+    }
+    return problems, counts, samples
+
+
+def mismatched_records(source: dict, stored: dict) -> int:
+    """Records missing on either side, or with any value different."""
+    common = source.keys() & stored.keys()
+    return len(source.keys() ^ stored.keys()) + sum(1 for k in common if source[k] != stored[k])
+
+
+def array_mismatches(source: dict, stored: dict) -> dict:
+    """Rows missing on either side, and rows whose list differs (elements or order)."""
+    common = source.keys() & stored.keys()
+    return {
+        "rows_missing_or_extra": len(source.keys() ^ stored.keys()),
+        "rows_differing": sum(1 for k in common if source[k] != stored[k]),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1390,7 +2120,7 @@ def relation_target(definitions: list[dict], collection: str, field: str) -> str
 def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
     """Values the post-commit and HTTP checks compare with; kept in memory only."""
     q = importer.quote
-    facts: dict = {"auth": {}, "arrays": {}, "samples": {}}
+    facts: dict = {"auth": {}, "arrays": {}, "samples": {}, "views": {}, "seconds": {}}
     with importer.snapshot(data) as db:
         for c in definitions:
             if c["type"] != "auth":
@@ -1416,6 +2146,22 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
         }
         settings = db.execute("SELECT value FROM \"_params\" WHERE key = 'settings'").fetchall()
         facts["settings"] = json.loads(settings[0][0]) if len(settings) == 1 else None
+        # Every view in SQLite, PocketBase's engine: rows, the distinct IDs
+        # PocketBase counts as totalItems (tools/search/provider.go:238-254),
+        # and the IDs SQLite does not hold as text (ROW_NUMBER() OVER ()).
+        started = time.monotonic()
+        for c in definitions:
+            if c["type"] == "view":
+                rows, distinct, non_text = db.execute(
+                    "SELECT count(*), count(DISTINCT id), "
+                    f"coalesce(sum(typeof(id) != 'text'), 0) FROM {q(c['name'])}"
+                ).fetchone()
+                facts["views"][c["name"]] = {
+                    "rows": rows,
+                    "distinct_ids": distinct,
+                    "non_text_ids": non_text,
+                }
+        facts["seconds"]["sqlite_view_counts"] = round(time.monotonic() - started, 3)
         samples = facts["samples"]
         for table, field in MULTIPLE_RELATIONS:
             arrays = {}
@@ -1455,47 +2201,38 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
                     value,
                 ),
             }
-        # Orphan single relation: most referenced missing target of buma_sale.customer.
+        # buma_sale.customer: the most referenced missing target (orphan) and
+        # the most referenced existing one.
         target = relation_target(definitions, "buma_sale", "customer")
-        row = db.execute(
-            f"SELECT s.customer, count(*) FROM {q('buma_sale')} s WHERE s.customer != '' "
-            f"AND NOT EXISTS (SELECT 1 FROM {q(target)} t WHERE t.id = s.customer) "
-            "GROUP BY s.customer ORDER BY count(*) DESC, s.customer LIMIT 1"
-        ).fetchone()
-        samples["orphan"] = {"value": row[0], "rows": row[1]} if row else None
-        # Present single relation: most referenced existing target of buma_customer.type.
-        target = relation_target(definitions, "buma_customer", "type")
-        row = db.execute(
-            f"SELECT c.type, count(*) FROM {q('buma_customer')} c WHERE c.type != '' "
-            f"AND EXISTS (SELECT 1 FROM {q(target)} t WHERE t.id = c.type) "
-            "GROUP BY c.type ORDER BY count(*) DESC, c.type LIMIT 1"
-        ).fetchone()
-        samples["present_single"] = {"value": row[0], "rows": row[1]} if row else None
-        # PocketBase 0.22 sorts in SQLite (BINARY collation): the expected pages.
-        samples["sort_created_desc"] = [
-            r[0]
+        for key, exists in (("orphan", "NOT EXISTS"), ("present_single", "EXISTS")):
+            row = db.execute(
+                f"SELECT s.customer, count(*) FROM {q('buma_sale')} s WHERE s.customer != '' "
+                f"AND {exists} (SELECT 1 FROM {q(target)} t WHERE t.id = s.customer) "
+                "GROUP BY s.customer ORDER BY count(*) DESC, s.customer LIMIT 1"
+            ).fetchone()
+            samples[key] = {"value": row[0], "rows": row[1]} if row else None
+        # PocketBase 0.22 sorts in SQLite (BINARY collation): the expected orders.
+        named = [
+            (r[0], r[1])
             for r in db.execute(
-                f"SELECT id FROM {q('buma_sale')} ORDER BY created DESC, id ASC LIMIT {SAMPLE_PAGE}"
+                f"SELECT id, name FROM {q('buma_customer')} ORDER BY name ASC, id ASC"
             )
         ]
-        samples["sort_text_asc"] = [
-            r[0]
-            for r in db.execute(
-                f"SELECT id FROM {q('buma_customer')} ORDER BY name ASC, id ASC LIMIT {SAMPLE_PAGE}"
-            )
-        ]
-        # First record (by id) of each collection whose view rule is admin only,
-        # and of one collection whose view rule is an expression.
-        samples["admin_only_view"] = {}
-        for c in definitions:
-            if c["type"] != "view" and c.get("viewRule") is None:
-                found = db.execute(f"SELECT id FROM {q(c['name'])} ORDER BY id LIMIT 1").fetchone()
-                if found:
-                    samples["admin_only_view"][c["name"]] = found[0]
-        found = db.execute(
-            f"SELECT id FROM {q('buma_pilotage_ticket')} ORDER BY id LIMIT 1"
-        ).fetchone()
-        samples["expression_view"] = found[0] if found else None
+        samples["sort_text_order"] = [record_id for record_id, _name in named]
+        facts["collation"] = glibc_order_difference(named)
+        sales = db.execute(f"SELECT count(*) FROM {q('buma_sale')}").fetchone()[0]
+        last = max(1, math.ceil(sales / SERVED_PAGE))
+        samples["sort_created_pages"] = {
+            page: [
+                r[0]
+                for r in db.execute(
+                    f"SELECT id FROM {q('buma_sale')} ORDER BY created DESC, id ASC "
+                    "LIMIT ? OFFSET ?",
+                    (SERVED_PAGE, (page - 1) * SERVED_PAGE),
+                )
+            ]
+            for page in sorted({1, (last + 1) // 2, last})
+        }
         # Files: the smallest referenced key present in the manifest, and absent.
         present, missing = [], []
         for c in definitions:
@@ -1514,6 +2251,44 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
         samples["present_file"] = min(present) if present else None
         samples["missing_file"] = min(missing) if missing else None
     return facts
+
+
+def glibc_order_difference(named: list[tuple[str, str]], locale_name: str = "en_US.utf8") -> dict:
+    """Positions of the BINARY (id, name) order that a glibc en_US.UTF-8 target changes.
+
+    PostgreSQL with a libc collation sorts with strcoll_l, then strcmp for
+    equal strings (varstr_cmp), then by id here. Computed on this host's glibc
+    for the report (a count only); the rehearsal target itself is musl.
+    """
+    import locale
+
+    try:
+        previous = locale.setlocale(locale.LC_COLLATE)
+        locale.setlocale(locale.LC_COLLATE, locale_name)
+    except locale.Error:
+        return {"locale": locale_name, "available": False}
+    try:
+        reordered = sorted(
+            named,
+            key=lambda item: (
+                locale.strxfrm(item[1] or ""),
+                (item[1] or "").encode("utf-8", "surrogatepass"),
+                item[0].encode("utf-8", "surrogatepass"),
+            ),
+        )
+    finally:
+        locale.setlocale(locale.LC_COLLATE, previous)
+    differing = sum(1 for a, b in zip(named, reordered, strict=True) if a[0] != b[0])
+    return {
+        "locale": locale_name,
+        "available": True,
+        "libc": "glibc " + (platform.libc_ver()[1] or "unknown"),
+        "collection": "buma_customer",
+        "sort": "name,id",
+        "rows": len(named),
+        "positions_differing_from_binary_order": differing,
+        "first_page_of_50_identical": [a[0] for a in named[:50]] == [b[0] for b in reordered[:50]],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1548,19 +2323,16 @@ async def verify_import(ctx, engine, spec, diagnostic, load, before) -> tuple[di
     started = time.monotonic()
     fingerprints = await table_fingerprints(engine, definitions, spec)
     loaded = {entry["name"]: entry for entry in load.get("tables", [])}
-    mismatched = sorted(
-        name
-        for name, value in fingerprints.items()
-        if not loaded.get(name)
-        or not value["fingerprint"]
-        == loaded[name].get("source_fingerprint")
-        == loaded[name].get("target_fingerprint")
-    )
+    mismatched = fingerprint_mismatches(fingerprints, loaded)
     require(not mismatched, "fingerprints_differ_after_commit", tables=mismatched)
     checks["fingerprints"] = {
         "tables": len(fingerprints),
-        "source_digest_before_copy_equals_committed_rows": len(fingerprints),
-        "method": "load_isolated multiset digest of typed rows, re-read in a new session",
+        "converted_source_digest_before_copy_equals_committed_rows": len(fingerprints),
+        "method": (
+            "importer multiset digest of the converted source rows, taken before COPY, against "
+            "a typed re-read of the committed rows in a new session; values against the raw "
+            "SQLite rows: http.served_values"
+        ),
     }
     private["fingerprints"] = {name: value["fingerprint"] for name, value in fingerprints.items()}
     seconds["fingerprints"] = round(time.monotonic() - started, 3)
@@ -1603,12 +2375,13 @@ async def verify_import(ctx, engine, spec, diagnostic, load, before) -> tuple[di
                 row["id"]: list(row["value"])
                 for row in await rows_of(conn, f"SELECT id, {q(field)} AS value FROM {q(table)}")
             }
-            require(set(stored) == set(source), "array_rows_differ", field=key)
-            identical = sum(1 for record_id, items in source.items() if stored[record_id] == items)
-            require(identical == len(source), "array_values_differ", field=key)
+            difference = array_mismatches(source, stored)
+            require(not difference["rows_missing_or_extra"], "array_rows_differ", field=key)
+            require(not difference["rows_differing"], "array_values_differ", field=key)
             arrays[key] = {
                 "rows": len(source),
-                "identical_rows_order_and_elements": identical,
+                "identical_rows_order_and_elements": len(source),
+                "compared_with": "raw SQLite JSON lists (json.loads), element for element",
                 "length_distribution": length_distribution(len(v) for v in stored.values()),
                 "source_length_distribution": length_distribution(len(v) for v in source.values()),
                 "max_element_length": max((len(i) for v in stored.values() for i in v), default=0),
@@ -1678,17 +2451,40 @@ async def verify_import(ctx, engine, spec, diagnostic, load, before) -> tuple[di
     started = time.monotonic()
     view_counts, view_seconds, view_failures = await count_views(engine, definitions)
     require(not view_failures, "views_failed_on_imported_data", views=sorted(view_failures))
-    checks["views"] = {"queried": len(view_counts), "row_counts": dict(sorted(view_counts.items()))}
+    differing = view_count_differences(view_counts, facts["views"])
+    require(not differing, "view_counts_differ_from_sqlite_source", views=differing)
+    checks["views"] = {
+        "queried": len(view_counts),
+        "rows_and_distinct_ids_equal_to_sqlite_source": True,
+        "rows_and_distinct_ids": {
+            name: [entry["rows"], entry["distinct_ids"]]
+            for name, entry in sorted(view_counts.items())
+        },
+        "views_with_duplicate_ids": sorted(
+            name for name, entry in view_counts.items() if entry["rows"] != entry["distinct_ids"]
+        ),
+    }
     seconds["views"] = round(time.monotonic() - started, 3)
     return checks, private, {"seconds": seconds, "view_seconds": view_seconds, "counts": counts}
 
 
-async def check_accounts(engine, facts: dict) -> dict:
-    """Auth records and the PocketBase admin, compared value by value with the source."""
+AUTH_ROW_SQL = (
+    "SELECT id, username, email, email_visibility, verified, password_hash, token_key FROM {table}"
+)
+SUPERUSER_ROW_SQL = 'SELECT id, email, password_hash, token_key, avatar FROM "_superusers"'
+
+
+async def check_accounts(engine, facts: dict, *, synthetic_superuser: str | None = None) -> dict:
+    """Auth records and the PocketBase admin, compared value by value with the source.
+
+    ``synthetic_superuser`` (the rehearsal's own login, after the import) is
+    left out of the comparison of ``_superusers``.
+    """
     result = {}
     async with engine.connect() as conn:
-        for name, source in sorted(facts["auth"].items()):
-            stored = {
+        stored_auth = {}
+        for name in sorted(facts["auth"]):
+            stored_auth[name] = {
                 row["id"]: (
                     row["username"],
                     row["email"],
@@ -1697,24 +2493,19 @@ async def check_accounts(engine, facts: dict) -> dict:
                     row["password_hash"],
                     row["token_key"],
                 )
-                for row in await rows_of(
-                    conn,
-                    "SELECT id, username, email, email_visibility, verified, password_hash, "
-                    f"token_key FROM {importer.quote(name)}",
-                )
+                for row in await rows_of(conn, AUTH_ROW_SQL.format(table=importer.quote(name)))
             }
-            equal = sum(
-                1 for record_id, values in source.items() if stored.get(record_id) == values
-            )
-            require(len(stored) == len(source) == equal, "auth_records_differ", collection=name)
-            result[name] = {"records": len(source), "identity_hash_token_key_equal": equal}
         superusers = {
             row["id"]: (row["email"], row["password_hash"], row["token_key"], row["avatar"])
-            for row in await rows_of(
-                conn, 'SELECT id, email, password_hash, token_key, avatar FROM "_superusers"'
-            )
+            for row in await rows_of(conn, SUPERUSER_ROW_SQL)
+            if row["id"] != synthetic_superuser
         }
-    require(superusers == facts["admins"], "superusers_differ_from_source_admins")
+    for name, source in sorted(facts["auth"].items()):
+        mismatches = mismatched_records(source, stored_auth[name])
+        require(not mismatches, "auth_records_differ", collection=name, records=mismatches)
+        result[name] = {"records": len(source), "identity_hash_token_key_equal": len(source)}
+    mismatches = mismatched_records(facts["admins"], superusers)
+    require(not mismatches, "superusers_differ_from_source_admins", records=mismatches)
     result[SUPERUSERS] = {
         "source_admins": len(facts["admins"]),
         "imported": len(superusers),
@@ -1723,23 +2514,14 @@ async def check_accounts(engine, facts: dict) -> dict:
     return result
 
 
-async def check_tokens_and_settings(engine, definitions: list[dict], facts: dict) -> dict:
-    """Token secrets and durations, then mapped settings, against the source settings."""
-    settings = facts["settings"]
-    require(isinstance(settings, dict), "source_settings_missing")
-    async with engine.connect() as conn:
-        options = {
-            row["name"]: as_json(row["options"]) or {}
-            for row in await rows_of(
-                conn, "SELECT name, options FROM _collections WHERE type = 'auth'"
-            )
-        }
-        values = await rows_of(conn, "SELECT value FROM \"_params\" WHERE key = 'settings'")
-    require(len(values) == 1, "settings_not_imported")
-    target_settings = as_json(values[0]["value"])
-    plan = [(c["name"], auth_import.RECORD_TOKENS) for c in definitions if c["type"] == "auth"] + [
-        (SUPERUSERS, auth_import.SUPERUSER_TOKENS)
-    ]
+def token_plan(definitions: list[dict]) -> list[tuple[str, dict]]:
+    """(target collection, {option kind: PocketBase 0.22 settings key}) for every token."""
+    plan = [(c["name"], auth_import.RECORD_TOKENS) for c in definitions if c["type"] == "auth"]
+    return plan + [(SUPERUSERS, auth_import.SUPERUSER_TOKENS)]
+
+
+def token_config_report(settings: dict, options: dict, plan) -> tuple[dict, list[str]]:
+    """Per token kind: source secret and duration against the target options."""
     configs, failures = {}, []
     for collection, mapping in plan:
         for kind, key in mapping.items():
@@ -1756,7 +2538,11 @@ async def check_tokens_and_settings(engine, definitions: list[dict], facts: dict
             configs[f"{collection}.{kind}"] = entry
             if not (entry["secret_equal"] and entry["duration_equal"]):
                 failures.append(f"{collection}.{kind}")
-    require(not failures, "token_configs_differ", configs=failures)
+    return configs, failures
+
+
+def mapped_settings_report(settings: dict, target_settings) -> tuple[dict, list[str]]:
+    """Each mapped PocketBase 0.22 setting against the PPBase settings row."""
     mapped = {}
     for path, target_path, _kind in auth_import.SETTINGS_MAP:
         present, value = setting(settings, path)
@@ -1767,7 +2553,25 @@ async def check_tokens_and_settings(engine, definitions: list[dict], facts: dict
             value = value[:-1]  # strings.TrimSuffix, v0.23.0 migrate.go:193
         stored_present, stored = setting(target_settings, target_path)
         mapped[".".join(path)] = {"present": True, "equal": stored_present and stored == value}
-    unequal = sorted(name for name, entry in mapped.items() if entry.get("equal") is False)
+    return mapped, sorted(name for name, entry in mapped.items() if entry.get("equal") is False)
+
+
+async def check_tokens_and_settings(engine, definitions: list[dict], facts: dict) -> dict:
+    """Token secrets and durations, then mapped settings, against the source settings."""
+    settings = facts["settings"]
+    require(isinstance(settings, dict), "source_settings_missing")
+    async with engine.connect() as conn:
+        options = {
+            row["name"]: as_json(row["options"]) or {}
+            for row in await rows_of(
+                conn, "SELECT name, options FROM _collections WHERE type = 'auth'"
+            )
+        }
+        values = await rows_of(conn, "SELECT value FROM \"_params\" WHERE key = 'settings'")
+    require(len(values) == 1, "settings_not_imported")
+    configs, failures = token_config_report(settings, options, token_plan(definitions))
+    require(not failures, "token_configs_differ", configs=failures)
+    mapped, unequal = mapped_settings_report(settings, as_json(values[0]["value"]))
     require(not unequal, "settings_differ", settings=unequal)
     source_configs = sum(1 for key in auth_import.TOKEN_KEYS if isinstance(settings.get(key), dict))
     return {
@@ -1916,8 +2720,12 @@ class PPBaseServer:
         }
 
 
-async def create_synthetic_superuser(url: str) -> tuple[str, str]:
-    """A random superuser in the disposable database only; never written anywhere."""
+async def create_synthetic_superuser(url: str) -> tuple[str, str, str]:
+    """A random superuser in the disposable database only; never written anywhere.
+
+    Returns (email, password, id); the id leaves it out of the after-reads
+    comparison of ``_superusers`` with the source admins.
+    """
     from ppbase.services import admin_service
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1928,9 +2736,14 @@ async def create_synthetic_superuser(url: str) -> tuple[str, str]:
         async with AsyncSession(engine) as session:
             await admin_service.create_admin(session, email, password)
             await session.commit()
+        async with engine.connect() as conn:
+            found = await rows_of(
+                conn, 'SELECT id FROM "_superusers" WHERE email = :e', {"e": email}
+            )
     finally:
         await engine.dispose()
-    return email, password
+    require(len(found) == 1, "synthetic_superuser_not_created")
+    return email, password, found[0]["id"]
 
 
 async def fetch(client, path: str, token: str | None = None, **params) -> tuple:
@@ -1951,10 +2764,15 @@ async def fetch(client, path: str, token: str | None = None, **params) -> tuple:
 
 # PocketBase 0.22.34 behaviors that PPBase served differently on the real data:
 # problem code -> the PocketBase source defining the expected behavior. Such a
-# divergence passes only through --accept-divergence CODE=DECISION (recorded).
+# divergence passes only through --accept-divergence CODE=D-NNNN, a decision
+# recorded in docs/decisions-and-divergences.md that names the code. Any other
+# problem (a message, a status, a value, a count) always fails.
 DIVERGENCES = {
     "error_status_key_instead_of_code": (
         "v0.22.34 apis/api_error.go:12-15: error body {code, message, data}"
+    ),
+    "error_status_key_next_to_code": (
+        "v0.22.34 apis/api_error.go:12-15: error body {code, message, data}, no status key"
     ),
     "total_pages_one_for_empty_list": (
         "v0.22.34 tools/search/provider.go:254: totalPages = ceil(0 / perPage) = 0"
@@ -1962,6 +2780,13 @@ DIVERGENCES = {
     "empty_date_served_as_null": 'v0.22.34 tools/types/datetime.go:47-58: empty date ""',
     "expand_key_without_related_record": (
         "v0.22.34 models/record.go:557-559 and daos/record_expand.go:227-229: no expand key"
+    ),
+    "view_total_items_counts_rows_not_distinct_ids": (
+        "v0.22.34 tools/search/provider.go:63, 238-254: totalItems = COUNT(DISTINCT id), "
+        "totalPages from it"
+    ),
+    "jsonb_key_order_normalized": (
+        "v0.22.34 tools/types/json_raw.go:26-32: a json value served with its stored key order"
     ),
 }
 
@@ -1981,7 +2806,7 @@ def classify_problems(problems: dict[str, list[str]], accepted: dict[str, str]) 
                 {
                     "checks": 0,
                     "pocketbase_0_22_34": DIVERGENCES[base],
-                    "accepted_by": accepted.get(base),
+                    "decision": accepted.get(base),
                 },
             )
             entry["checks"] += 1
@@ -1990,10 +2815,23 @@ def classify_problems(problems: dict[str, list[str]], accepted: dict[str, str]) 
     return {"failing": failing, "divergences": observed}
 
 
-def listing_problems(status, body, expected: int | None, per_page: int = 1) -> list[str]:
+def listing_problems(
+    status, body, expected: int | None, per_page: int = 1, *, rows: int | None = None, page: int = 1
+) -> list[str]:
+    """Envelope problems of a list; ``rows`` (a view's count(*)) names the
+    COUNT(*) divergence when totalItems equals it instead of the distinct IDs."""
     if status != 200:
         return [f"status:{status}"]
-    return envelope_problems(body, page=1, per_page=per_page, expected_total=expected)
+    problems = envelope_problems(body, page=page, per_page=per_page, expected_total=expected)
+    if (
+        rows is not None
+        and rows != expected
+        and "total_items_mismatch" in problems
+        and body.get("totalItems") == rows
+    ):
+        problems = [p for p in problems if p != "total_items_mismatch"]
+        problems.append("view_total_items_counts_rows_not_distinct_ids")
+    return problems
 
 
 def items_of(status, body) -> list:
@@ -2002,52 +2840,108 @@ def items_of(status, body) -> list:
     return []
 
 
-def expand_problems(items: list, field: str, *, related: str) -> list[str]:
-    """``related``: "ordered_list", "object" or "absent" (PocketBase 0.22.34 expand)."""
-    problems = [] if items else ["no_items"]
-    for item in items:
-        expand = item.get("expand")
-        if related == "absent":
-            if expand == {}:
-                problems.append("expand_key_without_related_record")
-            elif "expand" in item:
-                problems.append("expand_served_for_absent_record")
-            continue
-        value = (expand or {}).get(field) if isinstance(expand, dict) else None
-        if related == "ordered_list":
-            stored = item.get(field)
-            if not isinstance(value, list) or [r.get("id") for r in value] != stored:
-                problems.append("expand_not_the_stored_ordered_list")
-        elif not isinstance(value, dict) or value.get("id") != item.get(field):
-            problems.append("expand_not_one_object")
-    return sorted(set(problems))
+def value_problems(outcomes: dict) -> list[str]:
+    """Problem codes of a served-record comparison (unmodeled values are counted, not codes)."""
+    codes = []
+    for key, outcome in sorted(outcomes.items()):
+        if outcome == "differs":
+            codes.append(f"value_differs:{key}")
+        elif outcome == "unexpected_key":
+            codes.append(f"unexpected_key:{key}")
+        elif outcome == "json_key_order":
+            codes.append(f"jsonb_key_order_normalized:{key}")
+        elif outcome == "empty_date_null":
+            codes.append(f"empty_date_served_as_null:{key}")
+    return codes
 
 
-async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: dict, sql) -> dict:
-    """Aggregated HTTP reads: statuses, counts and problem codes, never a value."""
-    import httpx
+def records_path(name: str, record_id: str | None = None) -> str:
+    path = f"/api/collections/{name}/records"
+    return path if record_id is None else f"{path}/{url_quote(record_id, safe='')}"
 
-    definitions, samples = ctx.definitions, ctx.facts["samples"]
-    by_name = {c["name"]: c for c in definitions}
-    problems: dict[str, list[str]] = {}
-    result: dict = {}
-    timer: dict[str, float] = {}
 
-    def total_of(name: str) -> int | None:
-        return counts[name] if by_name[name]["type"] != "view" else view_counts.get(name)
+class HttpReads:
+    """The HTTP reads of one pass, compared with the read-only source snapshot.
 
-    def records(name: str) -> str:
-        return f"/api/collections/{name}/records"
+    Results hold statuses, counts, field names of the public schema and
+    problem codes; record values stay in memory.
+    """
 
-    async with httpx.AsyncClient(base_url=base, timeout=HTTP_TIMEOUT_SECONDS) as client:
+    def __init__(self, client, ctx, db, counts: dict, sql: dict, error_log: Path | None = None):
+        self.client, self.ctx, self.db = client, ctx, db
+        self.error_log = error_log
+        self.definitions = ctx.definitions
+        self.by_name = {c["name"]: c for c in ctx.definitions}
+        self.samples = ctx.facts["samples"]
+        self.views = ctx.facts["views"]
+        self.counts, self.sql = counts, sql
+        self.token: str | None = None
+        self.problems: dict[str, list[str]] = {}
+        self.result: dict = {}
+        self.timer: dict[str, float] = {}
+        # Private only (--private-dir, 0600): served and expected values of
+        # the first mismatches of each field, to tell a model gap from a
+        # PPBase divergence after the run. Never in the public report.
+        self.mismatches: dict[str, list[dict]] = {}
 
-        async def get(path: str, token: str | None = None, **params):
-            return await fetch(client, path, token, **params)
+    async def get(self, path: str, token: str | None = None, **params):
+        return await fetch(self.client, path, token, **params)
 
-        started = time.monotonic()
-        status, _ = await get("/api/health")
-        require(status == 200, "server_health", status=status)
-        response = await client.post(
+    def compare(self, collection: dict, served, raw: dict, *, email_visible: bool, values=None):
+        """Problem codes of one served record against its raw source row."""
+        outcomes = compare_served_record(collection, served, raw, email_visible=email_visible)
+        if values is not None:
+            values.add(collection, outcomes)
+        wrong = {k: o for k, o in outcomes.items() if o not in ("equal", "unmodeled")}
+        if wrong:
+            expected = expected_record(collection, raw, email_visible=email_visible)
+            for key, outcome in sorted(wrong.items()):
+                kept = self.mismatches.setdefault(f"{collection['name']}.{key}", [])
+                if len(kept) < MISMATCH_SAMPLES:
+                    kept.append(
+                        {
+                            "record": raw.get("id"),
+                            "outcome": outcome,
+                            "expected": safe_value(expected.get(key)),
+                            "served": safe_value(served.get(key))
+                            if isinstance(served, dict)
+                            else type(served).__name__,
+                        }
+                    )
+        return value_problems(outcomes)
+
+    # -- source side (read only) ---------------------------------------------
+
+    def source_rows(self, name: str, tail: str = "", args=()) -> list[dict]:
+        sql = f"SELECT * FROM {importer.quote(name)} {tail}"
+        return [dict(row) for row in self.db.execute(sql, args)]
+
+    def rows_by_id(self, name: str, ids) -> dict[str, dict]:
+        found, ids = {}, [i for i in dict.fromkeys(ids) if isinstance(i, str)]
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            marks = ",".join("?" * len(chunk))
+            for row in self.source_rows(name, f"WHERE id IN ({marks})", chunk):
+                found[row["id"]] = row
+        return found
+
+    def existing_ids(self, name: str, ids) -> set[str]:
+        return set(self.rows_by_id(name, ids))
+
+    def email_visible(self, collection: dict, raw: dict) -> bool:
+        return collection["type"] != "auth" or pb_bool(raw.get("emailVisibility"))
+
+    def expected_total(self, name: str) -> tuple[int, int | None]:
+        """(totalItems PocketBase 0.22.34 serves for the whole collection, view rows)."""
+        if self.by_name[name]["type"] == "view":
+            view = self.views[name]
+            return view["distinct_ids"], view["rows"]
+        return self.counts[name], None
+
+    # -- reads -----------------------------------------------------------------
+
+    async def superuser_auth(self, credentials) -> None:
+        response = await self.client.post(
             "/api/admins/auth-with-password",
             json={"identity": credentials[0], "password": credentials[1]},
         )
@@ -2057,203 +2951,444 @@ async def http_checks(base: str, credentials, ctx, counts: dict, view_counts: di
             "superuser_auth_failed",
             status=response.status_code,
         )
-        token = body["token"]
-        result["superuser_auth"] = {
+        self.token = body["token"]
+        self.result["superuser_auth"] = {
             "route": "POST /api/admins/auth-with-password (PocketBase 0.22 SDK)",
             "status": response.status_code,
             "response_keys": sorted(body),
             "admin_keys": sorted(body["admin"]),
         }
-        timer["auth"] = time.monotonic() - started
 
-        # Every collection listed by the superuser: envelope, totalItems equal to
-        # the SQL count, served shape (keys, JSON kinds) of the first record.
-        started = time.monotonic()
-        for c in definitions:
+    async def superuser_lists(self) -> None:
+        """Every collection: envelope, totalItems as PocketBase counts it (base
+        and auth: SQL count, equal to the source; view: COUNT(DISTINCT id) of
+        the SQLite view), and the shape of the first record."""
+        for c in self.definitions:
             name = c["name"]
-            status, body = await get(records(name), token, page=1, perPage=1)
-            codes = listing_problems(status, body, total_of(name))
+            expected, rows = self.expected_total(name)
+            status, body = await self.get(records_path(name), self.token, page=1, perPage=1)
+            codes = listing_problems(status, body, expected, rows=rows)
             items = items_of(status, body)
             if c["type"] != "view" and items:
-                codes += record_shape_problems(c, items[0], email_visible=True)
-            problems[f"superuser_list:{name}"] = codes
-        timer["superuser_lists"] = time.monotonic() - started
+                source = self.rows_by_id(name, [items[0].get("id")]).get(items[0].get("id"))
+                codes += record_shape_problems(c, items[0], email_visible=True, source=source)
+                if source is None:
+                    codes.append("record_not_in_source")
+            self.problems[f"superuser_list:{name}"] = codes
+        self.result["superuser_lists"] = {
+            "collections": len(self.definitions),
+            "views_with_duplicate_ids": sorted(
+                name for name, view in self.views.items() if view["rows"] != view["distinct_ids"]
+            ),
+            "expected_total_items": "base and auth: SQL count; view: COUNT(DISTINCT id) in SQLite",
+        }
 
-        # Anonymous lists by rule (apis/record_crud.go:56-58 and :71-73): admin
-        # only -> 403 and PocketBase's body; public -> 200 and every record;
-        # expression -> 200, the rule filtering.
-        started = time.monotonic()
-        rules, zero_items = Counter(), 0
-        for c in definitions:
+    async def served_values(self) -> None:
+        """Pages sorted by id against the raw SQLite rows in BINARY order: page 1
+        of every collection, every page of FULL_READ_COLLECTIONS. A view whose
+        IDs are duplicated, null or not text (``view_not_compared``) is listed
+        in views_not_compared, never compared."""
+        values, skipped, pages_read = ServedValues(), {}, 0
+        multisets = {}
+        for c in self.definitions:
+            name = c["name"]
+            if c["type"] == "view":
+                view = self.views[name]
+                reason = view_not_compared(view)
+                if reason:
+                    skipped[name] = reason
+                    continue
+                if row_number_ids(c) and view["rows"]:
+                    multisets[name], pages = await self.view_multiset(c)
+                    pages_read += pages
+                    continue
+                total = view["rows"]
+            else:
+                total = self.counts[name]
+            if not total:
+                continue
+            pages = math.ceil(total / SERVED_PAGE) if name in FULL_READ_COLLECTIONS else 1
+            for page in range(1, pages + 1):
+                status, body = await self.get(
+                    records_path(name), self.token, page=page, perPage=SERVED_PAGE, sort="id"
+                )
+                pages_read += 1
+                raw = self.source_rows(
+                    name, "ORDER BY id LIMIT ? OFFSET ?", (SERVED_PAGE, (page - 1) * SERVED_PAGE)
+                )
+                items = items_of(status, body)
+                codes = [] if status == 200 else [f"status:{status}"]
+                if [item.get("id") for item in items] != [row["id"] for row in raw]:
+                    codes.append("ids_differ_from_sqlite_order")
+                else:
+                    for item, row in zip(items, raw, strict=True):
+                        codes += self.compare(c, item, row, email_visible=True, values=values)
+                suffix = f":page-{page}" if page > 1 else ""
+                self.problems[f"served_values:{name}{suffix}"] = sorted(set(codes))
+        self.result["served_values"] = {
+            "method": (
+                "superuser pages sorted by id against the raw SQLite rows (ORDER BY id), each "
+                "value modeled as PocketBase 0.22.34 serves it (NullString, PrepareValue, "
+                "PublicExport), independently of the importer"
+            ),
+            "pages_read": pages_read,
+            "per_page": SERVED_PAGE,
+            "every_record_of": list(FULL_READ_COLLECTIONS),
+            "views_not_compared": skipped,
+            "row_number_views_compared_as_multisets": multisets,
+            **values.summary(),
+        }
+
+    async def view_multiset(self, c: dict) -> tuple[dict, int]:
+        """Every page of a ROW_NUMBER() view against every SQLite row, IDs aside."""
+        name = c["name"]
+        raw = self.source_rows(name)
+        served, codes, pages = [], [], max(1, math.ceil(len(raw) / SERVED_PAGE))
+        for page in range(1, pages + 1):
+            status, body = await self.get(
+                records_path(name), self.token, page=page, perPage=SERVED_PAGE, sort="id"
+            )
+            if status != 200:
+                codes.append(f"status:{status}")
+            served += items_of(status, body)
+        expected = [expected_record(c, row, email_visible=True) for row in raw]
+        problems, counts, samples = multiset_comparison(expected, served)
+        if problems:  # real values: private evidence only
+            self.mismatches[f"{name}.<rows>"] = [samples]
+        self.problems[f"served_values:{name}"] = sorted(set(codes + problems))
+        return counts, pages
+
+    async def anonymous_lists(self) -> None:
+        """Lists without auth by rule (apis/record_crud.go:56-58, :71-73): admin
+        only -> 403 and PocketBase's body; public -> every record; an
+        expression that no record can match without auth -> totalItems 0."""
+        rules, never_true, unverified = Counter(), 0, []
+        for c in self.definitions:
             name, rule = c["name"], c.get("listRule")
             rules[rule_kind(rule)] += 1
-            status, body = await get(records(name), None, page=1, perPage=1)
+            status, body = await self.get(records_path(name), None, page=1, perPage=1)
             if rule is None:
                 codes = (
                     error_body_problems(body, 403, PB_ADMIN_ONLY)
                     if status == 403
                     else [f"status:{status}"]
                 )
+            elif rule == "":
+                expected, rows = self.expected_total(name)
+                codes = listing_problems(status, body, expected, rows=rows)
+            elif anonymous_rule_outcome(rule, ids_never_empty=c["type"] != "view") == "never_true":
+                never_true += 1
+                codes = listing_problems(status, body, 0)
             else:
-                codes = listing_problems(status, body, total_of(name) if rule == "" else None)
-                if rule != "" and status == 200 and isinstance(body, dict):
-                    zero_items += body.get("totalItems") == 0
-            problems[f"anonymous_list:{name}"] = codes
-        result["anonymous_lists"] = {
+                unverified.append(name)
+                codes = listing_problems(status, body, None)
+            self.problems[f"anonymous_list:{name}"] = codes
+        self.result["anonymous_lists"] = {
             "by_rule": dict(sorted(rules.items())),
-            "expression_rules_with_zero_items": zero_items,
+            "expression_rules_expected_zero_items": never_true,
+            "expression_rules_unverified": sorted(unverified),
+            "expression_rule_method": "static reading with PocketBase 0.22.34 semantics",
         }
 
-        # Anonymous view of one record: admin-only rule -> 403 (:155), an
-        # expression rule failing -> 404 (:173).
-        for name, record_id in sorted(samples["admin_only_view"].items()):
-            status, body = await get(f"{records(name)}/{record_id}")
-            problems[f"anonymous_view:{name}"] = (
-                error_body_problems(body, 403, PB_ADMIN_ONLY)
-                if status == 403
-                else [f"status:{status}"]
-            )
-        if samples["expression_view"]:
-            path = f"{records('buma_pilotage_ticket')}/{samples['expression_view']}"
-            status, body = await get(path)
-            problems["anonymous_view:buma_pilotage_ticket"] = (
-                error_body_problems(body, 404, PB_NOT_FOUND)
-                if status == 404
-                else [f"status:{status}"]
-            )
-
-        # E-mail visibility of auth records for anonymous readers (models/record.go).
-        status, body = await get(records("users"), None, page=1, perPage=200)
-        items = items_of(status, body)
-        hidden_shown = sum(1 for i in items if "email" in i and not i.get("emailVisibility"))
-        visible_missing = sum(1 for i in items if i.get("emailVisibility") and "email" not in i)
-        codes = [] if status == 200 else [f"status:{status}"]
-        codes += ["email_served_while_not_visible"] * bool(hidden_shown)
-        codes += ["email_missing_while_visible"] * bool(visible_missing)
-        for item in items:
-            visible = bool(item.get("emailVisibility"))
-            codes += record_shape_problems(by_name["users"], item, email_visible=visible)
-        problems["anonymous_users_email_visibility"] = sorted(set(codes))
-        result["anonymous_users_email_visibility"] = {
-            "status": status,
-            "items": len(items),
-            "email_served_while_not_visible": hidden_shown,
-            "email_missing_while_visible": visible_missing,
+    async def anonymous_views(self) -> None:
+        """The first record (by id) of every base and auth collection without
+        auth: admin only -> 403 (:155); public -> 200 and the record as the
+        source serves it, e-mail by its source visibility; an expression no
+        record can match without auth -> 404 (:173)."""
+        outcomes, unverified = Counter(), []
+        for c in self.definitions:
+            if c["type"] == "view" or not self.counts[c["name"]]:
+                continue
+            name, rule = c["name"], c.get("viewRule")
+            raw = self.source_rows(name, "ORDER BY id LIMIT 1")[0]
+            status, body = await self.get(records_path(name, raw["id"]))
+            if rule is None:
+                outcomes["admin_only_403"] += 1
+                codes = (
+                    error_body_problems(body, 403, PB_ADMIN_ONLY)
+                    if status == 403
+                    else [f"status:{status}"]
+                )
+            elif rule == "":
+                outcomes["public_200"] += 1
+                visible = self.email_visible(c, raw)
+                codes = [] if status == 200 else [f"status:{status}"]
+                if status == 200:
+                    codes += record_shape_problems(c, body, email_visible=visible, source=raw)
+                    codes += self.compare(c, body, raw, email_visible=visible)
+            elif anonymous_rule_outcome(rule, ids_never_empty=True) == "never_true":
+                outcomes["expression_404"] += 1
+                codes = (
+                    error_body_problems(body, 404, PB_NOT_FOUND)
+                    if status == 404
+                    else [f"status:{status}"]
+                )
+            else:
+                unverified.append(name)
+                codes = [] if status in (200, 404) else [f"status:{status}"]
+            self.problems[f"anonymous_view:{name}"] = sorted(set(codes))
+        self.result["anonymous_views"] = {
+            "expected": dict(sorted(outcomes.items())),
+            "expression_rules_unverified": sorted(unverified),
         }
-        timer["anonymous"] = time.monotonic() - started
 
-        # Filters with PocketBase 0.22 semantics, counted in the source and in
-        # PostgreSQL; PPBase's totalItems must equal both.
-        started = time.monotonic()
+    async def anonymous_auth_records(self) -> None:
+        """Every record of the auth collections with a public list rule, read
+        without auth: e-mail served exactly when the SOURCE emailVisibility is
+        true (models/record.go:536-541), every value as the source serves it."""
+        summary = {}
+        for c in self.definitions:
+            if c["type"] != "auth" or c.get("listRule") != "":
+                continue
+            name, served, hidden_shown, visible_missing = c["name"], 0, 0, 0
+            codes = []
+            for page in range(1, math.ceil(self.counts[name] / SERVED_PAGE) + 1):
+                status, body = await self.get(
+                    records_path(name), None, page=page, perPage=SERVED_PAGE, sort="id"
+                )
+                if status != 200:
+                    codes.append(f"status:{status}")
+                    continue
+                items = items_of(status, body)
+                raw = self.rows_by_id(name, [item.get("id") for item in items])
+                for item in items:
+                    row = raw.get(item.get("id"))
+                    if row is None:
+                        codes.append("record_not_in_source")
+                        continue
+                    served += 1
+                    visible = self.email_visible(c, row)
+                    hidden_shown += "email" in item and not visible
+                    visible_missing += visible and "email" not in item
+                    codes += record_shape_problems(c, item, email_visible=visible, source=row)
+                    codes += self.compare(c, item, row, email_visible=visible)
+            codes += ["email_served_while_not_visible_in_source"] * bool(hidden_shown)
+            codes += ["email_missing_while_visible_in_source"] * bool(visible_missing)
+            self.problems[f"anonymous_auth_records:{name}"] = sorted(set(codes))
+            summary[name] = {
+                "records": served,
+                "source_records": self.counts[name],
+                "email_served_while_not_visible_in_source": hidden_shown,
+                "email_missing_while_visible_in_source": visible_missing,
+            }
+        self.result["anonymous_auth_records"] = summary
+
+    async def filters(self) -> None:
+        """Filters with PocketBase 0.22 semantics, counted in the source and in
+        PostgreSQL; PPBase's totalItems must equal both."""
         filters = {}
-        for code, name, expression, expected in filter_cases(samples):
-            status, body = await get(records(name), token, page=1, perPage=1, filter=expression)
+        for code, name, expression, expected in filter_cases(self.samples):
+            status, body = await self.get(
+                records_path(name), self.token, page=1, perPage=1, filter=expression
+            )
             codes = listing_problems(status, body, expected)
-            if sql.get(code) != expected:
+            if self.sql.get(code) != expected:
                 codes.append("postgresql_count_differs_from_source")
             served = body.get("totalItems") if status == 200 and isinstance(body, dict) else None
-            filters[code] = {"expected_total_items": expected, "total_items": served}
-            problems[f"filter:{code}"] = codes
-        result["filters"] = filters
-        timer["filters"] = time.monotonic() - started
+            filters[code] = {
+                "sampled": True,
+                "expected_total_items": expected,
+                "total_items": served,
+            }
+            self.problems[f"filter:{code}"] = codes
+        for code in unsampled_filter_codes(self.samples):
+            filters[code] = {"sampled": False}
+        self.result["filters"] = filters
 
-        # Expand (daos/record_expand.go:217-263): a multiple relation gives the
-        # list of existing targets in stored order, a single one an object, and
-        # no target at all no expand key (models/record.go:557-559).
-        started = time.monotonic()
-        pdv, managers = samples["buma_customer.pdv"], samples["buma_wallet.managers"]
+    async def expands(self) -> None:
+        """Expand with the superuser: expected from the raw source values and the
+        targets that exist in the source (``expected_expand_ids``)."""
+        pdv, managers = self.samples["buma_customer.pdv"], self.samples["buma_wallet.managers"]
         cases = [
-            (
-                "multiple_targets_pdv",
-                "buma_customer",
-                f'pdv ~ "{pdv["value"]}"',
-                "pdv",
-                "ordered_list",
-            ),
-            ("multiple_targets_tag", "buma_pilotage_ticket", "", "tag", "ordered_list"),
+            ("multiple_targets_pdv", "buma_customer", f'pdv ~ "{pdv["value"]}"', "pdv"),
+            ("multiple_targets_tag", "buma_pilotage_ticket", "", "tag"),
             (
                 "multiple_absent_target_managers",
                 "buma_wallet",
                 f'managers ~ "{managers["value"]}"',
                 "managers",
-                "absent",
             ),
         ]
-        if samples["orphan"]:
-            orphan = samples["orphan"]["value"]
-            cases.append(
-                (
-                    "single_absent_target",
-                    "buma_sale",
-                    f'customer = "{orphan}"',
-                    "customer",
-                    "absent",
-                )
-            )
-        if samples["present_single"]:
-            present = samples["present_single"]["value"]
-            cases.append(
-                ("single_present_target", "buma_customer", f'type = "{present}"', "type", "object")
-            )
+        optional = {
+            "single_absent_target": ("orphan", "buma_sale", "customer"),
+            "single_present_target": ("present_single", "buma_sale", "customer"),
+        }
         expanded = {}
-        for code, name, expression, field, related in cases:
-            params = {"page": 1, "perPage": SAMPLE_PAGE, "expand": field}
+        for code, (sample, name, field) in optional.items():
+            if self.samples.get(sample):
+                cases.append((code, name, f'{field} = "{self.samples[sample]["value"]}"', field))
+            else:
+                expanded[code] = {"sampled": False}
+        for code, name, expression, field in cases:
+            params = {"page": 1, "perPage": SAMPLE_PAGE, "expand": field, "sort": "id"}
             if expression:
                 params["filter"] = expression
-            status, body = await get(records(name), token, **params)
+            status, body = await self.get(records_path(name), self.token, **params)
             items = items_of(status, body)
+            definition = next(f for f in self.by_name[name]["schema"] if f["name"] == field)
+            raw = self.rows_by_id(name, [item.get("id") for item in items])
+            served_lists = []
+            for item in items:
+                try:
+                    served_lists.append(pb_served(definition, raw[item.get("id")][field]))
+                except (KeyError, Unmodeled):
+                    served_lists.append(None)
+            targets = [i for v in served_lists for i in (v if isinstance(v, list) else [v]) if i]
+            existing = self.existing_ids(relation_target(self.definitions, name, field), targets)
+            multiple = pb_is_multiple(definition)
+            expected = [expected_expand_ids(v, existing, multiple=multiple) for v in served_lists]
             codes = [] if status == 200 else [f"status:{status}"]
-            codes += expand_problems(items, field, related=related)
-            expanded[code] = {"status": status, "items": len(items), "expected": related}
-            problems[f"expand:{code}"] = codes
-        result["expand"] = expanded
-        timer["expand"] = time.monotonic() - started
+            if any(v is None for v in served_lists) and items:
+                codes.append("record_not_in_source")
+            codes += expand_problems(items, field, expected)
+            kinds = Counter(
+                "none" if e is None else "list" if isinstance(e, list) else "object"
+                for e in expected
+            )
+            expanded[code] = {
+                "sampled": True,
+                "status": status,
+                "items": len(items),
+                "expected_expand": dict(sorted(kinds.items())),
+                "max_expanded_list_length": max(
+                    (len(e) for e in expected if isinstance(e, list)), default=0
+                ),
+            }
+            self.problems[f"expand:{code}"] = codes
+        self.result["expand"] = expanded
 
-        # Sort: the first page against SQLite's order (BINARY collation).
-        started = time.monotonic()
-        for code, name, order, expected in (
-            ("created_desc_then_id", "buma_sale", "-created,id", samples["sort_created_desc"]),
-            ("text_name_then_id", "buma_customer", "name,id", samples["sort_text_asc"]),
-        ):
-            status, body = await get(records(name), token, page=1, perPage=SAMPLE_PAGE, sort=order)
-            served = [item.get("id") for item in items_of(status, body)]
+    async def sorts(self) -> None:
+        """Sort against SQLite's order (PocketBase 0.22 sorts in SQLite, BINARY
+        collation): every page of buma_customer by name then id; the first,
+        a middle and the last page of buma_sale by -created then id."""
+        sorts = {}
+        expected = self.samples["sort_text_order"]
+        served, codes = [], []
+        for page in range(1, math.ceil(len(expected) / SERVED_PAGE) + 1):
+            status, body = await self.get(
+                records_path("buma_customer"),
+                self.token,
+                page=page,
+                perPage=SERVED_PAGE,
+                sort="name,id",
+            )
+            if status != 200:
+                codes.append(f"status:{status}")
+            served += [item.get("id") for item in items_of(status, body)]
+        differing = sum(1 for a, b in zip(served, expected, strict=False) if a != b)
+        differing += abs(len(served) - len(expected))
+        if served != expected:
+            codes.append("order_differs_from_sqlite_source")
+        self.problems["sort:text_name_then_id_every_page"] = sorted(set(codes))
+        sorts["text_name_then_id_every_page"] = {
+            "rows": len(expected),
+            "positions_differing_from_sqlite": differing,
+        }
+        pages = self.samples["sort_created_pages"]
+        compared = []
+        for page, ids in sorted(pages.items()):
+            status, body = await self.get(
+                records_path("buma_sale"),
+                self.token,
+                page=page,
+                perPage=SERVED_PAGE,
+                sort="-created,id",
+            )
             codes = [] if status == 200 else [f"status:{status}"]
-            if served != expected:
+            if [item.get("id") for item in items_of(status, body)] != ids:
                 codes.append("order_differs_from_sqlite_source")
-            problems[f"sort:{code}"] = codes
-        timer["sort"] = time.monotonic() - started
+            self.problems[f"sort:created_desc_then_id_page_{page}"] = codes
+            compared.append(page)
+        sorts["created_desc_then_id"] = {
+            "rows": self.counts["buma_sale"],
+            "pages_compared": compared,
+            "per_page": SERVED_PAGE,
+        }
+        sorts["target_collation"] = self.ctx.collation
+        sorts["glibc_comparison"] = self.ctx.facts["collation"]
+        self.result["sort"] = sorts
 
-        # Files, without any byte on this server: a referenced file absent from
-        # the backup is 404 in PocketBase 0.22.34 (apis/file.go:211-215); one the
-        # manifest lists is served there from its storage, not provable here.
-        started = time.monotonic()
+    async def files(self) -> None:
+        """Files, without any byte on this server: a referenced file absent
+        from the backup is 404 in PocketBase 0.22.34 (apis/file.go:211-215);
+        one the manifest lists is served there from its storage, not here."""
         files = {}
         for code, key in (
-            ("present_in_manifest_no_bytes_here", samples["present_file"]),
-            ("absent_from_backup", samples["missing_file"]),
+            ("present_in_manifest_no_bytes_here", self.samples["present_file"]),
+            ("absent_from_backup", self.samples["missing_file"]),
         ):
             if key is None:
                 files[code] = {"sampled": False}
                 continue
             collection_id, record_id, filename = key.split("/", 2)
             path = f"/api/files/{collection_id}/{record_id}/{url_quote(filename)}"
-            status, body = await get(path)
+            status, body = await self.get(path)
             files[code] = {"sampled": True, "status": status, "expected_here": 404}
-            problems[f"file:{code}"] = (
+            self.problems[f"file:{code}"] = (
                 error_body_problems(body, 404, PB_NOT_FOUND)
                 if status == 404
                 else [f"status:{status}"]
             )
-        files["present_in_manifest_no_bytes_here"]["expected_with_storage"] = 200
-        result["files"] = files
-        timer["files"] = time.monotonic() - started
+        if files["present_in_manifest_no_bytes_here"].get("sampled"):
+            files["present_in_manifest_no_bytes_here"]["expected_with_storage"] = 200
+        self.result["files"] = files
 
-    classified = classify_problems(problems, ctx.accepted)
-    result["checks_run"] = len(problems)
-    result["checks_without_problem"] = sum(1 for codes in problems.values() if not codes)
+    async def timed(self, name: str, step, *, fatal: bool = False) -> None:
+        """Run one group of reads; an unexpected error fails that group as a
+        check (type only) so that the other groups and the after-reads checks
+        still run. ``fatal`` re-raises (no superuser token, nothing to read)."""
+        started = time.monotonic()
+        try:
+            await step()
+        except Exception as exc:
+            if fatal:
+                raise
+            self.problems[f"reads:{name}"] = [f"error:{type(exc).__name__}"]
+            if self.error_log is not None:  # private 0600 log: a message may quote a value
+                fd = os.open(self.error_log, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+                with os.fdopen(fd, "a") as log:
+                    log.write(f"[{name}]\n{traceback.format_exc()}\n")
+        finally:
+            self.timer[name] = round(time.monotonic() - started, 3)
+
+
+async def http_checks(
+    base: str, credentials, ctx, counts: dict, sql: dict, error_log: Path | None = None
+) -> dict:
+    """Aggregated HTTP reads: statuses, counts and problem codes, never a value."""
+    import httpx
+
+    async with httpx.AsyncClient(base_url=base, timeout=HTTP_TIMEOUT_SECONDS) as client:
+        status, _ = await fetch(client, "/api/health")
+        require(status == 200, "server_health", status=status)
+        with importer.snapshot(ctx.data) as db:
+            reads = HttpReads(client, ctx, db, counts, sql, error_log)
+            await reads.timed("auth", lambda: reads.superuser_auth(credentials), fatal=True)
+            for name in (
+                "superuser_lists",
+                "served_values",
+                "anonymous_lists",
+                "anonymous_views",
+                "anonymous_auth_records",
+                "filters",
+                "expands",
+                "sorts",
+                "files",
+            ):
+                await reads.timed(name, getattr(reads, name))
+    result = reads.result
+    if error_log is not None and reads.mismatches:
+        # Real values: private 0600 file next to the error log, never published.
+        importer.write_json_new(
+            error_log.parent / "served-value-mismatches.json", reads.mismatches, ascii=True
+        )
+    result["served_value_mismatch_fields"] = len(reads.mismatches)
+    classified = classify_problems(reads.problems, ctx.accepted)
+    result["checks_run"] = len(reads.problems)
+    result["checks_without_problem"] = sum(1 for codes in reads.problems.values() if not codes)
     result["divergences"] = classified["divergences"]
     result["failed_checks"] = classified["failing"]
-    result["seconds"] = {name: round(value, 3) for name, value in timer.items()}
+    result["seconds"] = reads.timer
     return result
 
 
@@ -2303,15 +3438,25 @@ def filter_cases(samples: dict) -> list[tuple[str, str, str, int]]:
     if samples["present_single"]:
         present = samples["present_single"]
         cases += [
-            ("single_equals", "buma_customer", f'type = "{present["value"]}"', present["rows"]),
+            ("single_equals", "buma_sale", f'customer = "{present["value"]}"', present["rows"]),
             (
                 "single_target_id",
-                "buma_customer",
-                f'type.id = "{present["value"]}"',
+                "buma_sale",
+                f'customer.id = "{present["value"]}"',
                 present["rows"],
             ),
         ]
     return cases
+
+
+def unsampled_filter_codes(samples: dict) -> list[str]:
+    """Filter cases without a sample in this snapshot: reported as sampled false."""
+    codes = []
+    if not samples["orphan"]:
+        codes += ["orphan_single_equals", "orphan_single_target_id"]
+    if not samples["present_single"]:
+        codes += ["single_equals", "single_target_id"]
+    return codes
 
 
 def like_pattern(value: str) -> str:
@@ -2352,7 +3497,7 @@ async def filter_sql_counts(engine, definitions: list[dict], samples: dict) -> d
         )
     for code, table, field, sample in (
         ("orphan_single", "buma_sale", "customer", samples["orphan"]),
-        ("single", "buma_customer", "type", samples["present_single"]),
+        ("single", "buma_sale", "customer", samples["present_single"]),
     ):
         if not sample:
             continue
@@ -2406,6 +3551,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
         ctx.url = container.url
         engine = make_engine(container.url)
         measures["database"] = await database_facts(engine)
+        ctx.collation = target_collation(measures["database"], container.libc())
 
         with phases.phase("migrations_schema_and_target_description"):
             spec, checks["target_before_import"] = await prepare_target(
@@ -2496,50 +3642,52 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
             private["row_hashes_after_import"] = await stored_row_hashes(engine, hashed_tables)
 
         with phases.phase("server_start"):
-            credentials = await create_synthetic_superuser(container.url)
+            email, password, synthetic_id = await create_synthetic_superuser(container.url)
+            credentials = (email, password)
             server = PPBaseServer(container.url, pass_dir, ctx.ppbase_root)
             summary["server"] = await server.start()
 
         with phases.phase("http_reads"):
             sql = await filter_sql_counts(engine, ctx.definitions, ctx.facts["samples"])
             http = await http_checks(
-                server.base,
-                credentials,
-                ctx,
-                counts,
-                checks["views"]["row_counts"],
-                sql,
+                server.base, credentials, ctx, counts, sql, pass_dir / "http-errors.log"
             )
             measures["http_seconds"] = http.pop("seconds")
             checks["http"] = http
-            credentials = None
+            credentials = email = password = None
 
         with phases.phase("after_http_checks"):
             server.stop()
             summary["server"]["stopped"] = server.stopped()
             summary["server"]["peak_rss_kib"] = server.peak_rss_kib
             summary["server"]["log"] = server.log_summary()
-            after = await stored_row_hashes(engine, hashed_tables)
-            changed = sorted(
-                table
-                for table in after
-                if after[table] != private["row_hashes_after_import"][table]
-            )
+            # The synthetic superuser is the only row allowed to differ.
+            after = await stored_row_hashes(engine, hashed_tables, {SUPERUSERS: synthetic_id})
             async with engine.connect() as conn:
                 superusers = await scalar(conn, 'SELECT count(*) FROM "_superusers"')
+            try:
+                await check_accounts(engine, ctx.facts, synthetic_superuser=synthetic_id)
+                accounts = True
+            except RehearsalFailure as exc:
+                accounts = exc.code
             signature = await target_signature(engine)
-            unchanged = signature_difference(before["signature"], signature)
-            checks["after_http"] = {
-                "tables_changed_by_server_and_reads": [t for t in changed if t != SUPERUSERS],
-                "superusers_after_synthetic_one": superusers,
-                "schema_unchanged_by_server": unchanged["only_import_archives_added"],
-            }
-            require(
-                changed in ([SUPERUSERS], []) and superusers == len(ctx.facts["admins"]) + 1,
-                "data_changed_by_server_or_reads",
-                tables=changed,
+            outcome = after_reads_outcome(
+                private["row_hashes_after_import"],
+                after,
+                superusers=superusers,
+                admins=len(ctx.facts["admins"]),
+                accounts=accounts,
+                signature=signature_difference(before["signature"], signature),
             )
-            require(unchanged["only_import_archives_added"], "schema_changed_by_server")
+            checks["after_http"] = outcome
+            require(
+                not outcome["tables_changed_by_server_and_reads"]
+                and outcome["superusers_are_source_admins_plus_synthetic"],
+                "data_changed_by_server_or_reads",
+                tables=outcome["tables_changed_by_server_and_reads"],
+            )
+            require(accounts is True, "accounts_changed_by_server_or_reads", code=accounts)
+            require(outcome["schema_unchanged_by_server"], "schema_changed_by_server")
             measures["database_bytes_after_http"] = await database_size(engine)
         # Last, so that a failed read still leaves the after-reads evidence.
         require(
@@ -2571,7 +3719,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
         cleanup.add("container", container.stop)
         summary["cleanup"] = cleanup.run()
         summary["cleanup"]["container_evidence"] = (
-            container.removal_evidence() if container.created else {"created": False}
+            container.removal_evidence() if container.attempted else {"created": False}
         )
         summary["cleanup"]["staging_removed"] = not staging.exists()
         summary["cleanup"]["server_files_removed"] = not any(
@@ -2581,6 +3729,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
         measures["disk_free_minimum_during_pass"] = disk.finish()
         measures["disk_free_after"] = disk_free(disk_paths)
         measures["phase_seconds"] = phases.seconds
+        measures["completed_phases"] = phases.completed
         summary["measures"] = measures
         cleaned = (
             cleanup.ok
@@ -2599,6 +3748,34 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
 def remove_server_files(pass_dir: Path) -> None:
     for name in ("server-cwd", "server-data"):
         shutil.rmtree(pass_dir / name, ignore_errors=True)
+
+
+def after_reads_outcome(before: dict, after: dict, *, superusers, admins, accounts, signature):
+    """What the server and the reads changed: no table (the synthetic
+    superuser left out), the imported accounts still equal to the source, the
+    schema as imported."""
+    changed = sorted(
+        table for table in set(before) | set(after) if before.get(table) != after.get(table)
+    )
+    return {
+        "tables_changed_by_server_and_reads": changed,
+        "imported_superusers_unchanged": SUPERUSERS not in changed,
+        "superusers_are_source_admins_plus_synthetic": superusers == admins + 1,
+        "accounts_equal_to_source_after_reads": accounts is True,
+        "schema_unchanged_by_server": signature["only_import_archives_added"],
+    }
+
+
+def target_collation(database: dict, libc: str | None) -> dict:
+    """Text order of the target: musl's strcoll is strcmp, so a libc
+    collation sorts bytes like SQLite BINARY; glibc and ICU sort linguistically."""
+    byte_order = database.get("provider") == "c" and libc == "musl"
+    return {
+        "datcollate": database.get("datcollate"),
+        "provider": {"c": "libc", "i": "icu", "b": "builtin"}.get(database.get("provider")),
+        "image_libc": libc,
+        "text_order": "byte order, like SQLite BINARY" if byte_order else "linguistic",
+    }
 
 
 def diagnosis_summary(diagnostic: dict) -> dict:
@@ -2789,13 +3966,36 @@ def privacy_check(ctx, report: dict) -> dict:
     }
 
 
-def accepted_divergences(values: list[str]) -> dict[str, str]:
-    """CODE=D-NNNN pairs: a known divergence code and the decision documenting it."""
+def decision_sections(text: str) -> dict[str, str]:
+    """'## D-NNNN' heading -> the text of its section."""
+    sections: dict[str, list[str]] = {}
+    current = None
+    for line in text.splitlines():
+        match = re.match(r"## (D-[0-9]{4})\b", line)
+        if match:
+            current = match.group(1)
+            sections[current] = [line]
+        elif current is not None:
+            sections[current].append(line)
+    return {key: "\n".join(lines) for key, lines in sections.items()}
+
+
+def accepted_divergences(values: list[str], decisions_text: str) -> dict[str, str]:
+    """CODE=D-NNNN pairs: a known divergence code and the recorded decision
+    (a '## D-NNNN' section of docs/decisions-and-divergences.md) that names it."""
+    sections = decision_sections(decisions_text)
     accepted = {}
     for value in values:
         code, _, decision = value.partition("=")
         require(code in DIVERGENCES, "unknown_divergence_code", divergence=code)
         require(re.fullmatch(r"D-[0-9]{4}", decision) is not None, "decision_reference_required")
+        require(decision in sections, "decision_not_recorded", decision=decision)
+        require(
+            code in sections[decision],
+            "decision_does_not_name_the_divergence",
+            decision=decision,
+            divergence=code,
+        )
         accepted[code] = decision
     return accepted
 
@@ -2808,7 +4008,7 @@ def main(argv=None) -> int:
     try:
         require_isolated_interpreter()
         check_paths(args, Path.cwd())
-        accepted = accepted_divergences(args.accept_divergence)
+        accepted = accepted_divergences(args.accept_divergence, DECISIONS.read_text())
     except RehearsalFailure as exc:
         print(json.dumps({"status": "refused", **failure_entry(exc)}))
         return 2
@@ -2821,6 +4021,8 @@ def main(argv=None) -> int:
     data_sha = importer.digest(data / "data.db")
     definitions = importer.load_schema(args.schema)
     inventory = importer.read_manifest(args.manifest, data / "data.db")["storage"]
+    facts_started = time.monotonic()
+    facts = source_facts(data, definitions, inventory)
     ctx = SimpleNamespace(
         args=args,
         data=data,
@@ -2830,9 +4032,10 @@ def main(argv=None) -> int:
         private_dir=private_dir.resolve(),
         definitions=definitions,
         inventory=inventory,
-        facts=source_facts(data, definitions, inventory),
+        facts=facts,
         docker_root=Path(command("docker", "info", "--format", "{{.DockerRootDir}}")),
         url="",
+        collation=None,
         accepted=accepted,
     )
     auth_evidence = json.loads((PROJECT / AUTH_RUNTIME_REPORT).read_text())
@@ -2850,6 +4053,19 @@ def main(argv=None) -> int:
             "file_bytes_available": False,
             "storage_mode": "manifest",
             "logs_db_imported": False,
+            "source_reads_seconds": {
+                **facts["seconds"],
+                "total": round(time.monotonic() - facts_started, 3),
+            },
+            "sqlite_views": {
+                "views": len(facts["views"]),
+                "with_duplicate_ids": sorted(
+                    name for name, v in facts["views"].items() if v["rows"] != v["distinct_ids"]
+                ),
+                "with_non_text_ids": sorted(
+                    name for name, v in facts["views"].items() if v["non_text_ids"]
+                ),
+            },
         },
         "code": {
             "buma": git_state(PROJECT),
@@ -2910,7 +4126,7 @@ def main(argv=None) -> int:
     )
     report["status"] = "passed" if ok else "failed"
     report["runbook_durations_seconds"] = runbook_durations(report["passes"])
-    report["proves"] = PROVES if ok else []
+    report["proves"], report["not_proven_here"] = proven_claims(report, args.passes)
     report["does_not_prove"] = DOES_NOT_PROVE
     report["private_evidence"] = "--private-dir (0700): diagnosis, load report, logs"
     report["privacy_check"] = privacy_check(ctx, report)
@@ -2961,22 +4177,144 @@ def observed_aggregates(checks: dict) -> dict:
     }
 
 
-PROVES = [
-    "every record of the real backup imported in one transaction into a disposable PostgreSQL "
-    "built by the BUMA migrations, counts and per-table fingerprints equal to the source",
-    "source rowids archived for every table and kept as native rowid for users and buma_article",
-    "the three maxSelect-null relations copied as arrays, element for element and in order",
-    "orphan relations and references to absent files imported as they are and recounted",
-    "accounts, the PocketBase admin, token secrets and mapped settings equal to the source",
-    "schema unchanged by the import apart from the two import archives; every view queryable",
-    "an isolated PPBase server serves the imported data with PocketBase 0.22 envelopes, rules, "
-    "filters, expand and sort on the sampled reads",
-    "the run is repeatable: two complete passes give identical aggregates and fingerprints",
-]
+def unverified_rules(http: dict) -> list[str]:
+    """Collections whose rule the static reading left undetermined (lists, views)."""
+    return sorted(
+        f"{group}:{name}"
+        for group in ("anonymous_lists", "anonymous_views")
+        for name in (http.get(group) or {}).get("expression_rules_unverified", [])
+    )
+
+
+def _http_clean(checks: dict) -> bool:
+    """No failing read and no rule left unverified (each read had its expected value)."""
+    http = checks.get("http")
+    return isinstance(http, dict) and not http.get("failed_checks") and not unverified_rules(http)
+
+
+def _served_values_clean(checks: dict) -> bool:
+    served = (checks.get("http") or {}).get("served_values")
+    if not isinstance(served, dict):
+        return False
+    failing = (checks["http"].get("failed_checks") or {}).keys()
+    return not served.get("differing_fields") and not any(
+        name.startswith("served_values:") for name in failing
+    )
+
+
+# (claim, check keys every pass must hold, extra predicate on a pass's checks)
+CLAIMS = (
+    (
+        "every record of the real backup imported in one transaction into a disposable "
+        "PostgreSQL built by the BUMA migrations; counts per table equal to the diagnosis",
+        ("import", "row_counts"),
+        None,
+    ),
+    (
+        "per-table fingerprints of the CONVERTED source rows (the importer's digest taken "
+        "before COPY) equal to the committed rows re-read in a new session",
+        ("fingerprints",),
+        None,
+    ),
+    (
+        "source rowids archived for every table and kept as native rowid for users and "
+        "buma_article",
+        ("rowids",),
+        None,
+    ),
+    (
+        "the three maxSelect-null relations stored as arrays equal to the raw SQLite lists, "
+        "element for element and in order",
+        ("multiple_relation_arrays",),
+        None,
+    ),
+    (
+        "orphan relations and references to absent files imported as they are and recounted",
+        ("preserved_anomalies",),
+        None,
+    ),
+    (
+        "accounts, the PocketBase admin, token secrets and mapped settings equal to the source",
+        ("accounts", "tokens_and_settings"),
+        None,
+    ),
+    (
+        "schema unchanged by the import apart from the two import archives (indexes and view "
+        "bodies included); every view queryable, rows and distinct IDs equal to SQLite",
+        ("schema_after_import", "views"),
+        None,
+    ),
+    (
+        "values served over HTTP for the compared records equal the PocketBase 0.22.34 "
+        "serialization of the raw SQLite values (model independent of the importer; "
+        "unmodeled values counted apart, views in served_values.views_not_compared left out, "
+        "accepted divergences listed in http.divergences)",
+        ("http",),
+        _served_values_clean,
+    ),
+    (
+        "an isolated PPBase server serves the imported data with PocketBase 0.22.34 envelopes, "
+        "totals, rules, error bodies, filters, expand, sort and file statuses on every "
+        "sampled read (no rule left unverified)",
+        ("http", "after_http"),
+        _http_clean,
+    ),
+)
+
+
+def proven_claims(report: dict, passes: int) -> tuple[list[str], list[dict]]:
+    """Claims every pass proved, and the others with the reason."""
+    proven, missing = [], []
+    runs = report["passes"]
+    for claim, keys, predicate in CLAIMS:
+        reasons = []
+        if len(runs) != passes:
+            reasons.append("passes_missing")
+        for run in runs:
+            checks = run.get("checks") or {}
+            if not all(key in checks for key in keys):
+                reasons.append(f"pass_{run.get('pass')}_did_not_reach_or_failed_these_checks")
+            elif predicate is not None and not predicate(checks):
+                http = checks.get("http") if isinstance(checks.get("http"), dict) else {}
+                only_unverified = (
+                    predicate is _http_clean
+                    and not http.get("failed_checks")
+                    and unverified_rules(http)
+                )
+                reason = "left_rules_unverified" if only_unverified else "has_failing_checks"
+                reasons.append(f"pass_{run.get('pass')}_{reason}")
+        if reasons:
+            missing.append({"claim": claim, "reasons": sorted(set(reasons))})
+        else:
+            proven.append(claim)
+    repeatable = (
+        "the run is repeatable: two complete passes give identical aggregates, fingerprints "
+        "and stored row hashes"
+    )
+    if (report.get("repeatability") or {}).get("identical") and passes >= 2:
+        proven.append(repeatable)
+    else:
+        missing.append({"claim": repeatable, "reasons": ["repeatability_not_identical"]})
+    return proven, missing
+
+
 DOES_NOT_PROVE = [
     "file bytes: no storage/ on this server; byte-for-byte copy is proven on the synthetic "
     "fixture and must be repeated with the complete archive",
     "token continuity on real accounts: proven on the synthetic fixture (WS-C report)",
+    "the order of multi-element relation arrays: every real array holds at most one "
+    "element; order is proven on the synthetic fixture (docs/c11-rehearsal-report.json)",
+    "values of the records not read over HTTP: page 1 by id of every collection and every "
+    "record of the multiple-relation and auth collections are compared; the rest only "
+    "through the importer's digest of the converted rows",
+    "served values of the views whose IDs are duplicated or null: their rows and distinct "
+    "IDs are compared with SQLite, their records are not (http.served_values."
+    "views_not_compared)",
+    "which row a ROW_NUMBER() OVER () view ID names: neither engine defines that order; those "
+    "views are compared as multisets of records, IDs aside (http.served_values."
+    "row_number_views_compared_as_multisets)",
+    "text sort order on a glibc or ICU PostgreSQL: this target (musl) sorts bytes like "
+    "SQLite; a glibc en_US.UTF-8 target changes the order (count in http.sort)",
     "desktop, mobile and SDK clients against this data",
     "write routes, hooks and realtime on the imported data",
     "production: no production server, backup freshness or cutover window is involved",
