@@ -2205,7 +2205,13 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
   `:495-509` : SMTP des paramètres ou `sendmail` ; `:538-552` : sauvegardes
   locales ou S3.
 - `mails/admin.go:22-26` et `mails/record.go:175-184` : liens des emails
-  construits sur l'URL de l'application.
+  construits sur l'URL de l'application ; `mails/record.go:61-74` : modèle,
+  expéditeur et corps HTML d'un email de record ; `tools/mailer/smtp.go:60-85` :
+  authentification, TLS implicite ou connexion simple, `localName` ;
+  `apis/record_auth.go:395-403` et `:487-495` : emails envoyés en
+  arrière-plan.
+- `apis/base.go:53` : `middleware.Secure()` d'echo, en-têtes de sécurité de
+  toute réponse.
 - `apis/health.go:23-42` : corps de `/api/health`.
 - `apis/record_crud.go:57`, `:155` : refus « Only admins » ; `:171-174` :
   404 d'un record introuvable.
@@ -2227,6 +2233,8 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
   emails des comptes.
 - `tools/search/provider.go:238-256` : `totalItems` compté en
   `COUNT(DISTINCT id)`, `totalPages` calculé dessus.
+- `forms/validators/record_data.go:74-90` : tous les champs du record validés
+  à chaque écriture (D-0042).
 - `tokens/tokens.go:5-6`, `tokens/record.go:13-27`, `tokens/admin.go:11-17`,
   `apis/middlewares.go:217-254`, `daos/admin.go:52-78` : types, signature et
   lecture des jetons ; `models/settings/settings.go:77` : URL de
@@ -2235,35 +2243,43 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
 - Comparaison : `v0.23.0`, `core/record_tokens.go:13` (type `auth`) et
   `core/settings_model.go:127` (limites de débit, absentes de 0.22.34).
 
-PPBase `237b403` (`fix/d0019-relation-maxselect` à la rédaction : correction
-D-0019, WS-A5, WS-A2 ; avant WS-A8 et WS-A7, dont les lignes pourront
-bouger) : `ppbase/__main__.py:667-674` ; `ppbase/config.py:29-30`, `:39`,
-`:86-92`, `:95`, `:109`, `:118-123`, `:125-171`, `:179-183` ;
-`ppbase/app.py:70-74`, `:189-214`, `:258-278`, `:280-284`, `:426-429`,
-`:492-532`, `:534-578` ; `ppbase/api/deps.py:89-101` ;
-`ppbase/api/files.py:84-92`, `:141-145`, `:1117-1145` ;
-`ppbase/api/health.py:14-26` ; `ppbase/api/record_auth.py:286-291` ;
-`ppbase/api/collections.py:448` ; `ppbase/api/records.py:2009` ;
-`ppbase/api/settings.py:88-93`, `:94-102`, `:151-180`, `:482-534` ;
-`ppbase/backup/automation.py:144-175` ; `ppbase/db/engine.py:45-50` ;
-`ppbase/middleware/rate_limit.py:26-30` ;
+PPBase `069e0bb` (`fix/d0019-relation-maxselect`, `code.ppbase.commit` du
+rapport final ; copie en lecture seule de la session serveur,
+`/root/projects/ppbase`) : `ppbase/__main__.py:667-674` ;
+`ppbase/config.py:29-30`, `:36-39`, `:43`, `:90-96`, `:99`, `:113`,
+`:122-127`, `:129-175`, `:183-187` ; `ppbase/app.py:70-74`, `:189-214`,
+`:258-278`, `:280-284`, `:460-490`, `:492-532`, `:534-609`, `:611-618` ;
+`ppbase/api/deps.py:89-101` ; `ppbase/api/files.py:151-159`, `:203-223`,
+`:1226-1247` ; `ppbase/api/health.py:14-26` ;
+`ppbase/api/record_auth.py:289-294` ; `ppbase/api/collections.py:448` ;
+`ppbase/api/records.py:2234` ; `ppbase/api/settings.py:88-93`, `:94-102`,
+`:112-126`, `:151-183`, `:359-366`, `:370-381`, `:487-592` ;
+`ppbase/backup/automation.py:144-175` ; `ppbase/backup/native.py:276-289` ;
+`ppbase/backup/schema_contract.py:29-33` ; `ppbase/db/engine.py:45-50` ;
+`ppbase/middleware/error_compat.py:51-53`, `:103-110`, `:182-191`,
+`:540-550` ; `ppbase/middleware/rate_limit.py:26-30` ;
 `ppbase/middleware/request_logger.py:1-6`, `:31-56` ;
 `ppbase/services/app_url.py:29`, `:32-51` ;
 `ppbase/services/auth_service.py:19`, `:487` ;
 `ppbase/services/file_storage.py:466-480` ;
 `ppbase/services/hook_manager.py:315-326` ;
-`ppbase/services/mail_service.py:49-72` ;
-`ppbase/services/record_service.py:889-898`. Branche `c11/ws-a6`
-(`2b79069`) : `docs/error-compat.md`, `ppbase/middleware/error_compat.py`.
+`ppbase/services/mail_service.py:29-46`, `:49-72`, `:75-141`, `:193-194` ;
+`ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895` ;
+`ppbase/services/record_service.py:1103-1114` ;
+`ppbase/services/setup_service.py:13-38` ;
+`ppbase/storage/serving.py:113-129` ; `admin-ui/package.json`,
+`admin-ui/vite.config.ts:13-16` ; documentation `docs/error-compat.md`,
+`docs/file-serving.md` ; sonde `tests/pocketbase_parity/expand_rules_probe.py`.
 
 Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `docs/c11-master-diagnostic.md`, `docs/c11-master-initial-diagnostic.json`,
 `docs/c11-idempotency-source-check.json`, `docs/c11-volume-benchmark-report.json`,
 `docs/c11-synthetic-rehearsal-report.json`, `docs/c11-auth-runtime-report.json`,
 `docs/c11-pb-0.22.34-reference-report.json`, `docs/c11-real-rehearsal-report.json`
-(attendu), `docs/next-agent-handoff.md`, `docs/decisions-and-divergences.md`
-(D-0016, D-0018 à D-0029 ; D-0027 complétée sur `c11/integration` en
-`527bfa1`), `docs/contracts/authentication.md`,
+(rapport final, `a99a2a4`), `docs/next-agent-handoff.md`,
+`docs/decisions-and-divergences.md` (D-0016, D-0018 à D-0039 ; D-0040 à
+D-0042 publiées par l'orchestrateur avec cette version),
+`docs/contracts/authentication.md`,
 `docs/contracts/c11-auth-import.md`, `docs/contracts/legacy-sql.md`,
 `docs/contracts/rowid.md`, `docs/contracts/routes.json`,
 `docs/contracts/settings-referentials.md`, `docs/test-matrix.md`,
@@ -2272,18 +2288,19 @@ Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `scripts/c11_idempotency_source_check.py`, `scripts/c11_rehearsal.py`,
 `scripts/c11_auth_runtime.py`, `scripts/c11_idempotency_runtime.py`,
 `scripts/c11_relation_columns_runtime.py`, `scripts/c11_volume_benchmark.py`,
-`scripts/c11_real_rehearsal.py` (branche `c11/ws-g`),
+`scripts/c11_real_rehearsal.py`, `scripts/c11_view_semantics_runtime.py`,
 `scripts/c10_sdk_runtime.py`, `scripts/c10_remaining_runtime.py`,
 `scripts/verify_complete_schema.py`, `scripts/verify_view_queries.py`,
 `app/auth/login.py`, `app/finance/service.py`, `app/legacy/http.py`,
-`app/hooks/register.py`, `app/hooks/health.py`, `app/hooks/poc.py`,
-`pb_migrations/1789236842_buma_master_views.py`,
+`app/hooks/register.py`, `app/hooks/auth.py`, `app/hooks/health.py`,
+`app/hooks/poc.py`, `pb_migrations/1789236842_buma_master_views.py`,
 `pb_migrations/1789236846_c5_reference_defaults.py`,
-`pb_migrations/1789236850_c11_relation_multiple_columns.py` ; branche
-`c11/hookup` (`d0a6dc8`) : `app/hooks/register.py`, `app/hooks/auth.py`,
-`app/auth/login.py`. Projets D-0030 à D-0035 : fichier de travail de
-l'orchestrateur, non versionné, publié par lui dans
-`docs/decisions-and-divergences.md`.
+`pb_migrations/1789236848_c10_sqlite_rowid.py`,
+`pb_migrations/1789236850_c11_relation_multiple_columns.py`,
+`pb_migrations/1789236851_c11_view_sqlite_semantics.py` ; le raccordement
+de `c11/hookup` y est fusionné (`c333e14`). Mesures de variabilité AP1 à AP3
+(5.1) : copies non versionnées de l'orchestrateur, sous
+`/tmp/buma-c11-session/`.
 Source gelée `buma_master_hooks@530018c` : `src/entries/index.pb.ts`,
 `src/entries/master.article.ts`, `src/entries/master.pb.ts`,
 `src/entries/master.rupture.ts`, `src/entries/master.setup.ts`,
@@ -2302,10 +2319,12 @@ BUMA_SCHEMA_EXPORT=<export corrigé> PYTHONDONTWRITEBYTECODE=1 \
   .venv/bin/python -m pytest -p no:cacheprovider -q
 .venv/bin/python -m ruff check app tests scripts \
   pb_migrations/1789236849_c11_source_transaction_idempotency.py \
-  pb_migrations/1789236850_c11_relation_multiple_columns.py
+  pb_migrations/1789236850_c11_relation_multiple_columns.py \
+  pb_migrations/1789236851_c11_view_sqlite_semantics.py
 .venv/bin/python -m ruff format --check app tests scripts \
   pb_migrations/1789236849_c11_source_transaction_idempotency.py \
-  pb_migrations/1789236850_c11_relation_multiple_columns.py
+  pb_migrations/1789236850_c11_relation_multiple_columns.py \
+  pb_migrations/1789236851_c11_view_sqlite_semantics.py
 BUMA_SCHEMA_EXPORT=<export corrigé> \
   .venv/bin/python -m scripts.c11_idempotency_runtime \
   --report <nouveau rapport>.json
@@ -2323,21 +2342,30 @@ BUMA_SCHEMA_EXPORT=<export corrigé> \
   .venv/bin/python -m scripts.c11_relation_columns_runtime \
   --legacy-ppbase <checkout PPBase> --legacy-ppbase-commit c6821aa \
   --report <nouveau rapport>.json
+BUMA_SCHEMA_EXPORT=<export corrigé> \
+  .venv/bin/python -m scripts.c11_view_semantics_runtime \
+  --pocketbase <binaire pocketbase 0.22.34> \
+  --schema <export corrigé> \
+  --report <nouveau rapport>.json
 ```
 
 Ruff couvre, outre `app tests scripts`, chaque migration ajoutée depuis
-D-0022 ; les anciennes migrations générées restent hors de son périmètre.
-`scripts.c11_rehearsal` accepte la version que déclare le binaire si le
-constructeur de fixture et l'importeur la valident
-(`scripts/c11_rehearsal.py:2565-2576`) : utiliser 0.22.34, version de la
-production. Les variables `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`
+D-0022 ; les anciennes migrations générées restent hors de son périmètre
+(130 fichiers à `a99a2a4`, vérifié par WS-F3). `scripts.c11_rehearsal`
+accepte la version que déclare le binaire si le constructeur de fixture et
+l'importeur la valident (`scripts/c11_rehearsal.py:2508-2519`) : utiliser
+0.22.34, version de la production ; c'est la répétition synthétique de
+D-0040, qui exige ses 84 réponses identiques à PocketBase 0.22.34 hors la
+classe `json_content_type_charset`. `scripts.c11_view_semantics_runtime`
+prouve `1789236851` contre le binaire 0.22.34 sur données synthétiques
+(D-0039). Les variables `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`
 désignent les binaires officiels (annexe B) dont ont besoin les tests de
 fixture et de colonnes relationnelles (`tests/test_c11_fixture.py`,
 `tests/test_c11_relation_columns.py`) ; sans elles, ces tests ne
 s'exécutent pas. `--legacy-ppbase` désigne le dépôt Git du checkout PPBase
 de release, qui contient `c6821aa`, antérieur à D-0019 : l'outil exporte ce
 commit par `git archive` sans changer de branche
-(`scripts/c11_relation_columns_runtime.py:29-36`). Les quatre bancs rendent
+(`scripts/c11_relation_columns_runtime.py:29-36`). Les cinq bancs rendent
 un rapport `passed`.
 
 Répétition réelle, sur le paquet base de données (`data.db` sans `storage/`)
@@ -2354,22 +2382,34 @@ dossier du backup :
   --schema <export corrigé> \
   --source-version 0.22.34 \
   --source-migrations <source gelée>/migrationsDir \
+  --accept-divergence jsonb_key_order_normalized=D-0029 \
+  --accept-divergence number_served_as_text=D-0039 \
+  --accept-divergence sqlite_integer_boolean_served_as_boolean=D-0039 \
   --report <nouveau rapport public>.json \
   --private-dir <nouveau dossier privé>
 ```
 
 Deux passages par défaut (`--passes`), conteneur limité par défaut à 2 Gio et
-2 CPU (`--memory`, `--cpus`) ; `--source-migrations` ajoute le contrôle
-d'idempotence de D-0022 (L8) ; `--accept-divergence CODE=D-NNNN` seulement
-pour un écart décidé. Codes de sortie : 0 si le rapport est `passed` et que
-son contrôle de confidentialité passe ; 1 sinon, le rapport public n'étant
-écrit qu'après ce contrôle ; 2 si la commande est refusée avant tout passage
-(interpréteur non isolé ; données, manifeste ou export absents ; sorties
-qui ne sont pas des chemins neufs ; parent du dossier privé accessible à
-d'autres que son propriétaire ; code de divergence inconnu). Options et
-codes relevés par `--help` et dans `main()` sur `c11/ws-g` (`456dbae`),
-à revérifier au commit de release. Le rapport final publié est
-`docs/c11-real-rehearsal-report.json` (2.2).
+2 CPU, `/dev/shm` de 512 Mio (`--memory`, `--cpus`, `--shm-size`), lots de
+5 000 (`--batch-size`) ; `--source-migrations` ajoute le contrôle
+d'idempotence de D-0022 (L8). `--accept-divergence CODE=D-NNNN` ne vaut que
+pour un code dont la section de décision existe : sans la ligne
+`Statut : acceptée par l'utilisateur le AAAA-MM-JJ`, le code passe comme
+divergence documentée dont l'acceptation reste demandée
+(`acceptance_still_requested`), comme dans le rapport final ; avec elle, il
+est rangé dans `accepted_divergences` (2.1). Codes de sortie : 0 si le
+rapport est `passed` et que son contrôle de confidentialité passe ; 1 sinon,
+le rapport public n'étant écrit qu'après ce contrôle ; 2 si la commande est
+refusée avant tout passage (interpréteur non isolé ; données, manifeste ou
+export absents ; interpréteur, code ou sorties à l'intérieur du dossier du
+backup ; sorties qui ne sont pas des chemins neufs ; parent du dossier privé
+accessible à d'autres que son propriétaire ; dossier privé dans le dépôt
+sans être ignoré par Git ; rapport dans le dépôt sans code commité ;
+`--source-migrations` qui n'est pas le `migrationsDir` gelé ; code de
+divergence inconnu ou sans décision). Options et codes relevés par `--help`
+et dans le code à `a99a2a4` (`scripts/c11_real_rehearsal.py:422-455`,
+`:4518-4529`, `:4661`). Le rapport final publié est
+`docs/c11-real-rehearsal-report.json` (2.2, D-0041).
 
 Sur données réelles, le serveur PPBase de la répétition porte les secrets de
 jetons et le SMTP de production importés et accepte les sessions réelles
@@ -2383,9 +2423,10 @@ Côté PPBase, `pytest -p no:cacheprovider -q tests` au commit de release :
 aucun échec nouveau, et chacun des échecs antérieurs analysé et consigné
 avant G0, attente du test comparée au comportement de PocketBase 0.22.34,
 source citée, ou corrigé. Au commit `c6821aa`, la phase 0 de la session
-serveur en a relevé dix (`docs/progress/ledger.md`). À `237b403`,
-l'orchestrateur en a relevé cinq, tous parmi ces dix, à consigner au ledger :
-collision de routes
+serveur en a relevé dix (`docs/progress/ledger.md`). À `237b403` puis à
+`069e0bb`, l'orchestrateur en a relevé cinq, les mêmes, tous parmi ces dix
+(à `069e0bb` : 2 120 passés, 72 sautés, 5 échecs ; journal de session de
+l'orchestrateur, à consigner au ledger) : collision de routes
 (`test_flask_like_pb_routing::test_route_collision_with_core_routes_is_blocking`),
 routeur des hooks (`test_hooks_api::test_hooks_api_router_is_registered`) et
 options ou durées de jeton attendues (deux tests de
