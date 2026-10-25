@@ -1705,12 +1705,20 @@ Pendant la surveillance renforcée, d'une durée fixée par le décideur (I21) :
   révocation globale seulement par 6.12 ;
 - PostgreSQL : violations de contraintes, interblocages, attentes de verrous,
   saturation des connexions (10 + 20 par processus PPBase, I6), requêtes
-  lentes, disque et WAL ;
+  lentes, disque et WAL ; en particulier la vue des dépenses
+  `buma_caisse_transaction_by_categorie_list_view`, 2,5 à 3,5 fois plus lente
+  depuis `1789236851` (L20, D-0039) : durées du comptage, de la première page
+  et des listes complètes comparées à L20, seuil fixé par le décideur (I21) ;
 - métier : numéros de transaction sans doublon, rejeux mobiles sans doublon
   (retour, recharge et conversion recherchent la clé d'idempotence, D-0022),
   ouverture et fermeture des sessions de caisse, soldes cohérents selon les
-  référents ;
-- fichiers : envois et téléchargements, avec leurs en-têtes ;
+  référents ; mises à jour que PocketBase aurait refusées pour un champ
+  requis non modifié (D-0042), invisibles dans les statuts : à suivre selon
+  la décision de 2.1 ;
+- fichiers : envois et téléchargements, avec leurs en-têtes. Un fichier
+  envoyé à PPBase n'a pas de side-car `.attrs` et une suppression laisse le
+  side-car en place (D-0037 ; `docs/file-serving.md` de PPBase, « Known
+  differences with PocketBase ») : à relever pour le retour arrière (8.3) ;
 - journal de requêtes PPBase : chaque requête est enregistrée dans
   `_requests` (`ppbase/middleware/request_logger.py:1-6`), avec des extraits
   de corps de requête et de réponse jusqu'à 32 Kio et le seul masquage des
@@ -1723,11 +1731,36 @@ Pendant la surveillance renforcée, d'une durée fixée par le décideur (I21) :
   `hide_parameters` (`ppbase/db/engine.py:45-49`, D-0027) ; chaque email
   envoyé y laisse son destinataire (`ppbase/services/mail_service.py:69-72`) ;
   `PPBASE_DEV` reste désactivé ; accès restreint et conservation décidée ;
-- sauvegardes : PostgreSQL et dossier de données PPBase selon I18 ;
-  sauvegardes natives de PPBase seulement si `backups.cron` est renseigné
-  (`ppbase/backup/automation.py:144-175`, lancées par
-  `ppbase/app.py:280-284`) : à surveiller dans ce cas (rotation
-  `cronMaxKeep`, archives dans le dossier de données).
+- sauvegardes : PostgreSQL par `pg_dump` et dossier de données PPBase selon
+  I18 (C-47). Les sauvegardes natives de PPBase, lancées seulement si
+  `backups.cron` est renseigné (`ppbase/backup/automation.py:144-175`,
+  `ppbase/app.py:280-284`), refusent cette base : `backups.cron` reste vide
+  (C-26).
+- **C-47**, sauvegarde et restauration d'essai. La sauvegarde native de
+  PPBase refuse une table hors de son modèle et tout déclencheur ou fonction
+  non géré (`ppbase/backup/native.py:276-289`,
+  `ppbase/backup/schema_contract.py:29-33`) : ici les archives de l'import
+  (`_buma_c11_rowids`, `_buma_c11_auth_archive`), la fonction et les
+  déclencheurs rowid de `1789236848` (`buma_allocate_sqlite_rowid`,
+  `buma_sqlite_rowid` sur `users` et `buma_article`) et la fonction
+  `buma_source_rowids` de `1789236851` (D-0039). Or `_buma_c11_rowids` et
+  `buma_source_rowids` portent les rowids source de tous les records importés
+  (`passes[i].checks.rowids.archive_rows` du rapport final : 1 188 247), la
+  numérotation des sept vues `ROW_NUMBER()` et l'ordre des concaténations de
+  D-0039 ; sans l'archive, cet ordre retombe sur `created, id`
+  (`pb_migrations/1789236851_c11_view_sqlite_semantics.py:89-99`). Ils sont
+  donc conservés après la bascule, et toute sauvegarde ou restauration de la
+  base passe par `pg_dump` de la base entière (format personnalisé) et
+  `pg_restore` dans une base neuve, aucun serveur PPBase ne tournant sur la
+  base restaurée pendant la restauration. Critère, avant la fin de la
+  surveillance renforcée : une première sauvegarde faite, puis restaurée à
+  l'essai dans une base jetable, jamais sur la production :
+  `_buma_c11_rowids` y compte autant de lignes que de records importés
+  (C-17), `_buma_c11_auth_archive` y est, les deux fonctions et les deux
+  déclencheurs aussi, et `scripts/verify_complete_schema.py` et
+  `scripts/verify_view_queries.py` y sont conformes (C-16) ; empreinte de la
+  sauvegarde consignée [outil non attribué pour comparer la numérotation des
+  vues entre la base et sa restauration]. Non exécuté par les répétitions.
 
 Fin : le décideur clôt la surveillance ; `H_stop` est revérifiée ; PocketBase
 et la capture sont conservés selon I17.
@@ -1793,27 +1826,30 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | Porte | Critère | Seuil |
 | --- | --- | --- |
 | G0 | autorisations (2.1) et informations I1 à I25 | 100 % fournies |
-| G0 | code de release et PPBase exigé (2.2, C-45) | commits du rapport final, fichiers suivis inchangés, `ppbase.models.field_multiplicity` et `ppbase.middleware.error_compat` présents |
-| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques, divergences acceptées seulement par décision ; durées de 5.1 et ressources de 5.2 reportées |
+| G0 | code de release et PPBase exigé (2.2, C-45) | BUMA : `code.buma.commit` du rapport final ou descendant dont la différence ne touche que `docs/` ; PPBase : `code.ppbase.commit` (`069e0bb`) ; fichiers suivis inchangés ; modules de C-45 présents |
+| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques ; après les acceptations de 2.1, `acceptance_still_requested` vide et `accepted_divergences` limité aux trois codes acceptés ; durées de 5.1 et ressources de 5.2 reportées |
+| G0 | acceptations de l'utilisateur (2.1) : D-0029, D-0036, D-0039, D-0042 | une ligne `Statut : acceptée par l'utilisateur le AAAA-MM-JJ` dans chacune des quatre sections, ou correction intégrée et bancs de l'annexe A rejoués |
+| G0 | tableau de bord PPBase et collation de la base de production (2.2) | `/_/` construit et servi sur staging ; texte trié par octets, ou écart décidé |
+| G0 | politique de sauvegarde (2.1, I18, C-47) | `pg_dump` de la base entière retenu, `backups.cron` vide |
 | G0 | porte de release (annexe A) | 0 échec ; 100 % des échecs PPBase antérieurs analysés |
 | G0 | outils de 10.2 nécessaires aux portes G1 à G4, dont l'import de production | écrits, relus, testés, autorisés |
 | G0 | version de la production (2.2, C-02) | binaire 0.22.34, empreinte officielle |
 | G0 | révision des hooks et migrations déployés (2.2) | hooks égaux au build de `530018c`, toute différence décidée ; 0 migration en attente |
 | G0 | gel du schéma et diagnostic à blanc (2.4, 6.1) | règles de 2.4 respectées ; C-05 et C-07 à C-13 conformes ; L4 à L9 mesurées en mode complet |
 | G0 | machines (C-46) | décision consignée pour chaque hôte |
-| G0 | écarts et constats de la section 10 | 100 % corrigés ou décidés ; D-0029 accepté ou corrigé |
+| G0 | écarts et constats de la section 10 | 100 % corrigés ou décidés, en-têtes de sécurité, emails et STARTTLS compris (10.4) |
 | G0 | staging autorisé et isolé ; scénarios desktop, mobile et administration | 100 % passants |
 | G1 | machines revérifiées avant le gel (C-46) | aucune exécution planifiée dans la fenêtre, ou décision appliquée |
 | G1 | requêtes transmises à PocketBase après `T_gel` (C-01) | 0 hors opérateur |
 | G1 | version du binaire (C-02) | 0.22.34, empreinte officielle |
-| G1 | inventaire (C-05) | 0 blocage, 1 `data.db`, WAL et journal absents ou vides |
-| G1 | empreintes de capture, transfert et extraction (C-03, C-04, C-06) | 0 écart |
+| G1 | inventaire (C-05 ; méthode B : son équivalent de 6.3) | 0 blocage, 1 `data.db`, WAL et journal absents ou vides ; méthode B : aucun lien ni fichier spécial |
+| G1 | empreintes de capture, transfert et extraction (C-03, C-04, C-06 ; méthode B : équivalent de C-04 et manifeste de la copie) | 0 écart |
 | G2 | intégrité et schéma (C-07) | `ok`, 0 dérive sur 114, hors règle `buma_sql_table` décidée (2.4) |
 | G2 | `_migrations` (C-08) | a) 325 sur 326, seule `1785599959` absente ; b) 14 sur 14 ; c) 0 disparue, 0 nouvelle hors console |
 | G2 | clés `idem:` dupliquées (C-09), records postérieurs à `T_gel` ou `T_gel'` (C-10) | 0 et 0 |
 | G2 | diminutions de comptage (C-11) | toutes expliquées et acceptées |
 | G2 | situations non couvertes (C-13) | 0 |
-| G3 | cible et migrations (C-14 à C-16) | base neuve, onze migrations, `Pending: 0`, `ok`, 42 sur 42 |
+| G3 | cible et migrations (C-14 à C-16) | base neuve, douze migrations appliquées avant l'import, `Pending: 0`, `ok`, 42 sur 42 |
 | G3 | comptages, empreintes, rowids (C-17 à C-19) | 72/72, 72/72, 100 % |
 | G3 | tableaux, orphelins, fichiers absents, doublons (C-20 à C-23) | 0 écart avec la capture |
 | G3 | comptes, superusers, paramètres (C-24 à C-26) | 100 % identiques ; `meta.appURL` et `PPBASE_SMTP_*` conformes |
@@ -1824,9 +1860,10 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | G4 | contrôles avant ouverture (C-31 à C-38) | 100 % passants selon les règles de 6.9 : statut, content type, en-têtes significatifs et corps égaux à PocketBase 0.22.34, erreurs comprises ; 0 réponse 5xx |
 | G4 | continuité des sessions (C-34) | 100 % des comptes de contrôle |
 | G4 | comparaison avec PocketBase (C-39), si l'outil existe | 0 écart inexpliqué |
-| G4 | écritures pendant les contrôles (C-41) | 0 dans les 72 tables |
+| G4 | écritures pendant les contrôles (C-41) | 0 dans les 72 tables, les archives de l'import, `_collections`, `_params` et `_superusers` ; comptes et signature du schéma inchangés |
 | G5 | URL publique et premières opérations (C-42, C-43) ; tâches externes redirigées (6.10) | 100 % |
 | G6 | surveillance | seuils ci-dessous |
+| G6 | sauvegarde et restauration d'essai (C-47) | conformes avant la fin de la surveillance renforcée |
 
 Seuils proposés pour G6, à valider par l'utilisateur (I21) ; aucun n'est une
 mesure :
@@ -1843,7 +1880,9 @@ mesure :
 - un compte valide qui ne peut plus se connecter, hors erreur de mot de
   passe : décision ;
 - soupçon de fuite d'un jeton ou d'un secret : décision de révocation
-  (6.12).
+  (6.12) ;
+- vue des dépenses au-delà du seuil fixé au regard de L20 (6.11) : analyse ;
+  écrans de caisse inutilisables : décision.
 
 ## 8. Retour arrière
 
@@ -1895,10 +1934,10 @@ mesure :
 1. Geler PPBase immédiatement (maintenance au proxy) et suspendre les tâches
    externes redirigées vers lui (6.10, étape 4), chacune consignée ; noter
    `T_gel2`. Plus aucun client ni aucune tâche n'écrit.
-2. Conserver PPBase : sauvegarde complète de la base de production (par
-   exemple `pg_dump` au format personnalisé), manifeste de `storage/`
-   [outil non attribué, celui de C-30] et journaux, dans `<privé>`,
-   empreintes consignées.
+2. Conserver PPBase : sauvegarde complète de la base de production par
+   `pg_dump` au format personnalisé (la sauvegarde native de PPBase refuse
+   cette base, C-47), manifeste de `storage/` [outil non attribué, celui de
+   C-30] et journaux, dans `<privé>`, empreintes consignées.
 3. **Arrêter PPBase** (service de production) et vérifier qu'il n'écoute
    plus et que son processus est terminé, tâches de fond comprises
    (realtime, sauvegardes automatiques, surveillance des hooks) ; consigner
@@ -1907,7 +1946,9 @@ mesure :
 4. Relever les écritures reçues entre `T_ouverture` et `T_gel2` : records
    créés, modifiés ou supprimés ; métadonnées de collections modifiées (par
    exemple la vue `buma_sql_table` par `executeSql`) ; fichiers ajoutés ou
-   retirés ; comptes modifiés (mot de passe, `tokenKey`) ; rotation d'urgence
+   retirés, en sachant qu'un fichier envoyé à PPBase n'a pas de side-car
+   `.attrs` et qu'une suppression laisse le side-car du fichier supprimé
+   (D-0037) ; comptes modifiés (mot de passe, `tokenKey`) ; rotation d'urgence
    éventuelle (6.12). `updated` ne suffit pas, une suppression ne laissant
    pas de trace : comparer l'état de PPBase ligne à ligne à la capture,
    inchangée [outil non attribué]. La table `_requests` aide à reconstituer
@@ -1919,7 +1960,14 @@ mesure :
    écrit et testé sur staging avant usage [outil non attribué]. Jamais
    d'écriture SQL directe dans `data.db`. Avant toute ressaisie, vérifier
    qu'un client ne l'a pas déjà rejouée vers PocketBase (`mobile_message_id`,
-   `system_id`).
+   `system_id`). Un fichier ressaisi par l'API de PocketBase reçoit son
+   side-car de PocketBase (`tools/filesystem/filesystem.go:187-215`). Un
+   outil qui recopierait des fichiers de PPBase dans `pb_data/storage` doit
+   écrire ce side-car comme PocketBase, faute de quoi PocketBase sert le
+   fichier en `application/octet-stream`, `attachment`, sans miniature
+   (`docs/file-serving.md` de PPBase, « Known differences with
+   PocketBase ») ; critère : 0 fichier recopié sans side-car, 0 side-car
+   orphelin recopié.
 6. Puis 8.2, étape 1 (PPBase arrêté, vérifié à l'étape 3) et étapes 3 à 9.
 
 Impact client d'un retour après ouverture (D-0027 ; contrat
@@ -1929,7 +1977,10 @@ Impact client d'un retour après ouverture (D-0027 ; contrat
 - les opérations faites dans PPBase manquent dans PocketBase jusqu'à leur
   ressaisie, et leurs IDs n'y existent pas ;
 - les fichiers envoyés et les changements de compte faits dans PPBase (mot de
-  passe, email, vérification) n'y sont pas ; un jeton à usage 0.22 consommé
+  passe, email, vérification) n'y sont pas ; un fichier envoyé à PPBase et
+  recopié sans side-car serait servi par PocketBase en
+  `application/octet-stream`, `attachment`, sans miniature (étape 5) ; un
+  jeton à usage 0.22 consommé
   sur PPBase reste utilisable sur PocketBase jusqu'à son `exp` (mesuré) ; le
   sort, sur PocketBase, des jetons à usage émis par PPBase après la bascule
   n'est pas mesuré ;
@@ -1955,7 +2006,12 @@ Impact client d'un retour après ouverture (D-0027 ; contrat
 Déclarée par le décideur (I21). Ensuite, le retour n'est plus planifié ; le
 `pb_data` de PocketBase et la capture sont archivés en lecture seule selon
 I17, jamais supprimés sans décision ; le service PocketBase reste arrêté, son
-redémarrage automatique désactivé par décision consignée.
+redémarrage automatique désactivé par décision consignée. Les archives de
+l'import (`_buma_c11_rowids`, `_buma_c11_auth_archive`) et la fonction
+`buma_source_rowids` restent dans la base de production au-delà de cette
+fin, dans chaque sauvegarde et chaque restauration (C-47) ; toute suppression
+exige une décision, qui en mesure d'abord l'effet sur les rowids et les vues
+(D-0039).
 
 ## 9. Journal de bascule
 
@@ -1969,14 +2025,16 @@ empreintes de fichiers.
 | `<…>` | 6.3, C-03 | `H_stop` calculée | empreintes consignées | `<privé>/…` | `<…>` | `<…>` | — |
 | `<…>` | G2 | relecture du diagnostic | conforme ou écart | `<privé>/…` | `<…>` | `<…>` | GO ou NO-GO |
 
-À consigner au minimum : autorisations et méthodes retenues ; décisions sur
+À consigner au minimum : autorisations et méthodes retenues ; les quatre
+acceptations de 2.1, avec leur date ; décisions sur
 les écarts et constats de la section 10 ; décisions de l'infrastructure sur
 les machines (C-46) ; diagnostic à blanc, ses durées et sa référence ;
 commits BUMA et PPBase (C-45) ; `T_gel`, capture, arrêt de PocketBase,
 `H_stop` ; chaque redémarrage sous gel et son `T_gel'` ; chaque suspension et
 chaque rétablissement d'une tâche externe ou d'un redémarrage automatique ;
 empreinte de la capture ; chaque rapport et son empreinte ; chaque contrôle
-C-01 à C-46 et chaque porte G0 à G6 avec sa décision ; destruction des
+C-01 à C-47 et chaque porte G0 à G6 avec sa décision ; collation de la base
+de production ; empreinte de chaque sauvegarde `pg_dump` ; destruction des
 jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 (6.12), sans valeur ; en cas de retour, `T_gel2`, l'arrêt de PPBase,
 `T_retour` et le relevé des écritures ; fin de la période de retour arrière.
