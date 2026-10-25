@@ -1369,11 +1369,29 @@ def compare_repeatable(first, second, path: str = "$") -> list[str]:
     return [] if first == second else [path]
 
 
+# Signature lines an import archive table gives (target_signature): 'table
+# NAME', and its columns, defaults, constraints and indexes as 'KIND NAME.x ...'.
+ARCHIVE_LINE_KINDS = frozenset({"column", "default", "constraint", "index"})
+
+
+def archive_line(line: str) -> bool:
+    """Whether a signature line describes an import archive table itself: kind
+    'table' and exactly an archive name, or a column, default, constraint or
+    index whose object starts with 'ARCHIVE.' (never a name merely containing it)."""
+    kind, _, rest = line.partition(" ")
+    if kind == "table":
+        return rest in ARCHIVE_TABLES
+    target = rest.split(" ", 1)[0]
+    return kind in ARCHIVE_LINE_KINDS and any(
+        target.startswith(table + ".") for table in ARCHIVE_TABLES
+    )
+
+
 def signature_difference(before: list[str], after: list[str]) -> dict:
     """Schema lines added or removed; only the two import archives may appear."""
     added = sorted(set(after) - set(before))
     removed = sorted(set(before) - set(after))
-    unexpected = [line for line in added if not any(table in line for table in ARCHIVE_TABLES)]
+    unexpected = [line for line in added if not archive_line(line)]
     return {
         "lines_added": len(added),
         "lines_removed": len(removed),

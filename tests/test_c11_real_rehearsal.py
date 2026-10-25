@@ -619,6 +619,40 @@ def test_signature_difference_allows_only_the_import_archives():
     assert not removed["only_import_archives_added"]
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        # Objects of another table whose name merely contains an archive name.
+        "column users._buma_c11_rowids text",
+        "index users.users__buma_c11_rowids_idx CREATE INDEX users__buma_c11_rowids_idx "
+        "ON public.users USING btree (id)",
+        "constraint buma_sale._buma_c11_auth_archive_fk FOREIGN KEY (id) "
+        "REFERENCES _buma_c11_auth_archive(record_id)",
+        "trigger _buma_c11_rowids.guard O CREATE TRIGGER guard BEFORE INSERT "
+        "ON public._buma_c11_rowids FOR EACH ROW EXECUTE FUNCTION f()",
+        "function public._buma_c11_rowids_copy() 0123",
+        "table _buma_c11_rowids_shadow",
+        "table x_buma_c11_auth_archive",
+        "view _buma_c11_rowids_view 0123",
+        "default buma_sale.note '_buma_c11_rowids'::text",
+    ],
+)
+def test_signature_difference_tolerates_only_the_archive_objects_themselves(line):
+    before = ["table users"]
+    difference = rehearsal.signature_difference(before, [*before, "table _buma_c11_rowids", line])
+    assert difference["only_import_archives_added"] is False
+    assert difference["unexpected_lines"] == 1
+    assert not rehearsal.archive_line(line)
+    for allowed in (
+        "table _buma_c11_auth_archive",
+        "column _buma_c11_rowids.auth_legacy jsonb not null",
+        "default _buma_c11_rowids.x 0",
+        "constraint _buma_c11_rowids._buma_c11_rowids_collection_id_source_rowid_key UNIQUE",
+        "index _buma_c11_auth_archive._buma_c11_auth_archive_pkey CREATE UNIQUE INDEX",
+    ):
+        assert rehearsal.archive_line(allowed)
+
+
 def test_metadata_changes_allowed_only_for_imported_auth_options():
     before = {
         "users": {"schema": [], "options": {"authToken": {"duration": 1}, "minPasswordLength": 8}},
