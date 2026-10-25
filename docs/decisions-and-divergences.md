@@ -866,7 +866,10 @@ fusionnée dans `fix/d0019-relation-maxselect` en `237b403`) et WS-C2 (BUMA, ban
 contrat alignés sur le PPBase corrigé, fusionnés dans `c11/integration` en
 `0bb0b93` ; rapport `docs/c11-auth-runtime-report.json` régénéré avec l'aperçu PPBase
 `22929a0` = fix + WS-A5 + WS-A2). Banc rejoué par l'orchestrateur sur
-`c11/integration` avec PPBase `237b403` : passant. Applique le choix par défaut du
+`c11/integration` avec PPBase `237b403`, puis sur l'état intégré final (PPBase
+`fix/d0019-relation-maxselect` et raccordement BUMA du mode d'erreur 0.22, D-0034) :
+passant, rapport régénéré sur cet état (révisions relevées dans le rapport et au
+ledger). Applique le choix par défaut du
 plan (§2) : reprendre les secrets de jetons pour que les sessions continuent. La
 correspondance suit la mise à niveau officielle de PocketBase
 (`v0.23.0 migrations/1717233556_v0.23_migrate.go`) partout où PPBase sait
@@ -967,29 +970,28 @@ binaire 0.22.34 :
   utiliser). Après une rotation, un retour arrière vers PocketBase fait revivre
   les sessions révoquées ;
 - enveloppe d'erreur : PocketBase 0.22.34 répond `{code, message, data}`
-  (`apis/api_error.go` l.12-15), la version actuelle `{status, message, data}`
-  (v0.40.6 `tools/router/error.go` l.36-42). Le PPBase intégré (`237b403`, fusion de
-  WS-A5) recopie `status` dans `code` pour toutes ses erreurs JSON
-  (`ErrorEnvelopeCodeMiddleware`, `ppbase/app.py` l.427-429,
-  `docs/error-envelope.md`, test `tests/test_error_envelope.py`) : un client 0.22
-  qui lit `response.code` (JS) ou `response['code']` (Dart) le trouve ; restent la
-  clé `status` en plus, pour un client qui compare tout le corps, et les messages
-  de la version actuelle (« Only superusers… » au lieu de « Only admins… ») ;
+  (`apis/api_error.go` l.12-15), la version actuelle et PPBase par défaut
+  `{status, message, data}` (v0.40.6 `tools/router/error.go` l.36-42 ; la recopie
+  de `status` dans `code` de `237b403` est retirée du PPBase intégré). BUMA active
+  le mode d'erreur PocketBase 0.22 de PPBase (`pb.set_error_compat("0.22")`,
+  D-0034) : `{code, message, data}` et messages de 0.22.34 ; mesuré sur les 22 refus
+  du banc (mêmes statuts, mêmes libellés, mêmes clés d'enveloppe des deux côtés,
+  désormais exigées par le banc). Écarts restants du mode : D-0034 ;
 - corps de refus des jetons d'usage, statuts identiques (WS-C2) : changement
   d'e-mail avec un jeton invalidé, PPBase ne signale que `token` (0.22.34 aussi
   `password`) ; mauvais mot de passe : `validation_invalid_credentials` au lieu de
-  `validation_invalid_password` ; reset avec un jeton invalidé : « Failed to confirm
-  password reset. » au lieu de « Something went wrong while processing your
-  request. ». Impact : un client qui affiche le message ou lit `data.password` ;
-  aucun appelant BUMA connu. Test : `PURPOSE_KNOWN_DIVERGENCES` du banc, épinglé
-  des deux côtés ;
+  `validation_invalid_password` (le message du reset avec un jeton invalidé est,
+  lui, celui de 0.22.34 sous le mode 0.22). Impact : un client qui lit
+  `data.password` ou ces codes ; aucun appelant BUMA connu. Test :
+  `PURPOSE_KNOWN_DIVERGENCES` du banc, épinglé des deux côtés ;
 - les pages `/_/#/auth/confirm-*` et `/_/#/confirm-password-reset` ouvertes par les
   liens e-mail (0.22 comme PPBase) n'existent pas dans le dashboard PPBase : ces
   liens ne valent que si un client poste le jeton à l'API ; sinon l'utilisateur
   arrive sur la connexion ;
-- `POST /api/files/token` sans auth répond 401 « The request requires
-  authentication. » au lieu de 400 « Failed to generate file token. » (mesuré par
-  la relecture WS-A2) ; aucun champ fichier protégé dans BUMA ;
+- `POST /api/files/token` sans auth répond 401 (sous le mode 0.22, avec le message
+  de garde « The request requires admin or record authorization token to be set. »)
+  au lieu de 400 « Failed to generate file token. » (mesuré par la relecture WS-A2) ;
+  aucun champ fichier protégé dans BUMA ;
 - forme de `GET /api/settings` (clés propres à PPBase) ; un PATCH sans changement
   n'écrit rien et ne diffuse rien ;
 - identité realtime `collectionId:id` (version actuelle) contre l'id seul en
@@ -1029,3 +1031,406 @@ PocketBase/PPBase, jetons d'usage, révocation, exposition des secrets, retour
 arrière, trois rollbacks injectés aux étapes des comptes et l'import concurrent ;
 l'échec côté records est prouvé par `scripts/c11_rehearsal.py`), tests PPBase de
 WS-A2.
+
+## D-0030 — C11 SÉCURITÉ : multi-match et LEFT JOIN de PocketBase 0.22.34 dans les règles (faille des règles users)
+
+Constat de la session serveur du 2026-10-24 (chantier PPBase WS-A3, sonde appariée
+avec le binaire officiel 0.22.34) : `users.createRule` et `users.updateRule`
+commencent par `@collection.users.id = @request.auth.id`. PocketBase 0.22.34 ajoute
+à toute comparaison sans `?` qui passe par `@collection`, une relation multiple ou
+une relation inverse sans index unique une sous-requête « aucune ligne ne doit
+échouer » (`tools/search/filter.go` l.183-215 et l.569-706 ;
+`resolvers/record_field_resolve_runner.go` l.144-182) : avec deux comptes ou plus,
+la clause est fausse, et toujours fausse à la création (le compte créé est déjà dans
+la table, `apis/record_crud.go` l.215-260). PPBase (jusqu'à `526397a`) utilisait un
+EXISTS « au moins une ligne ». Mesuré : un utilisateur ordinaire créait des comptes
+(200 au lieu de 400), modifiait le sien et ceux des autres (200 au lieu de 404) et
+pouvait s'attribuer le rôle administrateur. Données réelles (agrégats) : 20 comptes,
+dont 4 à rôle isAdmin et aucun rôle `user.create` ni `user.update` : les 16 autres
+pouvaient s'élever administrateurs.
+
+Correction PPBase (branche `c11/ws-a3`, incluse dans `c11/ws-a5`) : chemins relation,
+relation inverse et `@collection` en LEFT JOIN partagés par préfixe (une cible absente
+ou orpheline donne une feuille NULL), `=` et `!=` selon `resolveEqualExpr`,
+multi-match pour les opérateurs sans `?` avec la clause NULL de 0.22.34 ; liste par
+un invité ou un record dont `filter` ou `sort` contient `@collection.` ou `@request.` :
+403 « Only admins can filter by … » (`apis/record_helpers.go` l.319-345). Les
+comportements de la version actuelle ne sont pas repris (clause NULL et dry submit
+retirés en v0.24.0) : les clients BUMA sont sur 0.22.34.
+
+Impact client, identique à la production : un utilisateur ordinaire ne peut plus créer
+ni modifier de compte ; `buma_pdv.deleteRule` (`client.id = '' && agent.id = ''`)
+autorise désormais, comme PocketBase, la suppression des 1 930 PDV réels sans client
+ni agent ; `rels.x = v` exige que toutes les lignes liées correspondent. Écart restant :
+une création refusée par la règle répond `data.rule` au lieu de `data: {}`.
+Régressions : `tests/integration/test_multi_match_rules.py` (53 filtres et matrice des
+règles BUMA), `tests/integration/test_admin_only_filter_fields.py`, six anciens xfail
+stricts devenus tests, sonde `relation_multiplicity_probe.py --groups multimatch,buma_rules`.
+
+## D-0031 — C11 SÉCURITÉ : colonnes auth cachées non filtrables, valeurs @request absentes sans erreur
+
+Chantier PPBase WS-A5 (branche `c11/ws-a5`), sondes appariées avec le binaire 0.22.34.
+
+1. **Colonnes cachées.** PPBase résolvait tout identifiant vers sa colonne physique :
+   avec `users.listRule = ""`, un anonyme pouvait tester `password_hash~"$2a$12$A"`,
+   `token_key!=""` ou un e-mail masqué (200 avec correspondances : oracle
+   d'extraction). PocketBase 0.22.34 ne résout que les champs du modèle, du schéma et,
+   pour une collection auth, username, verified, emailVisibility et email
+   (`resolvers/record_field_resolve_runner.go` l.718-732) ; tout autre nom donne un 400
+   opaque, et email est restreint à `emailVisibility = TRUE` pour un non-admin
+   (l.356-375). Correction identique dans PPBase, sur les feuilles directes, de
+   relation, de relation inverse et de `@collection`, et sur le tri ; en realtime, la
+   règle d'accès (champs cachés permis) est séparée du filtre client (refusés) et le
+   contrôle `@collection.`/`@request.` s'applique au filtre et au tri d'abonnement.
+2. **Valeurs @request.* absentes.** La répétition réelle a montré des erreurs 500
+   (connexion fermée) pour un anonyme sur `buma_article_stockage`,
+   `buma_caisse_open_close`, `buma_customer`, `buma_employee_list_view`, `buma_pdv`,
+   `buma_pdv_list_view` : PPBase liait une valeur absente en `''` et générait
+   `$n IS NOT NULL` ou `'' = TRUE` (IndeterminateDatatypeError, DataError). PocketBase
+   la résout comme NULL (`resolvers/record_field_resolver.go` l.162-223) et n'échoue
+   jamais. Correction : égalités PostgreSQL équivalentes à PocketBase ; une clé de
+   permission absente du contexte BUMA vaut faux, comme NULL dans PocketBase.
+3. **Formes de liste.** `totalPages` d'une liste vide vaut 0 (`tools/search/provider.go`
+   l.254) ; un record sans relation développée n'a pas de clé `expand`
+   (`models/record.go` l.545-559).
+
+La première relecture a trouvé deux contournements, fermés avant approbation (tête
+`da2d25b`) : la forme qualifiée (`users.password_hash~…`, `users.token_key`,
+`users.email`) et les modificateurs d'un champ système (`email:lower`, `:length`,
+`:isset`, `:each`), désormais des champs inconnus (400 opaque, comme 0.22.34). Le
+payload realtime ne diffuse plus les e-mails masqués ; `emailVisibility` et
+`verified` envoyés en multipart (`"false"`, `"0"`) sont lus comme `cast.ToBool` ; une
+valeur `@request.*` présente mais non booléenne comparée à `true` ne produit plus de 500.
+
+Impact client : aucune règle ni aucun filtre BUMA (114 définitions, `app/`, source
+gelée) ne référence un champ désormais refusé ; les listes anonymes et les rôles
+partiels reçoivent 200 et les records autorisés au lieu d'une erreur 500. Écarts
+restants : une règle référençant un champ caché n'est pas refusée à l'enregistrement
+de la collection (aucune règle BUMA) ; username n'est filtrable que sur les
+collections auth qui ont la colonne physique (cas de BUMA) ; `?=` et `?!=` comparés à
+une valeur `@request.*` absente ne correspondent plus à rien, alors que PocketBase la
+traite comme vide (`resolveEqualExpr`) : la seule règle BUMA concernée,
+`buma_wallet.viewRule` (`@request.auth.id ?= managers`), est précédée de
+`@request.auth.id != ''`, donc sans effet ; PPBase accepte encore les modificateurs
+`:lower` et `:changed` sur les champs du schéma, que 0.22.34 refuse (extension
+antérieure, aucun usage BUMA). Régressions :
+`tests/integration/test_hidden_auth_filter_fields.py`,
+`tests/integration/test_request_static_rules.py`, `tests/test_filter_parser_request_static.py`,
+sondes `hidden_fields_probe.py` et `request_static_rules_probe.py`.
+
+## D-0032 — C11 : dates vides servies, filtrées et triées comme PocketBase
+
+PocketBase stocke une date vide en `''` et la sert `""` (`tools/types/datetime.go`
+l.40-58) ; PPBase la stocke en NULL (colonne `TIMESTAMPTZ NULL`, inchangée) et la
+servait `null`. Le backup réel contient 335 972 dates vides dans 10 des 18 champs date.
+Correction PPBase (chantier WS-A4, intégré à `c11/ws-a5`) : une date vide est servie
+`""` dans toutes les réponses de records ; filtres (`= ""`, `!= ""`, comparaisons) et
+tri (ASC et DESC) donnent les résultats de PocketBase ; aucune migration de données.
+Écarts restants documentés (`docs/empty-dates.md` de PPBase) : une colonne de vue
+NULL par LEFT JOIN (sans ligne correspondante) ne se distingue pas d'une date vide :
+pour `<`, `<=`, `!~` et le tri ASC, PPBase la traite comme `""` là où PocketBase voit
+NULL (la relecture a montré que l'écart couvre aussi `<=`) ; une chaîne de date
+illisible est stockée `''` par PocketBase, refusée (400) par PPBase. Impact non mesuré :
+les filtres des clients BUMA (desktop, web, mobile) ne sont pas sur le serveur.
+Régressions : `tests/integration/test_empty_dates.py`, `tests/test_empty_dates.py`,
+sonde `empty_date_probe.py`.
+
+## D-0033 — C11 SÉCURITÉ : l'expand applique la viewRule de la collection liée, e-mails des auth records comme EnrichRecords
+
+Constat de WS-A5, vérifié par l'orchestrateur : `ppbase/services/expand_service.py`
+ne contrôlait aucune règle, alors que PocketBase 0.22.34 filtre chaque record
+développé par la viewRule de sa collection avec le contexte de la requête
+(`apis/record_helpers.go` : `RecordAuthResponse` l.105-116, `EnrichRecords` l.153-174,
+`expandFetch` l.177-210 ; `daos/record_expand.go` l.37-302 ; même structure en
+v0.40.6). Dans le schéma BUMA, 49 relations partent d'une collection lisible par un
+anonyme vers une cible dont la viewRule n'est pas publique (dont `buma_customer` 8,
+`buma_sim` 7, `buma_pdv` 7, `buma_agent` 6, `buma_supplier` 4,
+`buma_caisse_transactions` 1) : un anonyme y lisait par expand des records protégés
+(par exemple `buma_sale.customer`, `buma_customer_pdv.pdv`,
+`buma_payment.caisse_transaction`, `users.employee`, `buma_buy.supplier`). Constat
+complémentaire de la relecture : les réponses de création et de mise à jour d'un
+auth record renvoyaient toujours l'e-mail ; avec `users.updateRule` de BUMA, tout
+utilisateur connecté lisait l'e-mail caché d'un autre par un PATCH ; à l'inverse, la
+liste et la vue ignoraient la manageRule, si bien qu'un rôle admin BUMA ne voyait pas
+les e-mails que la production lui montre (`autoIgnoreAuthRecordsEmailVisibility`,
+l.216-279).
+
+Correction PPBase (chantier WS-A6, relu deux fois, fusionné par WS-A8, relu par deux relecteurs, intégré dans
+`fix/d0019-relation-maxselect` en `67bbc4f`) :
+chaque niveau développé est lu par une requête par chemin et par niveau, filtrée par
+la viewRule de sa collection avec le même évaluateur et le même contexte `@request.*`
+que la liste ; un admin voit tout ; une viewRule null fait échouer le chemin ; un
+niveau imbriqué refusé supprime le chemin entier ; les cibles refusées ou absentes
+sont omises dans l'ordre du champ ; back-relations `_via_` ; e-mails cachés montrés
+seulement à l'admin, au propriétaire et à qui satisfait la manageRule (liste, vue,
+création, mise à jour, batch, `enrich_records`, realtime) ; les réponses d'auth
+développent comme le record authentifié, avec le contexte de rôle fourni par l'hôte.
+
+Raccordement BUMA (`d0a6dc8`, fusionné dans `c11/integration`) : `pb.set_auth_record_rule_context(load_auth_record_context)`
+(`app/hooks/auth.py`) et `request_context=auth_response_rule_context(...)` dans la
+connexion par username (`app/auth/login.py`), qui développait sans aucune règle ni
+masquage (par exemple `agent_users.agent.parent` → `buma_customer`).
+
+Impact client, identique à la production : un anonyme ou un rôle sans le droit ne
+reçoit plus par expand les records protégés ; un rôle admin BUMA voit de nouveau les
+e-mails des users dans les listes ; un appelant non autorisé ne reçoit plus d'e-mail
+caché dans une réponse d'écriture ; la réponse d'inscription d'un invité masque
+l'e-mail sauf `emailVisibility` ; rien ne change pour un appelant autorisé. Écarts
+restants : ordre des back-relations par `ctid` (aucun client BUMA n'utilise `_via_`) ;
+quand la manageRule échoue à l'évaluation, 0.22.34 saute aussi l'expand des records
+principaux ; `@request.context` vaut `default`/`realtime` pendant l'expand (comme
+0.22.34, `expand` en v0.40.6) ; préexistants : inscription d'invité qui fixe
+`emailVisibility` refusée (403) au lieu d'acceptée, `fields=id,expand` retire
+l'expand. Realtime : l'e-mail caché du record principal n'est plus diffusé (correction
+WS-A5 gardée à la fusion ; 9 événements identiques au binaire) ; les événements
+`delete` restent envoyés `{id}` seul, aux seuls admins et abonnements à règle publique
+sans filtre, alors que 0.22.34 envoie le record complet développé à chaque abonné dont
+la règle et le filtre correspondaient avant la suppression (`apis/realtime.go`
+l.310-336, l.424-437) : écart ouvert, du côté restrictif (impact : un client BUMA
+abonné qui lit les champs d'un événement `delete` n'en reçoit que l'id, ou ne le reçoit
+pas s'il n'est pas admin et que la règle n'est pas publique), figé par
+`test_realtime_delete_events_carry_only_the_id` et mesuré par la sonde. Régressions : `tests/integration/test_expand_view_rules.py`,
+`tests/test_expand_service.py`, sonde `tests/pocketbase_parity/expand_rules_probe.py`
+(105 contrôles d'expand, 18 écritures, 8 réponses d'auth, 4 messages realtime) ; BUMA :
+`tests/test_auth_contract.py`.
+
+## D-0034 — C11 : erreurs au format PocketBase 0.22 pour BUMA (mode de compatibilité PPBase activé par BUMA)
+
+PocketBase 0.22.34 répond `{code, message, data}` (`apis/api_error.go` l.11-15) avec
+ses propres messages (« Only admins can perform this action. »,
+`apis/record_crud.go` l.57) ; la version actuelle et PPBase par défaut répondent
+`{status, message, data}` (v0.40.6 `tools/router/error.go` l.36-42) avec d'autres
+textes (« Only superusers … »). La répétition réelle sur le PPBase de l'aperçu :
+247 contrôles HTTP sur 256 identiques à PocketBase, les 9 autres étant cette
+enveloppe et ces libellés. Le corps seul ne distingue pas certains cas (création
+d'un admin et d'un utilisateur, validation et persistance, deux gardes).
+
+Correction PPBase (WS-A6, fusionné par WS-A8) : mode explicite, désactivé par défaut
+(`pb.set_error_compat("0.22")`, `PPBASE_ERROR_COMPAT=0.22`) ; un seul post-traitement
+central réécrit l'enveloppe de toute erreur JSON de PPBase en `{code, message, data}`
+avec le message de 0.22.34 (table citée, et étiquettes posées par les handlers dans un
+en-tête privé `x-ppbase-error-kind`, toujours retiré) ; les statuts ne sont jamais
+modifiés ; un corps propre à l'hôte n'est jamais réécrit ; les corps ont les octets
+d'echo (clés de `data` triées, `<`, `>`, `&` et U+2028 échappés, saut de ligne final :
+mesurés sur le binaire). À la fusion (WS-A8), la recopie de `status` dans `code`
+ajoutée par WS-A5 est retirée : le mode par défaut de PPBase redevient l'enveloppe
+exacte de la version actuelle, et toutes les erreurs ajoutées par WS-A5 et WS-A2
+(champs cachés, « Only admins can filter by … », formulaires et reset admin, gardes,
+corps illisibles, settings, backups) passent par le mode 0.22.
+
+Raccordement BUMA (`app/hooks/register.py`, première instruction de `register(pb)`) :
+`pb.set_error_compat("0.22")`.
+
+Impact client : les SDK 0.22 lisent de nouveau `code` et les messages de production.
+Écarts restants, épinglés par test : 7 statuts non réécrits (auth-refresh avec un
+jeton admin 403/401 ; route d'auth sur une collection de base 404/400 ; jeton de
+fichier sans auth 401/400 ; méthode inconnue 405/404 ; trois gardes de PPBase non
+utilisées par BUMA) ; détails de `data` (textes des contraintes de champ, doublon
+d'e-mail `validation_not_unique` au lieu de `validation_invalid_email`, violation
+d'index unique `data: {}`, jeton de vérification illisible, confirm-password-reset
+sans champs, identité admin vide, pas de limite de 2048 caractères de la query
+string) ; une exception non gérée reste un 500 en texte ; `POST /api/files/token` sans
+auth répond 401 avec le message de garde 0.22 au lieu de 400 « Failed to generate file
+token. » ; l'en-tête `Content-Type` des réponses JSON est `application/json` au lieu de
+`application/json; charset=UTF-8` (classe `json_content_type_charset` de la répétition
+synthétique, en-tête seulement ; propre à 0.22.34, qui l'hérite d'echo v5 ; v0.40.6
+envoie `application/json`, `tools/router/event.go` l.206 ; sans effet sur les SDK : le
+SDK Dart v0.18.1 décode le corps par `response.stream.bytesToString()`, en UTF-8 par
+défaut quel que soit l'en-tête, le SDK JS par `response.json()`). Mesures avec le raccordement BUMA : répétition
+synthétique complète 0.22.34 passante, 84 sondes dont 82 identiques en statut et corps,
+0 différence inattendue, enveloppes d'erreur identiques à l'octet ; banc des sessions :
+33 sur 33.
+Régressions : `tests/test_error_compat_unit.py`, `tests/integration/test_error_compat.py`,
+`tests/integration/test_error_compat_guards.py`, groupes `errors` et `guards` de la
+sonde ; BUMA : `tests/test_auth_contract.py`, répétitions synthétique et réelle.
+
+## D-0035 — C11 : totalItems compté comme PocketBase (COUNT(DISTINCT id))
+
+PocketBase compte les records d'une liste par `COUNT(DISTINCT id)` dans les deux
+versions (v0.22.34 `tools/search/provider.go` l.238-256, v0.40.6 l.300-320) ; PPBase
+comptait `COUNT(*)`. Les deux coïncident pour une collection de base (id unique),
+pas pour une vue à ids répétés : sur le vrai backup, la vue publique
+`buma_article_stockage_list_view` a 989 lignes pour 42 ids distincts ; PocketBase sert
+`totalItems` 42 (et `totalPages` calculé dessus), PPBase servait 989 (constat de la
+relecture WS-G). Correction PPBase (WS-A8, `8c23510`, intégré en `67bbc4f`) : `COUNT(DISTINCT id)` pour
+les listes de vues (le `COUNT(*)` équivalent est gardé pour les tables, à ids uniques) ;
+`totalPages` et `skipTotal` suivent ; écart restant : sous un filtre ou une règle avec
+jointure, PocketBase fusionne les lignes identiques d'une vue (`SELECT DISTINCT`), PPBase
+les sert toutes (aucune vue BUMA n'a de lignes identiques, mesuré sur le vrai backup). Impact
+client : pagination identique à la production (`totalItems` et `totalPages`) ; les
+items servis ne changent pas. Régression : `tests/integration/test_list_total_items.py`,
+cas ajoutés à `tests/pocketbase_parity/empty_date_probe.py`, contrôle des
+totaux de la répétition réelle (attendu `COUNT(DISTINCT id)` de la source).
+
+## D-0036 — C11 : NULL servi comme la valeur zéro du type ; filtres et tris des NULL de vues (écart ouvert, acceptation demandée)
+
+Constat de la répétition réelle (WS-G), qui compare les valeurs servies à un modèle tiré
+des valeurs SQLite brutes : sur 11 vues BUMA, 2 813 valeurs NULL issues de LEFT JOIN
+sans correspondance étaient servies `null` par PPBase, alors que PocketBase 0.22.34
+sert la valeur zéro du type (par exemple `buma_article_list_view.categorie_*`,
+`buma_caisse_open_close_listview.currentCashier`, `buma_pdv_list_view.network`,
+`number` et `sim`, `buma_sim_list_view.*`, `buma_transaction_list_view.returnPayed` et
+`return_note`, `buma_users_list_view.person` et `photos`). PocketBase lit un NULL SQL
+comme nil et passe chaque champ par `PrepareValue` (v0.22.34 `models/record.go`
+l.48-91 et l.328-359, `models/schema/schema_field.go` l.304-390 ; mêmes valeurs en
+v0.40.6, `core/record_model.go` l.484-518 et `core/field_*.go`, sauf geoPoint, absent de
+0.22.34) : `""` pour text, email, url, editor, date et select, file ou relation simples ;
+`0` pour number ; `false` pour bool ; `[]` pour select, file ou relation multiples
+(multiplicité de D-0019/D-0025) ; `null` pour json.
+
+Correction PPBase (WS-A9, `ppbase/models/record.py`, `null_field_value` dans
+`build_record_response`, donc sur tous les chemins : liste, consultation, écritures,
+batch, expand vers et depuis une vue, réponses d'auth, realtime) ; valeurs non NULL,
+filtres, tris et totaux inchangés ; un json NULL reste `null`. Les tables de base et
+auth créées par PPBase sont NOT NULL hors dates : BUMA n'est concerné que par ses vues.
+**Écart ouvert, acceptation de l'utilisateur demandée (ou reprise)** : filtres et tris
+sur une colonne NULL (en pratique une colonne de vue issue d'un LEFT JOIN). PocketBase
+compte un NULL de colonne chaîne dans `= ""` (et un json NULL dans `= null`) et le trie
+en premier en ordre croissant, en dernier en ordre décroissant (SQLite) ; PPBase garde
+la sémantique NULL de PostgreSQL (NULL exclu de `= ""`, trié en dernier en ordre
+croissant). Impact : un filtre comme `network = ""` sur `buma_pdv_list_view` peut rendre
+moins de lignes qu'en production, et un tri sur une telle colonne place ces lignes
+autrement ; aucune règle d'API BUMA n'emprunte ces formes. Le chantier WS-A11 (branche
+PPBase `c11/ws-a11`, `61bc951`, 17 commits) corrige le placement des NULL sans erreur 500
+nouvelle, mais n'a pas été approuvé après deux relectures (régressions hors NULL : json
+comparé à une colonne, date comparée à un json dans les chemins, deux tests instables) :
+il n'est pas intégré et reste disponible pour reprise.
+
+Impact client : les vues BUMA servent les valeurs de production ; un client typé (Dart,
+TypeScript) ne reçoit plus `null` pour un champ text, number, bool, select, relation ou
+file d'une ligne LEFT JOIN sans correspondance ; aucun appel ne change. Régressions :
+`tests/test_null_zero_values.py`, `tests/integration/test_null_zero_values.py` (3 sur 5
+échouent sans le correctif), sonde `tests/pocketbase_parity/null_zero_values_probe.py`
+(42 écarts de valeurs servies avant, 0 après) ; répétition réelle (contrôle
+`null_served_for_pocketbase_zero_value`).
+
+## D-0037 — C11 : fichiers servis comme PocketBase (v0.22.34 sous le mode 0.22, v0.40.6 par défaut)
+
+Écarts relevés par la répétition synthétique complète (WS-D2) : `?thumb=100x100` servait
+l'original, aucun `Content-Disposition`, type de contenu déduit de l'extension au lieu
+des métadonnées `.attrs` écrites par PocketBase. Correction PPBase (chantier WS-A7,
+relu trois fois) sur `GET`/`HEAD /api/files/…`, règles communes aux deux versions dans
+les deux modes : type lu dans le side-car `<fichier>.attrs` d'un stockage local
+(indécodable : 404) ; `Content-Disposition` `inline` pour les types sûrs, `attachment`
+sinon ou avec `?download` ; en-têtes de sécurité et `Cache-Control` de PocketBase ;
+`HEAD` comme `GET` ; miniatures `100x100` et `thumbs` du champ (stockée : servie octet
+pour octet ; sinon générée et publiée avec son side-car, une génération par chemin ;
+échec : original) ; 404 pour un record absent, un nom non référencé, un fichier absent
+et toute clé `.attrs`, même référencée (v0.22.34 `apis/file.go` l.40-219,
+`tools/filesystem/filesystem.go` l.367-526 ; v0.40.6 `apis/file.go` l.22-242,
+`tools/filesystem/filesystem.go` l.521-721). Le mode 0.22 (même interrupteur que
+D-0034, donc actif pour BUMA) suit v0.22.34 là où les versions diffèrent : nom brut du
+`Content-Disposition` (v0.40.6 le quote depuis v0.40.0), surcharges d'extension,
+miniature webp, décodage json v1 des `.attrs`, jeton de fichier trimé comme
+`strings.TrimSpace` (segments décodés comme golang-jwt dans les deux modes).
+
+Impact client : images, miniatures et pièces jointes servies comme en production (le
+schéma BUMA compte 34 champs fichier, aucun `protected`, aucun avec `thumbs` : seule la
+miniature `100x100` s'applique ; aucune des 2 899 références réelles ne finit par
+`.attrs`). Écarts restants (`docs/file-serving.md` de PPBase) : un fichier téléversé par
+PPBase n'a pas de side-car `.attrs` et une suppression ne retire pas le side-car, donc
+PocketBase servirait un tel fichier en `application/octet-stream` `attachment` après un
+retour arrière (à vérifier dans le runbook) ; S3 : type de l'extension, sans miniature ;
+pas de `304`/`412`/multi-plages comme `http.ServeContent`, `ETag` en plus ; octets des
+miniatures générées (Pillow contre imaging) ; side-car de plus de 64 Kio refusé ;
+fichier protégé refusé en 404 au lieu de 403 (0.22.34) et sans évaluation de la
+viewRule en invité (aucun champ protégé dans BUMA) ; téléversement d'un fichier nommé
+`*.attrs` accepté par PPBase, refusé par PocketBase. Régressions :
+`tests/test_file_serving_rules.py`, `tests/test_file_thumbs.py`,
+`tests/integration/test_files_pocketbase_storage.py`, sonde
+`tests/pocketbase_parity/files_probe.py` (109 requêtes, 0 différence inattendue dans
+les deux modes) ; répétition synthétique (classes de fichiers disparues).
+
+## D-0038 — C11 SÉCURITÉ : noms de fichiers d'une écriture vérifiés comme PocketBase
+
+Faille préexistante (relecture WS-A7, chantier WS-A10, relu deux fois) : jusqu'à PPBase
+`3817c89`, un champ fichier acceptait tout nom bien formé (mise à jour JSON, valeurs
+texte et `@jsonPayload` d'un multipart, création, batch, `createData` d'OAuth2,
+`pb.records()`), et le service des fichiers sert tout nom référencé : un client autorisé
+par l'updateRule pouvait référencer puis télécharger un side-car `.attrs`, un objet non
+référencé du dossier du record (686 dans le `storage/` réel) ou le fichier d'un autre
+record. Mesuré : objet non référencé 404, puis `PATCH {"doc": "<objet>"}` 200, puis
+`GET` 200 avec le contenu ; 39 cas sur 49 différents de 0.22.34. Les deux versions de
+PocketBase refusent (v0.22.34 `forms/record_upsert.go` l.428-439 ; v0.40.6
+`core/field_file.go` l.250-269). Correction (`ppbase/services/record_file_fields.py`) :
+la valeur finale de chaque champ fichier est calculée à partir de la valeur stockée, de
+la requête et des téléversements, sur tous ces chemins ; mode par défaut comme v0.40.6
+(400 `validation_invalid_file`), mode 0.22 comme 0.22.34 (400 « Failed to load the
+submitted data due to invalid formatting. », `validation_unknown_filenames`, et les
+modificateurs, suppressions héritées et téléversements multiples de 0.22.34).
+
+Impact client, identique à la production : un client ne peut plus référencer un fichier
+qu'il n'a pas téléversé dans ce record ; garder, retirer, réordonner ou dédoublonner
+les noms existants reste permis. Données réelles (agrégats) : 2 899 noms stockés dans
+20 champs, aucun refusé ; aucun fournisseur OAuth2 activé ; aucun hook ni service BUMA
+n'écrit de champ fichier. Écart assumé : en mode 0.22, un nom posé par un hook de
+requête dans `e.data` est refusé, alors que 0.22.34 enregistre ce qu'un hook pose
+(les hooks PPBase reçoivent les données de la requête ; v0.40.6 valide après les hooks).
+Régressions : `tests/integration/test_record_file_names.py`,
+`tests/test_record_file_fields.py`, sonde `tests/pocketbase_parity/file_names_probe.py`
+(56 cas, 0 différence).
+
+## D-0039 — C11 : treize vues servies avec les valeurs des vues SQLite de PocketBase 0.22.34 ; nombres et booléens des vues (acceptation demandée)
+
+Constat de la répétition réelle (WS-G, modèle des valeurs servies tiré des valeurs SQLite
+brutes) : la traduction PostgreSQL de plusieurs vues (`1789236842`, corrigée par
+`1789236847` et `1789236848`) servait d'autres valeurs que PocketBase 0.22.34 :
+`payedPercent` de `buma_sale_info` en division réelle au lieu de la division entière de
+SQLite ; `ROW_NUMBER() OVER ()` renuméroté à chaque requête par PostgreSQL (vue des
+dépenses `buma_caisse_transaction_by_categorie_list_view` : 2 476 lignes sur 15 797 servies
+deux fois et autant jamais en pages de 500) ; éléments concaténés (`pdv_sim`, `stockages`,
+`stockage`) dans un autre ordre ; nombres servis en chaîne et entiers 1/0 servis
+`true`/`false`. Une première correction par domaines PostgreSQL et 48 opérateurs a été
+écartée à la relecture (`?=` silencieusement différent, tris en 500).
+
+Correction BUMA, migration `1789236851_c11_view_sqlite_semantics.py` (chantier WS-H, relu
+trois fois) : treize vues recréées sans CASCADE, schémas et règles inchangés, une seule
+fonction `buma_source_rowids` qui lit l'archive `_buma_c11_rowids` de l'import :
+`payedPercent` comme SQLite (division entière tronquée si les deux sommes sont entières,
+NULL pour un diviseur nul au lieu d'une erreur 500 ; les 115 093 opérandes réels sont
+entiers) ; les sept vues `ROW_NUMBER()` numérotées dans l'ordre de SQLite (ordre rowid,
+ordre du GROUP BY, ou « 1 » pour une vue d'une ligne ; repli stable pour une ligne créée
+après l'import : après les lignes archivées, par created puis id) avec un id texte
+`CAST(… AS TEXT) COLLATE "C"` comme le `cast(id as text)` de PocketBase ; ordre des
+concaténations comme SQLite (rowids archivés, ou valeur pour les deux vues stock) ;
+colonnes nues (`isNafama`) et `user` cité (la traduction lisait `CURRENT_USER`). Seuls
+les 7 id (bigint → text) et `uvUser` (name → text) changent de type sur les 579 colonnes
+des 42 vues ; `down` restaure à l'identique. Mesuré sur le vrai backup : numérotation
+identique à SQLite pour 15 797 lignes sur 15 797 (avant : 4 778), 2 611 sur 2 611 pour
+`buma_caisse_session_info` (avant : 1), pagination sans perte ni doublon.
+
+**Écarts restants, acceptation de l'utilisateur demandée** :
+
+- (`number_served_as_text`) `agent_sim` et `pdv_sim` des quatre vues clients et retours
+  et `number` de `buma_agent_list_view` : PocketBase sert la valeur SQLite comme un champ
+  json (un nombre JSON, ou `""` pour la valeur de repli), PPBase une chaîne ; impact : un
+  client typé qui lit ces champs comme un nombre (Dart `as int`, comparaison stricte en
+  JS) reçoit une chaîne ;
+- (`sqlite_integer_boolean_served_as_boolean`) `isNafama` de
+  `buma_customer_mobile_list_view`, `payed` et `salePayed` de `buma_transaction_list_view` :
+  PocketBase sert `1`/`0`, PPBase `true`/`false` ; impact : un client qui teste `== 1`
+  reçoit faux ;
+- les filtres, `?=` et tris sur ces colonnes répondent comme avant la migration ;
+- un nombre comparé à l'id d'une vue numérotée (`id = 3`, `<`, `>`) ou l'id comparé à une
+  colonne nombre répond 500 au lieu de 200 (PocketBase compare `'3'` à `'3.0'` et ne trouve
+  rien) ; c'est déjà la réponse de PPBase pour l'id texte de toute collection ; `id = "3"`,
+  `?=`, `~` et getOne répondent comme PocketBase ;
+- une liste sans `sort` des vues numérotées à plusieurs lignes suit l'ordre texte de l'id
+  (`"1"`, `"10"`, `"100"`…) car PPBase trie par défaut la première colonne, alors que
+  PocketBase n'ajoute pas d'ORDER BY : le contenu est complet, l'ordre des pages diffère ;
+- la lecture par id des deux vues stock concatène dans l'ordre de la valeur (comme une
+  liste de PocketBase), alors que PocketBase lit alors dans l'ordre rowid ;
+- sommation compensée de SQLite pour les SUM des vues, nombres en float8, notation `7e2`
+  servie `700` (catégorie de D-0029) ;
+- coût : la vue des dépenses est 2,5 à 3,5 fois plus lente (count 111 → 383 ms, première
+  page 122 → 301 ms, getFullList 4,3 → 11,2 s ; `buma_return_list_view` inchangée) ;
+- exploitation : `_buma_c11_rowids` porte désormais la numérotation et l'ordre des
+  concaténations : il doit être conservé par les sauvegardes et restaurations après la
+  bascule (la sauvegarde native de PPBase refuse cette table et la fonction, comme pour
+  `1789236848` : sauvegarde par `pg_dump`, runbook).
+
+Régressions : `tests/test_c11_view_sqlite_semantics.py`, `tests/test_view_verifier.py`,
+banc `scripts/c11_view_semantics_runtime.py` (binaire 0.22.34, matrice de 6 433 requêtes
+avant et après la migration, 190 requêtes appariées, pagination), vérificateurs du
+schéma (12 migrations, 114 définitions, 42 vues), répétition réelle (contrôles
+`served_values`).
