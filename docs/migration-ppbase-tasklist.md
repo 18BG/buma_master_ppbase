@@ -329,21 +329,44 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
 - [x] Préparer la session serveur : PPBase local commité et poussé (`c6821aa`),
   export configurable (`BUMA_SCHEMA_EXPORT`), plan d'exécution
   `docs/server-session-plan.md` avec les autorisations du 2026-10-24.
-- [ ] Résoudre les incompatibilités d'import mesurées sans altérer l'historique,
-  dimensionner la répétition complète, puis obtenir
-  une répétition représentative sur cible isolée autorisée.
-- [ ] Couvrir tous les records/tables, auth interne/paramètres/OAuth et
-  continuité des sessions ; fichiers protégés/S3, reprise après crash/disque
-  plein, vérifications applicatives de staging et procédure de rollback.
+- [x] Session serveur du 2026-10-24/25 (`docs/server-session-plan.md`) : environnement,
+  source gelée, empreintes, binaires PocketBase 0.22.27 et 0.22.34, paquet extrait et
+  contrôlé ; orchestration multi-agents avec relecture indépendante de chaque chantier
+  (entrées du ledger du 2026-10-24 et du 2026-10-25).
+- [x] Résoudre les incompatibilités d'import mesurées sans altérer l'historique :
+  D-0019 résolu sans aplatir aucune liste (D-0025, migration `1789236850`, PPBase
+  corrigé) ; version source 0.22.34 validée sur preuve (D-0024) ; importeur avec
+  anomalies conservées et recomptées, types cibles contrôlés, COPY vérifié, mode
+  manifeste (D-0026, D-0029) ; extraction vérifiée du ZIP complet (D-0028).
+- [x] Couvrir tous les records et tables, comptes, paramètres et continuité des
+  sessions : import en une transaction de records, comptes et paramètres (D-0026,
+  D-0027) ; jetons PocketBase d'avant l'import acceptés après (banc des sessions).
+- [x] Corriger les failles de sécurité PPBase préexistantes trouvées en chemin : règles
+  `users` (D-0030), champs auth cachés et `@request` absents (D-0031), expand et viewRule
+  (D-0033), noms de fichiers d'une écriture (D-0038) ; et les parités de réponses : dates
+  vides (D-0032), mode d'erreur 0.22 activé par BUMA (D-0034), `totalItems` (D-0035),
+  valeurs zéro des NULL (D-0036), fichiers (D-0037), vues (D-0039, migration
+  `1789236851`), booléens écrits (D-0042).
+- [x] Répétition synthétique complète sur le code final (D-0040) : 84 réponses sur 84
+  identiques à PocketBase 0.22.34 ; `docs/c11-synthetic-rehearsal-report.json`.
+- [x] Répétition complète sur le vrai backup, sans octets de fichiers, dans un PostgreSQL
+  jetable (D-0041) : deux passages passés et identiques ;
+  `docs/c11-real-rehearsal-report.json`.
+- [x] Runbook de bascule et de retour arrière chronométré par cette répétition :
+  `docs/c11-cutover-runbook.md`.
+- [ ] Acceptations de l'utilisateur demandées : D-0029, D-0036, D-0039, D-0042.
+- [ ] Répétition avec le ZIP complet (octets des fichiers), devant l'utilisateur.
+- [ ] Tests des clients réels (desktop, web, mobile) sur un staging, dont `isAuthRecord`
+  après un refresh PPBase (D-0027) et les valeurs des vues (D-0039).
 - [ ] Autorisation distincte d'import de production et de bascule, après les
   gates requises ; **non demandée, non obtenue, non exécutée**.
 
-Guide et commandes : `docs/c11-preparation.md`. Le passage synthétique ne
-valide pas un backup complet et ne ferme ni C10 ni C11. Le diagnostic réel des
-étapes 1 et 2 est terminé ; prochaine action : concevoir la conservation des
-listes/doublons historiques (D-0021), documenter les références orphelines et
-rechercher/qualifier les fichiers absents avant toute répétition complète.
-Aucun import PostgreSQL ni bascule effectué.
+Guide et commandes : `docs/c11-preparation.md`, `docs/c11-cutover-runbook.md`. État au
+2026-10-25 : C11 ouvert, prêt pour la bascule sous conditions (acceptations, ZIP complet,
+clients réels, autorisation distincte). Les seuls imports du vrai backup ont eu lieu dans
+des PostgreSQL jetables détruits ; aucun import de production ni bascule effectué.
+Prochaine action : soumettre à l'utilisateur les acceptations D-0029, D-0036, D-0039 et
+D-0042.
 
 Reprise du 2026-10-23 (nouvel agent, analyse seule) : handoff relu, aucun code
 modifié, aucune case cochée. Suite locale : 150 tests passants et 7 échecs dus

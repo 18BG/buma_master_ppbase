@@ -1,8 +1,30 @@
 # Handoff agent suivant — BUMA Master PPBase
 
-Date de passation : 2026-10-22, mise à jour le 2026-10-24 pour la session serveur.
+Date de passation : 2026-10-22, mise à jour le 2026-10-24 pour la session serveur
+et le 2026-10-25 à sa fin.
 
-## Session serveur du 2026-10-24 — à lire en premier
+## Fin de la session serveur (2026-10-25) — à lire en premier
+
+- État : **C11 ouvert, prêt pour la bascule sous conditions** ; entrée du ledger du
+  2026-10-25 (périmètre, preuves, incidents, écarts ouverts, prochaine action).
+- Preuves publiées : `docs/c11-real-rehearsal-report.json` (vrai backup, deux passages
+  identiques, sans octets de fichiers), `docs/c11-synthetic-rehearsal-report.json`
+  (84 réponses sur 84 identiques à PocketBase 0.22.34), `docs/c11-auth-runtime-report.json`,
+  `docs/c11-pb-0.22.34-reference-report.json` ; décisions D-0024 à D-0042 ;
+  runbook `docs/c11-cutover-runbook.md`.
+- Dépendance : PPBase `ssakone/ppbase`, branche `fix/d0019-relation-maxselect`, révision
+  `069e0bb` ou suivante (BUMA appelle `pb.set_error_compat("0.22")` et
+  `pb.set_auth_record_rule_context` au démarrage). 12 migrations BUMA.
+- À faire, dans l'ordre : obtenir les acceptations de l'utilisateur pour D-0029, D-0036,
+  D-0039 et D-0042 (ou reprendre les corrections : branche PPBase `c11/ws-a11` non
+  intégrée pour D-0036, validation de tous les champs pour D-0042) ; répétition avec le
+  ZIP complet et les octets des fichiers, devant l'utilisateur ; tests des clients réels
+  sur un staging ; autorisation distincte d'import de production et de bascule.
+- Interdits inchangés : aucune action sur la production ; aucune déduplication, aucune
+  liste aplatie, aucun record, ID, rowid ou fichier inventé ; données réelles en lecture
+  seule, agrégats seulement dans les rapports publics.
+
+## Session serveur du 2026-10-24 — plan et départ
 
 - Plan d'exécution : **`docs/server-session-plan.md`** (autorisations de
   l'utilisateur, mise en place, chantiers, orchestration multi-agents).

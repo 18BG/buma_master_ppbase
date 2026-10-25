@@ -2881,3 +2881,109 @@ relancés avec la description exacte de l'état laissé ; `data.db` vérifié in
 - Restent ensuite : runbook final avec durées (WS-F2), documentation finale.
 
 C11 reste ouvert ; aucune action sur la production.
+
+## Session serveur — fin de session : C11 prêt pour la bascule sous conditions — 2026-10-25
+
+Entrée de fin de la session serveur ouverte le 2026-10-24 (`docs/server-session-plan.md`,
+autorisations de l'utilisateur du 2026-10-24 : orchestration multi-agents, commits et push
+sur branches dédiées, changements PPBase fondés sur la documentation et le code de
+PocketBase, import du vrai backup uniquement dans un PostgreSQL jetable). Elle complète les
+entrées intermédiaires de 14:05 et 22:50. Orchestration : un workflow par chantier
+(auteur dans son worktree, relecteurs indépendants qui reçoivent la mission et le diff,
+corrections bornées) ; intégration par l'orchestrateur après relecture et portes.
+
+### Périmètre livré
+
+- **BUMA** `c11/integration` (avance rapide de `features/auth` à la publication) : 76 commits
+  depuis `11e6e05` ; importeur et extraction (WS-B, WS-B2, WS-B3), comptes et sessions
+  (WS-C, WS-C2), référence 0.22.34 et répétition synthétique (WS-D, WS-D2), migration
+  `1789236850` (WS-E), runbook (WS-F, WS-F2, WS-F3), répétition réelle (WS-G), migration
+  `1789236851` des vues (WS-H), raccordement BUMA du mode d'erreur 0.22 et du contexte des
+  réponses d'auth (`d0a6dc8`), corrections de l'orchestrateur relues (WS-ORCH, ORCH2, ORCH3) ;
+  décisions D-0024 à D-0042.
+- **PPBase** `fix/d0019-relation-maxselect` à `069e0bb`, poussé sur `ssakone/ppbase` (106
+  commits depuis `526397a`) : règle de multiplicité D-0019 (WS-A), sessions, secrets et
+  formulaires admin (WS-A2), multi-match des règles (WS-A3), dates vides (WS-A4), champs
+  cachés et valeurs `@request` absentes (WS-A5), expand avec viewRule et mode d'erreur
+  PocketBase 0.22 fusionnés (WS-A6, WS-A8), `totalItems` en `COUNT(DISTINCT id)` (WS-A8),
+  valeurs zéro des NULL (WS-A9), fichiers (WS-A7), noms de fichiers d'une écriture (WS-A10),
+  booléens écrits (WS-A12). **Non intégré** : WS-A11 (filtres et tris des NULL, branche
+  `c11/ws-a11` `61bc951`, non approuvé après deux relectures).
+
+### Failles de sécurité préexistantes trouvées et corrigées (toutes relues)
+
+Règles `users` : tout utilisateur connecté créait et modifiait des comptes et pouvait se
+nommer administrateur (D-0030) ; colonnes auth cachées filtrables par un anonyme, oracle
+du hash bcrypt, du tokenKey et des e-mails masqués (D-0031) ; expand sans viewRule de la
+cible, 49 chemins anonymes dans le schéma BUMA, e-mails cachés dans les réponses
+d'écriture et le realtime (D-0033) ; noms de fichiers arbitraires acceptés à l'écriture,
+d'où le téléchargement d'objets non référencés (D-0038).
+
+### Portes finales (état final : BUMA `b7427fe` + `a99a2a4`, PPBase `069e0bb`)
+
+- Suite BUMA 842 passed ; Ruff check et format (130 fichiers, migrations `1789236849` à
+  `1789236851`) ; `git diff --check`.
+- Suite PPBase : 2 120 passed, 72 skipped, exactement les 5 échecs antérieurs connus.
+- `c11_idempotency_runtime` passed (C4, C7, C9 sur 29 routes) ; `c11_auth_runtime` 0.22.34
+  passed (22 refus sur 22 au statut de PocketBase, 0 écart de libellé, mêmes clés
+  d'enveloppe, 19 résultats realtime identiques, 0 secret servi) ; `c11_rehearsal` 0.22.34
+  passed (84 réponses sur 84 identiques à PocketBase en statut et corps, 0 différence
+  inattendue) ; `c11_view_semantics_runtime` passed (matrice de 6 433 requêtes avant et
+  après `1789236851`, 190 requêtes appariées) ; référence 0.22.34 régénérée (toutes les
+  conclusions vraies, dont « seule la porte de version » pour tous les profils).
+- **Répétition réelle** (`docs/c11-real-rehearsal-report.json`, D-0041) : deux passages
+  passés et identiques ; 1 188 247 records, empreintes, rowids, tableaux, 195 795 orphelins
+  et 2 303 fichiers absents conservés, comptes, admin, secrets et paramètres, schéma et 42
+  vues conformes ; 414 contrôles HTTP, 405 sans écart, 0 échec, le reste couvert par
+  D-0029 et D-0039 (acceptation demandée) ; copie réelle intacte ; confidentialité 0
+  violation ; durées par passage : diagnostic 144-146 s, import 248-249 s, contrôles 77-78 s,
+  HTTP 105-107 s.
+
+### Comparé avec la source gelée et PocketBase 0.22.34
+
+Enveloppes d'erreur `{code, message, data}`, statuts et messages (mode 0.22 activé par
+BUMA, D-0034) ; listes (`page`, `perPage`, `totalItems`, `totalPages`, `items`), filtres,
+tri, expand et visibilité des e-mails ; valeurs servies des records et des vues (dates
+vides, valeurs zéro, `payedPercent`, numérotation des vues, ordres de concaténation) ;
+téléchargements de fichiers (en-têtes, miniatures, `.attrs`, jetons) ; connexions, refresh,
+jetons d'usage, realtime et révocation (SDK JS 0.21 au niveau HTTP/SSE) ; routes C4, C7 et
+C9 de la source gelée ; import et conservation sur le vrai backup. Chaque comparaison
+appariée a été faite contre le binaire officiel 0.22.34 sur données synthétiques, et contre
+les valeurs SQLite brutes du vrai backup pour la répétition réelle.
+
+### Incidents de la session
+
+Redémarrage de l'hôte par `needrestart` (2026-10-24 06:27, consigné le 24) ; quatre limites de
+capacité du compte (14:30, 16:50, 18:30, 25/10 00:30) avec travail partiel sauvegardé et
+chantiers relancés ; deux agents figés sur une commande sans réponse (WS-A8 à 03:56, WS-A11 à
+06:31), arrêtés et relancés ; une relance sans angle de relecture approuvait sans relecteur
+(WS-A8) : garde ajoutée au script de workflow, relecture refaite ; un agent WS-G a supprimé des
+fichiers temporaires d'anciennes sessions dans `/tmp/buma-c11-ws-g` (preuves privées
+intactes). `data.db` vérifié intact à chaque étape (empreinte publiée).
+
+### Ce qui reste ouvert (impact client dans chaque décision)
+
+- **Acceptations de l'utilisateur demandées** : D-0029 (ordre des clés jsonb et lectures
+  normalisées), D-0036 (filtres et tris des NULL de vues ; WS-A11 disponible pour reprise),
+  D-0039 (nombres servis en texte et booléens `true`/`false` au lieu de `1`/`0` dans quatre
+  vues ; filtres `id = 3` sur les vues numérotées), D-0042 (validation partielle des mises à
+  jour : 872 `buma_article_stock` réels à `status` required faux).
+- **À vérifier sur les clients réels** (desktop, web, mobile, absents du serveur) : jetons
+  `type=auth` après un refresh PPBase (`isAuthRecord` du SDK JS 0.21, D-0027), valeurs et
+  types des vues (D-0039), en-tête `charset` (sans effet sur les SDK, D-0034).
+- **Non fait** : répétition avec le ZIP complet et les octets des fichiers (archive non
+  présente sur le serveur, D-0028) ; tests des clients sur un staging ; révocation globale
+  par `PATCH /api/settings` (seule la rotation SQL est mesurée) ; plan préparé périmé après un
+  changement de schéma à chaud (préexistant PPBase).
+- **Production** : import de production et bascule **ni demandés, ni autorisés, ni
+  exécutés**.
+
+### Décision
+
+C11 reste **ouvert** et est **prêt pour la bascule sous conditions** : tous les blocages
+d'import mesurés (D-0019, D-0021) sont résolus en code avec tests et preuves, la répétition
+complète sur le vrai backup passe (sans octets de fichiers), et le runbook est chronométré
+par elle. Conditions avant toute bascule : acceptations ci-dessus, répétition avec le ZIP
+complet, tests des clients réels sur un staging, autorisation distincte de l'utilisateur.
+Prochaine action exacte : soumettre à l'utilisateur les acceptations D-0029, D-0036, D-0039
+et D-0042, puis la répétition avec le ZIP complet devant lui.

@@ -156,3 +156,20 @@ conversation alone is never the project handoff record.
   import; never guess them for existing records or claim production cutover is
   authorized. See docs/c10-runtime-report.json and docs/contracts/rowid.md.
 - Real backup diagnosis: completed offline; production import/cutover not started.
+- Server session of 2026-10-24/25 (ledger entry of 2026-10-25): C11 stays OPEN and
+  is ready for cutover only under conditions. D-0019 and D-0021 are resolved in
+  code; the complete rehearsal on the real backup (without file bytes, disposable
+  PostgreSQL) passed twice identically (D-0041, docs/c11-real-rehearsal-report.json);
+  the runbook is timed by it (docs/c11-cutover-runbook.md). BUMA now requires PPBase
+  branch fix/d0019-relation-maxselect at 069e0bb or later (field_multiplicity,
+  set_error_compat, set_auth_record_rule_context): BUMA enables PPBase's PocketBase
+  0.22 error mode in app/hooks/register.py. 12 migrations (1789236850 and 1789236851
+  added). Pre-existing PPBase security faults were fixed (D-0030, D-0031, D-0033,
+  D-0038). Decisions D-0024 to D-0042 are recorded; the user's acceptance is still
+  requested for D-0029, D-0036, D-0039 and D-0042. PPBase branch c11/ws-a11 (NULL
+  filters and sorts) is NOT integrated: it failed two reviews. Keep _buma_c11_rowids
+  and buma_source_rowids after an import (they carry rowids, view numbering and
+  concatenation order; back them up with pg_dump). Remaining before any cutover:
+  those acceptances, the rehearsal with the complete ZIP and its file bytes, tests of
+  the real clients on a staging, and a distinct production authorization (not
+  requested, not obtained, not executed).
