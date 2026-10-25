@@ -40,8 +40,20 @@ durations, sizes) and is written only after an automatic privacy check against
 the real values of the snapshot; record-level evidence stays in --private-dir
 (0700, files 0600). Token continuity is proven on the synthetic fixture by
 WS-C (docs/c11-auth-runtime-report.json), referenced, not repeated here. A
-divergence from PocketBase 0.22.34 passes only through --accept-divergence
-CODE=D-NNNN naming a recorded decision; every other problem fails the pass.
+divergence from PocketBase 0.22.34 (a DIVERGENCES code) passes only through
+--accept-divergence CODE=D-NNNN, a '## D-NNNN' section of
+docs/decisions-and-divergences.md that names the code; every other problem
+fails the pass. The decision is "accepted" only if its section holds a line
+
+  Statut : acceptée par l'utilisateur le AAAA-MM-JJ
+
+(at the start of the line, the date of the user's decision; it covers every
+code the section names, so a partial acceptance needs its own section);
+otherwise it is "documented, acceptance requested". The report publishes
+documented_divergences (every code given, with its decision and state) and
+accepted_divergences (the accepted ones) apart, and its HTTP claims hold
+"except the divergences listed in http.divergences" followed by the
+acceptances still requested.
 
 Run from a BUMA checkout, never from the backup directory, with an isolated
 interpreter (-I keeps PYTHONPATH and the current directory out of sys.path;
@@ -75,6 +87,7 @@ import sys
 import threading
 import time
 import traceback
+import unicodedata
 import uuid
 from array import array
 from bisect import bisect_left
@@ -1274,9 +1287,9 @@ class ServedValues:
                 kind: dict(sorted(counter.items()))
                 for kind, counter in sorted(self.by_type.items())
             },
-            # value_differs and unexpected keys: never an accepted divergence.
+            # value_differs and unexpected keys: never a covered divergence.
             "differing_fields": dict(sorted(self.differing.items())),
-            # Named forms (DIVERGENCES codes): fail unless a decision accepts them.
+            # Named forms (DIVERGENCES codes): fail unless a recorded decision covers them.
             "named_differences": {
                 code: dict(sorted(fields.items())) for code, fields in sorted(self.named.items())
             },
@@ -2972,8 +2985,9 @@ async def fetch(client, path: str, token: str | None = None, **params) -> tuple:
 # PocketBase 0.22.34 behaviors that PPBase served differently on the real data:
 # problem code -> the PocketBase source defining the expected behavior. Such a
 # divergence passes only through --accept-divergence CODE=D-NNNN, a decision
-# recorded in docs/decisions-and-divergences.md that names the code. Any other
-# problem (a message, a status, a value, a count) always fails.
+# recorded in docs/decisions-and-divergences.md that names the code, accepted
+# by the user (ACCEPTANCE_LINE) or documented with its acceptance requested.
+# Any other problem (a message, a status, a value, a count) always fails.
 DIVERGENCES = {
     "error_status_key_instead_of_code": (
         "v0.22.34 apis/api_error.go:12-15: error body {code, message, data}"
@@ -3016,26 +3030,51 @@ DIVERGENCES = {
 }
 
 
+# Convention of docs/decisions-and-divergences.md: a '## D-NNNN' section accepts
+# the codes it names only with a line starting "Statut : acceptée par
+# l'utilisateur le AAAA-MM-JJ" (French spacing and apostrophe variants read
+# alike); without it they are documented and their acceptance is requested.
+ACCEPTANCE_LINE = re.compile(
+    "^Statut[ \u00a0\u202f]?:[ \u00a0]acceptée par l['\u2019]utilisateur le "
+    "([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9])",
+    re.MULTILINE,
+)
+ACCEPTANCE_CONVENTION = (
+    "a '## D-NNNN' section of docs/decisions-and-divergences.md that names the code; "
+    "accepted only if the section holds a line starting "
+    "« Statut : acceptée par l'utilisateur le AAAA-MM-JJ », otherwise documented with "
+    "the user's acceptance requested"
+)
+ACCEPTED = "accepted_by_the_user"
+REQUESTED = "documented_acceptance_requested"
+NOT_COVERED = "not_covered_by_a_decision"
+EXCEPT_DIVERGENCES = "except the divergences listed in http.divergences"
+
+
 def problem_base(problem: str) -> str:
     return problem.split(":", 1)[0]
 
 
-def classify_problems(problems: dict[str, list[str]], accepted: dict[str, str]) -> dict:
-    """Checks failing without an accepted divergence, and every divergence observed."""
+def classify_problems(problems: dict[str, list[str]], covered: dict[str, dict]) -> dict:
+    """Checks failing with a problem no recorded decision covers, and every
+    divergence observed with its decision and state (``covered``:
+    divergence_decisions)."""
     failing, observed = {}, {}
     for check, codes in sorted(problems.items()):
         bases = {problem_base(code) for code in codes}
         for base in sorted(bases & set(DIVERGENCES)):
+            decision = covered.get(base) or {}
             entry = observed.setdefault(
                 base,
                 {
                     "checks": 0,
                     "pocketbase_0_22_34": DIVERGENCES[base],
-                    "decision": accepted.get(base),
+                    "decision": decision.get("decision"),
+                    "state": decision.get("state", NOT_COVERED),
                 },
             )
             entry["checks"] += 1
-        if codes and not bases <= set(accepted):
+        if codes and not bases <= set(covered):
             failing[check] = sorted(codes)
     return {"failing": failing, "divergences": observed}
 
@@ -3600,7 +3639,7 @@ async def http_checks(
             error_log.parent / "served-value-mismatches.json", reads.mismatches, ascii=True
         )
     result["served_value_mismatch_fields"] = len(reads.mismatches)
-    classified = classify_problems(reads.problems, ctx.accepted)
+    classified = classify_problems(reads.problems, ctx.divergence_decisions)
     result["checks_run"] = len(reads.problems)
     result["checks_without_problem"] = sum(1 for codes in reads.problems.values() if not codes)
     result["divergences"] = classified["divergences"]
@@ -4090,7 +4129,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="CODE=D-NNNN",
-        help="A documented divergence (DIVERGENCES code) and its decision; repeatable",
+        help=(
+            "A DIVERGENCES code covered by a recorded decision: a '## D-NNNN' section of "
+            "docs/decisions-and-divergences.md that names the code; repeatable. The "
+            "decision is accepted only if its section holds a line starting "
+            "« Statut : acceptée par l'utilisateur le AAAA-MM-JJ »; otherwise the "
+            "divergence is documented, acceptance requested: it still passes, and the "
+            "report and its HTTP claims list it as such"
+        ),
     )
     parser.add_argument("--passes", type=int, default=2, choices=(1, 2, 3))
     parser.add_argument("--memory", default="2g", help="Container memory limit")
@@ -4182,37 +4228,90 @@ def privacy_check(ctx, report: dict) -> dict:
 
 
 def decision_sections(text: str) -> dict[str, str]:
-    """'## D-NNNN' heading -> the text of its section."""
+    """'## D-NNNN' heading -> the text of its section, which ends at the next
+    heading of level 1 or 2 (another decision or a section such as
+    '## Divergences à décider plus tard', never part of a decision)."""
     sections: dict[str, list[str]] = {}
     current = None
     for line in text.splitlines():
-        match = re.match(r"## (D-[0-9]{4})\b", line)
-        if match:
-            current = match.group(1)
-            sections[current] = [line]
+        if re.match(r"#{1,2} ", line):
+            match = re.match(r"## (D-[0-9]{4})\b", line)
+            current = match.group(1) if match else None
+            if current is not None:
+                sections[current] = [line]
         elif current is not None:
             sections[current].append(line)
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
-def accepted_divergences(values: list[str], decisions_text: str) -> dict[str, str]:
-    """CODE=D-NNNN pairs: a known divergence code and the recorded decision
-    (a '## D-NNNN' section of docs/decisions-and-divergences.md) that names it."""
+def acceptance_date(section: str) -> str | None:
+    """The date of the user's acceptance recorded in a decision section
+    (ACCEPTANCE_LINE), or None: documented, acceptance requested. Checked, not
+    published: the public decision holds it, and a bare date could equal a real
+    text value and fail the privacy check."""
+    match = ACCEPTANCE_LINE.search(unicodedata.normalize("NFC", section))
+    if match is None:
+        return None
+    try:
+        datetime.strptime(match.group(1), "%Y-%m-%d")
+    except ValueError:
+        raise RehearsalFailure("decision_acceptance_date_invalid") from None
+    return match.group(1)
+
+
+def names_code(section: str, code: str) -> bool:
+    """The section names the code as a whole word, not inside a longer code."""
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(code)}(?![A-Za-z0-9_])", section) is not None
+
+
+def divergence_decisions(values: list[str], decisions_text: str) -> dict[str, dict]:
+    """CODE=D-NNNN pairs -> {decision, state}: a known divergence
+    code and the recorded decision (a '## D-NNNN' section of
+    docs/decisions-and-divergences.md) that names it. The state is ACCEPTED
+    when the section holds the acceptance line, REQUESTED otherwise; both
+    cover the code (the report tells them apart)."""
     sections = decision_sections(decisions_text)
-    accepted = {}
+    covered: dict[str, dict] = {}
     for value in values:
         code, _, decision = value.partition("=")
         require(code in DIVERGENCES, "unknown_divergence_code", divergence=code)
+        require(code not in covered, "divergence_given_twice", divergence=code)
         require(re.fullmatch(r"D-[0-9]{4}", decision) is not None, "decision_reference_required")
         require(decision in sections, "decision_not_recorded", decision=decision)
         require(
-            code in sections[decision],
+            names_code(sections[decision], code),
             "decision_does_not_name_the_divergence",
             decision=decision,
             divergence=code,
         )
-        accepted[code] = decision
-    return accepted
+        accepted = acceptance_date(sections[decision]) is not None
+        covered[code] = {"decision": decision, "state": ACCEPTED if accepted else REQUESTED}
+    return covered
+
+
+def accepted_only(covered: dict[str, dict]) -> dict[str, dict]:
+    return {code: entry for code, entry in covered.items() if entry["state"] == ACCEPTED}
+
+
+def divergence_report(covered: dict[str, dict]) -> dict:
+    """Public keys: every code given (documented) and the accepted ones, apart."""
+    return {
+        "divergence_decision_convention": ACCEPTANCE_CONVENTION,
+        "documented_divergences": covered,
+        "accepted_divergences": accepted_only(covered),
+    }
+
+
+def requested_acceptances(passes: list[dict]) -> list[dict]:
+    """Divergences observed over HTTP in any pass whose decision is documented
+    but not accepted by the user yet: code and decision."""
+    found = {}
+    for run in passes:
+        http = (run.get("checks") or {}).get("http")
+        for code, entry in ((http or {}).get("divergences") or {}).items():
+            if entry.get("state") == REQUESTED:
+                found[code] = entry.get("decision")
+    return [{"code": code, "decision": decision} for code, decision in sorted(found.items())]
 
 
 def main(argv=None) -> int:
@@ -4223,7 +4322,7 @@ def main(argv=None) -> int:
     try:
         require_isolated_interpreter()
         check_paths(args, Path.cwd())
-        accepted = accepted_divergences(args.accept_divergence, DECISIONS.read_text())
+        covered = divergence_decisions(args.accept_divergence, DECISIONS.read_text())
     except RehearsalFailure as exc:
         print(json.dumps({"status": "refused", **failure_entry(exc)}))
         return 2
@@ -4251,7 +4350,7 @@ def main(argv=None) -> int:
         docker_root=Path(command("docker", "info", "--format", "{{.DockerRootDir}}")),
         url="",
         collation=None,
-        accepted=accepted,
+        divergence_decisions=covered,
     )
     auth_evidence = json.loads((PROJECT / AUTH_RUNTIME_REPORT).read_text())
     report = {
@@ -4291,7 +4390,7 @@ def main(argv=None) -> int:
             },
         },
         "environment": environment_facts(),
-        "accepted_divergences": accepted,
+        **divergence_report(covered),
         "token_continuity": {
             "evidence": AUTH_RUNTIME_REPORT,
             "status": auth_evidence.get("status"),
@@ -4341,6 +4440,7 @@ def main(argv=None) -> int:
     )
     report["status"] = "passed" if ok else "failed"
     report["runbook_durations_seconds"] = runbook_durations(report["passes"])
+    report["acceptance_still_requested"] = requested_acceptances(report["passes"])
     report["proves"], report["not_proven_here"] = proven_claims(report, args.passes)
     report["does_not_prove"] = DOES_NOT_PROVE
     report["private_evidence"] = "--private-dir (0700): diagnosis, load report, logs"
@@ -4485,15 +4585,16 @@ CLAIMS = (
     (
         "values served over HTTP for the compared records equal the PocketBase 0.22.34 "
         "serialization of the raw SQLite values (model independent of the importer; "
-        "unmodeled values counted apart, views in served_values.views_not_compared left out, "
-        "accepted divergences listed in http.divergences)",
+        "unmodeled values counted apart, views in served_values.views_not_compared left "
+        "out), " + EXCEPT_DIVERGENCES,
         ("http",),
         _served_values_problems,
     ),
     (
         "an isolated PPBase server serves the imported data with PocketBase 0.22.34 envelopes, "
         "totals, rules, error bodies, filters, expand, sort and file statuses on every "
-        "sampled read (no rule left unverified)",
+        "sampled read (no rule left unverified; data, accounts and schema unchanged by the "
+        "server and the reads), " + EXCEPT_DIVERGENCES,
         ("http", "after_http"),
         _http_problems,
     ),
@@ -4501,9 +4602,18 @@ CLAIMS = (
 
 
 def proven_claims(report: dict, passes: int) -> tuple[list[str], list[dict]]:
-    """Claims every pass proved, and the others with the reason."""
+    """Claims every pass proved, and the others with the reason. A proven claim
+    made "except the divergences listed in http.divergences" also names the
+    divergences whose acceptance is still requested."""
     proven, missing = [], []
     runs = report["passes"]
+    requested = requested_acceptances(runs)
+    awaiting = (
+        "; user acceptance still requested for: "
+        + ", ".join(f"{entry['code']} ({entry['decision']})" for entry in requested)
+        if requested
+        else ""
+    )
     for claim, keys, predicate in CLAIMS:
         reasons = []
         if len(runs) != passes:
@@ -4517,7 +4627,7 @@ def proven_claims(report: dict, passes: int) -> tuple[list[str], list[dict]]:
         if reasons:
             missing.append({"claim": claim, "reasons": sorted(set(reasons))})
         else:
-            proven.append(claim)
+            proven.append(claim + awaiting if claim.endswith(EXCEPT_DIVERGENCES) else claim)
     repeatable = (
         "the run is repeatable: two complete passes give identical aggregates, fingerprints "
         "and stored row hashes"

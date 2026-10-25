@@ -802,12 +802,14 @@ def test_divergences_pass_only_when_accepted_by_a_decision():
     none = rehearsal.classify_problems(problems, {})
     assert sorted(none["failing"]) == ["anonymous_list:a", "anonymous_list:c", "superuser_list:b"]
     assert none["divergences"]["empty_date_served_as_null"]["checks"] == 1
+    assert none["divergences"]["empty_date_served_as_null"]["state"] == rehearsal.NOT_COVERED
     decisions = (
         "# Decisions\n\n## D-0031 — envelope\n\nCode `error_status_key_instead_of_code`.\n\n"
+        "Statut : acceptée par l'utilisateur le 2026-10-25.\n\n"
         "## D-0032 — dates\n\n`empty_date_served_as_null`, and\n"
         "`total_pages_one_for_empty_list`.\n\n## D-0033 — other\n\nNothing named.\n"
     )
-    accepted = rehearsal.accepted_divergences(
+    covered = rehearsal.divergence_decisions(
         [
             "error_status_key_instead_of_code=D-0031",
             "empty_date_served_as_null=D-0032",
@@ -815,12 +817,18 @@ def test_divergences_pass_only_when_accepted_by_a_decision():
         ],
         decisions,
     )
-    some = rehearsal.classify_problems(problems, accepted)
+    some = rehearsal.classify_problems(problems, covered)
     assert some["failing"] == {"anonymous_list:c": ["status:500"]}
-    assert some["divergences"]["error_status_key_instead_of_code"]["decision"] == "D-0031"
+    assert some["divergences"]["error_status_key_instead_of_code"] == {
+        "checks": 1,
+        "pocketbase_0_22_34": rehearsal.DIVERGENCES["error_status_key_instead_of_code"],
+        "decision": "D-0031",
+        "state": rehearsal.ACCEPTED,
+    }
+    assert some["divergences"]["empty_date_served_as_null"]["state"] == rehearsal.REQUESTED
 
     def accept(value):
-        return lambda: rehearsal.accepted_divergences([value], decisions)
+        return lambda: rehearsal.divergence_decisions([value], decisions)
 
     refused(accept("status=D-0031"), "unknown_divergence_code")
     refused(accept("message=D-0031"), "unknown_divergence_code")  # a message never passes
@@ -829,6 +837,173 @@ def test_divergences_pass_only_when_accepted_by_a_decision():
     refused(accept("empty_date_served_as_null=D-9999"), "decision_not_recorded")
     refused(accept("empty_date_served_as_null=D-0033"), "decision_does_not_name_the_divergence")
     refused(accept("empty_date_served_as_null=D-0031"), "decision_does_not_name_the_divergence")
+    # A code is named as a whole word, never inside a longer one.
+    longer = "## D-0034 — x\n\n`error_status_key_instead_of_code_v2`.\n"
+    refused(
+        lambda: rehearsal.divergence_decisions(["error_status_key_instead_of_code=D-0034"], longer),
+        "decision_does_not_name_the_divergence",
+    )
+    refused(
+        lambda: rehearsal.divergence_decisions(
+            ["empty_date_served_as_null=D-0032", "empty_date_served_as_null=D-0031"], decisions
+        ),
+        "divergence_given_twice",
+    )
+
+
+# The status line of D-0029 (2026-10-24): documented, acceptance only requested.
+REQUESTED_SECTION = (
+    "## D-0029 — C11 : représentation jsonb (écarts documentés, acceptation demandée)\n\n"
+    "- **Ordre des clés JSON.** Avertissement `jsonb_key_order_normalized`.\n\n"
+    "Statut : écarts documentés et signalés par avertissement. **Acceptation de\n"
+    "l'utilisateur demandée** pour les deux premiers.\n"
+)
+
+
+@pytest.mark.parametrize(
+    "status, state, accepted_on",
+    [
+        ("", rehearsal.REQUESTED, None),
+        ("Statut : acceptée par l'utilisateur le 2026-10-25.", rehearsal.ACCEPTED, "2026-10-25"),
+        (
+            "Statut : acceptée par l\u2019utilisateur le 2026-10-25",
+            rehearsal.ACCEPTED,
+            "2026-10-25",
+        ),
+        (
+            "Statut\u00a0: acceptée par l'utilisateur le 2026-10-25 (« oui »)",
+            rehearsal.ACCEPTED,
+            "2026-10-25",
+        ),
+        # Not the convention: acceptance requested.
+        ("Statut : acceptation de l'utilisateur demandée le 2026-10-25", rehearsal.REQUESTED, None),
+        (
+            "L'utilisateur a dit Statut : acceptée par l'utilisateur le 2026-10-25",
+            rehearsal.REQUESTED,
+            None,
+        ),
+        ("Statut : acceptée par l'utilisateur le 2026-10-2", rehearsal.REQUESTED, None),
+        ("Statut : acceptée par l'utilisateur", rehearsal.REQUESTED, None),
+    ],
+)
+def test_a_decision_accepts_only_with_the_status_line(status, state, accepted_on):
+    covered = rehearsal.divergence_decisions(
+        ["jsonb_key_order_normalized=D-0029"], REQUESTED_SECTION + status + "\n"
+    )
+    expected = {"decision": "D-0029", "state": state}
+    assert covered == {"jsonb_key_order_normalized": expected}
+    assert rehearsal.acceptance_date(REQUESTED_SECTION + status) == accepted_on
+    assert rehearsal.accepted_only(covered) == (
+        {"jsonb_key_order_normalized": expected} if accepted_on else {}
+    )
+
+
+def test_the_report_publishes_documented_and_accepted_divergences_apart():
+    decisions = (
+        REQUESTED_SECTION
+        + "\n## D-0031 — dates\n\n`empty_date_served_as_null`.\n\n"
+        + "Statut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    covered = rehearsal.divergence_decisions(
+        ["jsonb_key_order_normalized=D-0029", "empty_date_served_as_null=D-0031"], decisions
+    )
+    published = rehearsal.divergence_report(covered)
+    assert published["documented_divergences"] == {
+        "jsonb_key_order_normalized": {"decision": "D-0029", "state": rehearsal.REQUESTED},
+        "empty_date_served_as_null": {"decision": "D-0031", "state": rehearsal.ACCEPTED},
+    }
+    assert published["accepted_divergences"] == {
+        "empty_date_served_as_null": {"decision": "D-0031", "state": rehearsal.ACCEPTED}
+    }
+    convention = published["divergence_decision_convention"]
+    assert "Statut : acceptée par l'utilisateur le AAAA-MM-JJ" in convention
+
+
+def test_main_refuses_a_divergence_its_decision_does_not_name(tmp_path, monkeypatch, capsys):
+    args = backup_layout(tmp_path)
+    decisions = tmp_path / "decisions.md"
+    decisions.write_text(REQUESTED_SECTION)
+    monkeypatch.setattr(rehearsal, "DECISIONS", decisions)
+    monkeypatch.setattr(rehearsal, "require_isolated_interpreter", lambda: None)
+    argv = [
+        *("--ppbase", str(args.ppbase), "--data", str(args.data)),
+        *("--manifest", str(args.manifest), "--schema", str(args.schema)),
+        *("--source-version", "0.22.34", "--report", str(args.report)),
+        *("--private-dir", str(args.private_dir)),
+        *("--accept-divergence", "empty_date_served_as_null=D-0029"),
+    ]
+    monkeypatch.chdir(tmp_path)
+    assert rehearsal.main(argv) == 2
+    refusal = json.loads(capsys.readouterr().out)
+    assert refusal["status"] == "refused"
+    assert refusal["code"] == "decision_does_not_name_the_divergence"
+    assert not args.private_dir.exists() and not args.report.exists()
+
+
+def test_a_section_that_is_not_a_decision_never_accepts_or_names():
+    decisions = (
+        REQUESTED_SECTION
+        + "\n## Divergences à décider plus tard\n\n- `empty_date_served_as_null`\n\n"
+        + "Statut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    section = rehearsal.decision_sections(decisions)["D-0029"]
+    assert section.rstrip("\n") == REQUESTED_SECTION.rstrip("\n")
+    covered = rehearsal.divergence_decisions(["jsonb_key_order_normalized=D-0029"], decisions)
+    assert covered["jsonb_key_order_normalized"]["state"] == rehearsal.REQUESTED
+    refused(
+        lambda: rehearsal.divergence_decisions(["empty_date_served_as_null=D-0029"], decisions),
+        "decision_does_not_name_the_divergence",
+    )
+
+
+def test_an_impossible_acceptance_date_is_refused():
+    refused(
+        lambda: rehearsal.divergence_decisions(
+            ["jsonb_key_order_normalized=D-0029"],
+            REQUESTED_SECTION + "Statut : acceptée par l'utilisateur le 2026-02-30\n",
+        ),
+        "decision_acceptance_date_invalid",
+    )
+
+
+def test_http_claims_name_the_acceptances_still_requested():
+    def checks(divergences):
+        everything = {key: {} for claim in rehearsal.CLAIMS for key in claim[1]}
+        everything["http"] = {
+            "failed_checks": {},
+            "served_values": {"differing_fields": {}},
+            "divergences": divergences,
+        }
+        everything["after_http"] = after_http()
+        return everything
+
+    jsonb = {"checks": 2, "decision": "D-0029", "state": rehearsal.REQUESTED}
+    dates = {"checks": 1, "decision": "D-0031", "state": rehearsal.ACCEPTED}
+    report = {
+        "passes": [
+            {"pass": 1, "checks": checks({"jsonb_key_order_normalized": jsonb})},
+            {"pass": 2, "checks": checks({"empty_date_served_as_null": dates})},
+        ],
+        "repeatability": {"identical": True},
+    }
+    assert rehearsal.requested_acceptances(report["passes"]) == [
+        {"code": "jsonb_key_order_normalized", "decision": "D-0029"}
+    ]
+    proven, missing = rehearsal.proven_claims(report, 2)
+    assert missing == []
+    excepted = [claim for claim in proven if rehearsal.EXCEPT_DIVERGENCES in claim]
+    assert len(excepted) == 2  # served values and HTTP parity
+    for claim in excepted:
+        assert claim.endswith(
+            rehearsal.EXCEPT_DIVERGENCES
+            + "; user acceptance still requested for: jsonb_key_order_normalized (D-0029)"
+        )
+    assert http_parity_claim() + "; user acceptance" in " ".join(excepted)
+    # Every divergence accepted: the claims end on the exception alone.
+    jsonb["state"] = rehearsal.ACCEPTED
+    proven, _ = rehearsal.proven_claims(report, 2)
+    assert http_parity_claim() in proven
+    assert rehearsal.requested_acceptances(report["passes"]) == []
 
 
 def passed_pass(index: int, seconds: float) -> dict:
@@ -1930,7 +2105,10 @@ def test_value_differences_are_named_by_their_visible_form():
         "concatenated_items_in_another_order",
     }
     assert set(rehearsal.NAMED_DIFFERENCES.values()) <= set(rehearsal.DIVERGENCES)
-    accepted = dict.fromkeys(classified["divergences"], "D-9999")
+    accepted = {
+        code: {"decision": "D-9999", "state": rehearsal.REQUESTED}
+        for code in classified["divergences"]
+    }
     assert rehearsal.classify_problems({"served_values:v": codes}, accepted)["failing"] == {
         "served_values:v": sorted(codes)
     }
