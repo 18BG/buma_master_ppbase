@@ -10,6 +10,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1670,14 +1671,48 @@ class FakeEngine:
         self.disposed = True
 
 
-def test_check_accounts_detects_changes_and_leaves_the_synthetic_superuser_out(monkeypatch):
-    import asyncio
+PB_DATE = "2024-11-18 10:00:00.123Z"  # synthetic
+PB_INSTANT = datetime(2024, 11, 18, 10, 0, 0, 123000, tzinfo=UTC)
+AUTH_DATE_FIELDS = ["lastResetSentAt", "lastVerificationSentAt", "lastLoginAlertSentAt"]
 
-    facts = {
+
+def account_facts() -> dict:
+    return {
         "auth": {"users": {"u1": ("u", "e", True, False, "$h", "k")}},
+        "auth_dates": {
+            "users": {
+                "collection_id": "_pb_users_auth_",
+                "fields": list(AUTH_DATE_FIELDS),
+                "records": {
+                    "u1": {
+                        "lastResetSentAt": "",
+                        "lastVerificationSentAt": PB_DATE,
+                        "lastLoginAlertSentAt": "",
+                    }
+                },
+            }
+        },
         "admins": {"a1": ("boss@example.org", "$a", "ka", 0)},
+        "admin_dates": {
+            "fields": ["created", "updated", "lastResetSentAt"],
+            "records": {"a1": {"created": PB_DATE, "updated": PB_DATE, "lastResetSentAt": ""}},
+        },
     }
-    tables = {
+
+
+def account_tables() -> dict:
+    """Target rows as PPBase holds them after the import (synthetic values)."""
+    later = datetime(2026, 10, 25, 8, 0, tzinfo=UTC)
+    user_columns = ("id", "username", "email", "email_visibility", "verified", "password_hash")
+    superuser_columns = ("id", "avatar", "email", "token_key", "password_hash", "created")
+    return {
+        "columns": [
+            *({"table_name": "users", "column_name": c} for c in (*user_columns, "token_key")),
+            *(
+                {"table_name": "_superusers", "column_name": c}
+                for c in (*superuser_columns, "updated", "last_reset_sent_at")
+            ),
+        ],
         "users": [
             {
                 "id": "u1",
@@ -1689,6 +1724,18 @@ def test_check_accounts_detects_changes_and_leaves_the_synthetic_superuser_out(m
                 "token_key": "k",
             }
         ],
+        "rowids": [
+            {
+                "record_id": "u1",
+                "auth_legacy": json.dumps(
+                    {
+                        "lastResetSentAt": "",
+                        "lastVerificationSentAt": PB_DATE,
+                        "lastLoginAlertSentAt": "",
+                    }
+                ),
+            }
+        ],
         "_superusers": [
             {
                 "id": "a1",
@@ -1696,6 +1743,9 @@ def test_check_accounts_detects_changes_and_leaves_the_synthetic_superuser_out(m
                 "password_hash": "$a",
                 "token_key": "ka",
                 "avatar": 0,
+                "created": PB_INSTANT,
+                "updated": PB_INSTANT,
+                "last_reset_sent_at": None,
             },
             {
                 "id": "syn",
@@ -1703,28 +1753,173 @@ def test_check_accounts_detects_changes_and_leaves_the_synthetic_superuser_out(m
                 "password_hash": "$s",
                 "token_key": "s",
                 "avatar": 0,
+                "created": later,
+                "updated": later,
+                "last_reset_sent_at": None,
             },
         ],
+        "admin_archive": [{"record_id": "a1", "legacy": {"lastResetSentAt": ""}}],
     }
 
+
+def fake_account_reads(monkeypatch, tables: dict) -> list[str]:
+    queries = []
+
     async def rows_of(_conn, sql, _params=None):
-        return [
-            dict(row)
-            for row in (tables["_superusers"] if "_superusers" in sql else tables["users"])
-        ]
+        queries.append(sql)
+        if "information_schema" in sql:
+            key = "columns"
+        elif "_buma_c11_rowids" in sql:
+            key = "rowids"
+        elif "_buma_c11_auth_archive" in sql:
+            key = "admin_archive"
+        else:
+            key = "_superusers" if '"_superusers"' in sql else "users"
+        return [dict(row) for row in tables[key]]
 
     monkeypatch.setattr(rehearsal, "rows_of", rows_of)
+    return queries
+
+
+def accounts_code(facts, **kwargs) -> str | None:
+    import asyncio
+
+    try:
+        asyncio.run(rehearsal.check_accounts(FakeEngine(), facts, **kwargs))
+    except rehearsal.RehearsalFailure as exc:
+        assert "$changed" not in json.dumps(exc.details)
+        return exc.code
+    return None
+
+
+def test_check_accounts_detects_changes_and_leaves_the_synthetic_superuser_out(monkeypatch):
+    import asyncio
+
+    facts, tables = account_facts(), account_tables()
+    queries = fake_account_reads(monkeypatch, tables)
     result = asyncio.run(rehearsal.check_accounts(FakeEngine(), facts, synthetic_superuser="syn"))
-    assert result["_superusers"]["imported"] == 1
+    assert result["_superusers"] == {
+        "source_admins": 1,
+        "imported": 1,
+        "email_hash_token_key_avatar_equal": 1,
+        "date_columns_compared": ["created", "last_reset_sent_at", "updated"],
+        "dates_equal": 1,
+        "reset_time_archived_raw_equal": 1,
+    }
+    assert result["users"] == {
+        "records": 1,
+        "identity_hash_token_key_equal": 1,
+        "source_date_fields": AUTH_DATE_FIELDS,
+        "date_columns_compared": [],  # PPBase auth tables have none of the three
+        "dates_archived_raw_equal": 1,
+    }
+    superusers_sql = next(sql for sql in queries if '"_superusers"' in sql)
+    assert all(f'"{c}"' in superusers_sql for c in ("created", "updated", "last_reset_sent_at"))
     # Without leaving the synthetic one out, the admins differ.
-    with pytest.raises(rehearsal.RehearsalFailure) as caught:
-        asyncio.run(rehearsal.check_accounts(FakeEngine(), facts))
-    assert caught.value.code == "superusers_differ_from_source_admins"
+    assert accounts_code(facts) == "superusers_differ_from_source_admins"
     tables["users"][0]["password_hash"] = "$changed"
-    with pytest.raises(rehearsal.RehearsalFailure) as caught:
-        asyncio.run(rehearsal.check_accounts(FakeEngine(), facts, synthetic_superuser="syn"))
-    assert caught.value.code == "auth_records_differ"
-    assert "$changed" not in json.dumps(caught.value.details)
+    assert accounts_code(facts, synthetic_superuser="syn") == "auth_records_differ"
+
+
+def changed_admin_date(tables, facts):
+    tables["_superusers"][0]["created"] = PB_INSTANT + timedelta(milliseconds=1)
+
+
+def reset_time_set_by_the_target(tables, facts):
+    tables["_superusers"][0]["last_reset_sent_at"] = PB_INSTANT
+
+
+def reset_time_left_null_for_a_source_value(tables, facts):
+    # The source value must be in the column PPBase reads, not only archived.
+    facts["admin_dates"]["records"]["a1"]["lastResetSentAt"] = PB_DATE
+    tables["admin_archive"][0]["legacy"] = {"lastResetSentAt": PB_DATE}
+
+
+def source_date_in_another_layout(tables, facts):
+    facts["admin_dates"]["records"]["a1"]["updated"] = "2024-11-18T10:00:00.123Z"
+
+
+def changed_admin_archive(tables, facts):
+    tables["admin_archive"][0]["legacy"] = {"lastResetSentAt": PB_DATE}
+
+
+def changed_auth_archive(tables, facts):
+    tables["rowids"][0]["auth_legacy"] = json.dumps(
+        {"lastResetSentAt": "", "lastVerificationSentAt": "", "lastLoginAlertSentAt": ""}
+    )
+
+
+def missing_auth_archive(tables, facts):
+    tables["rowids"] = []
+
+
+def auth_column_without_the_source_date(tables, facts):
+    tables["columns"].append({"table_name": "users", "column_name": "last_verification_sent_at"})
+    tables["users"][0]["last_verification_sent_at"] = None
+
+
+@pytest.mark.parametrize(
+    "change, code",
+    [
+        (changed_admin_date, "superuser_dates_differ_from_source_admins"),
+        (reset_time_set_by_the_target, "superuser_dates_differ_from_source_admins"),
+        (reset_time_left_null_for_a_source_value, "superuser_dates_differ_from_source_admins"),
+        (source_date_in_another_layout, "superuser_dates_differ_from_source_admins"),
+        (changed_admin_archive, "admin_dates_archive_differs"),
+        (changed_auth_archive, "auth_record_dates_archive_differs"),
+        (missing_auth_archive, "auth_record_dates_archive_differs"),
+        (auth_column_without_the_source_date, "auth_record_dates_differ"),
+    ],
+)
+def test_check_accounts_compares_the_auth_dates_with_the_raw_source(monkeypatch, change, code):
+    facts, tables = account_facts(), account_tables()
+    fake_account_reads(monkeypatch, tables)
+    assert accounts_code(facts, synthetic_superuser="syn") is None
+    change(tables, facts)
+    assert accounts_code(facts, synthetic_superuser="syn") == code
+
+
+def test_a_target_auth_date_column_is_compared_when_it_exists(monkeypatch):
+    import asyncio
+
+    facts, tables = account_facts(), account_tables()
+    fake_account_reads(monkeypatch, tables)
+    tables["columns"].append({"table_name": "users", "column_name": "lastVerificationSentAt"})
+    tables["users"][0]["lastVerificationSentAt"] = PB_INSTANT
+    result = asyncio.run(rehearsal.check_accounts(FakeEngine(), facts, synthetic_superuser="syn"))
+    assert result["users"]["date_columns_compared"] == ["lastVerificationSentAt"]
+    tables["users"][0]["lastVerificationSentAt"] = None
+    assert accounts_code(facts, synthetic_superuser="syn") == "auth_record_dates_differ"
+
+
+def test_pocketbase_dates_as_stored_instants():
+    assert rehearsal.pb_instant("") is None and rehearsal.pb_instant(None) is None
+    assert rehearsal.pb_instant(PB_DATE) == PB_INSTANT
+    for raw in ("2024-11-18T10:00:00.123Z", "2024-11-18 10:00:00Z", "2024-02-30 10:00:00.000Z", 7):
+        assert rehearsal.pb_instant(raw) is rehearsal.NOT_A_DATE
+
+
+def test_source_auth_dates_are_read_raw_from_the_columns_the_tables_have():
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute(
+        'CREATE TABLE users (id TEXT, "lastResetSentAt" TEXT, "lastVerificationSentAt" TEXT)'
+    )
+    db.execute("INSERT INTO users VALUES ('u1', '', ?)", (PB_DATE,))
+    db.execute(
+        'CREATE TABLE "_admins" (id TEXT, created TEXT, updated TEXT, "lastResetSentAt" TEXT)'
+    )
+    db.execute("INSERT INTO _admins VALUES ('a1', ?, ?, '')", (PB_DATE, PB_DATE))
+    users = rehearsal.auth_date_facts(db, {"name": "users", "id": "_pb_users_auth_"})
+    assert users == {
+        "collection_id": "_pb_users_auth_",
+        "fields": ["lastResetSentAt", "lastVerificationSentAt"],  # no lastLoginAlertSentAt
+        "records": {"u1": {"lastResetSentAt": "", "lastVerificationSentAt": PB_DATE}},
+    }
+    assert rehearsal.admin_date_facts(db) == {
+        "fields": ["created", "updated", "lastResetSentAt"],
+        "records": {"a1": {"created": PB_DATE, "updated": PB_DATE, "lastResetSentAt": ""}},
+    }
 
 
 # --- container and pass cleanup ------------------------------------------------

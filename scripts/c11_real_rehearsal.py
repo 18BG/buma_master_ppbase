@@ -2279,6 +2279,7 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
     """Values the post-commit and HTTP checks compare with; kept in memory only."""
     q = importer.quote
     facts: dict = {"auth": {}, "arrays": {}, "samples": {}, "views": {}, "seconds": {}}
+    facts["auth_dates"] = {}
     with importer.snapshot(data) as db:
         for c in definitions:
             if c["type"] != "auth":
@@ -2298,6 +2299,8 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
                 )
                 for row in db.execute(sql)
             }
+            facts["auth_dates"][c["name"]] = auth_date_facts(db, c)
+        facts["admin_dates"] = admin_date_facts(db)
         facts["admins"] = {
             row["id"]: (row["email"], row["passwordHash"], row["tokenKey"], row["avatar"])
             for row in db.execute('SELECT id, email, passwordHash, tokenKey, avatar FROM "_admins"')
@@ -2416,6 +2419,41 @@ def source_facts(data: Path, definitions: list[dict], inventory: dict) -> dict:
         samples["present_file"] = min(present) if present else None
         samples["missing_file"] = min(missing) if missing else None
     return facts
+
+
+def source_columns(db, table: str) -> set[str]:
+    return {row[1] for row in db.execute(f"PRAGMA table_info({importer.quote(table)})")}
+
+
+def auth_date_facts(db, collection: dict) -> dict:
+    """Raw SQLite values of the PocketBase 0.22 auth dates the table has
+    (v0.22.34 daos/record_table_sync.go:38-40; lastLoginAlertSentAt is absent
+    from tables of older versions)."""
+    name = collection["name"]
+    fields = [key for key in AUTH_DATES if key in source_columns(db, name)]
+    selected = ", ".join(["id", *(importer.quote(key) for key in fields)])
+    return {
+        "collection_id": collection["id"],
+        "fields": fields,
+        "records": {
+            row["id"]: {key: row[key] for key in fields}
+            for row in db.execute(f"SELECT {selected} FROM {importer.quote(name)}")
+        },
+    }
+
+
+def admin_date_facts(db) -> dict:
+    """Raw SQLite created, updated and lastResetSentAt of every PocketBase admin
+    (v0.22.34 models/admin.go:15-23), the columns _admins has."""
+    fields = [key for key in ADMIN_DATES if key in source_columns(db, "_admins")]
+    selected = ", ".join(["id", *(importer.quote(key) for key in fields)])
+    return {
+        "fields": fields,
+        "records": {
+            row["id"]: {key: row[key] for key in fields}
+            for row in db.execute(f'SELECT {selected} FROM "_admins"')
+        },
+    }
 
 
 def single_relations(definitions: list[dict]) -> list[tuple[str, str]]:
@@ -2663,21 +2701,99 @@ async def verify_import(ctx, engine, spec, diagnostic, load, before) -> tuple[di
 
 
 AUTH_ROW_SQL = (
-    "SELECT id, username, email, email_visibility, verified, password_hash, token_key FROM {table}"
+    "SELECT id, username, email, email_visibility, verified, password_hash, token_key{extra} "
+    "FROM {table}"
 )
-SUPERUSER_ROW_SQL = 'SELECT id, email, password_hash, token_key, avatar FROM "_superusers"'
+SUPERUSER_ROW_SQL = 'SELECT id, email, password_hash, token_key, avatar{extra} FROM "_superusers"'
+TARGET_COLUMNS_SQL = (
+    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'"
+)
+# The import archives keep the raw source dates: c11_import.py (auth_legacy of
+# _buma_c11_rowids) and docs/contracts/c11-auth-import.md section 2 (the
+# admin's lastResetSentAt in _buma_c11_auth_archive).
+AUTH_ARCHIVE_SQL = 'SELECT record_id, auth_legacy FROM "_buma_c11_rowids" WHERE collection_id = :id'
+ADMIN_ARCHIVE_SQL = (
+    f"SELECT record_id, legacy FROM {importer.quote(auth_import.ARCHIVE_TABLE)} "
+    "WHERE source_table = '_admins'"
+)
+ADMIN_ARCHIVED_DATES = ("lastResetSentAt",)
+AUTH_DATES = ("lastResetSentAt", "lastVerificationSentAt", "lastLoginAlertSentAt")
+ADMIN_DATES = ("created", "updated", "lastResetSentAt")
+# Target column of a PocketBase 0.22 date, when the target table has one:
+# PPBase names system columns in snake_case (ppbase/db/system_tables.py:96-132:
+# _superusers.created, updated, last_reset_sent_at); PPBase auth record tables
+# have none of the three auth dates today, a camelCase column would hold one.
+DATE_COLUMNS = {
+    "created": ("created",),
+    "updated": ("updated",),
+    "lastResetSentAt": ("last_reset_sent_at", "lastResetSentAt"),
+    "lastVerificationSentAt": ("last_verification_sent_at", "lastVerificationSentAt"),
+    "lastLoginAlertSentAt": ("last_login_alert_sent_at", "lastLoginAlertSentAt"),
+}
+NOT_A_DATE = object()  # a source text in no PocketBase date layout: equal to nothing
+
+
+def pb_instant(raw):
+    """A stored PocketBase 0.22 date as the instant a PostgreSQL column holds,
+    '' (and NULL) as NULL. PocketBase writes every date as
+    'YYYY-MM-DD HH:MM:SS.mmmZ' in UTC (v0.22.34 tools/types/datetime.go:12,
+    47-53); any other text is NOT_A_DATE, never equal to a stored value."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, str) and PB_DATE.fullmatch(raw):
+        try:
+            return datetime.fromisoformat(raw[:-1] + "+00:00")
+        except ValueError:
+            pass  # e.g. 2024-02-30
+    return NOT_A_DATE
+
+
+def date_columns(fields, columns: set[str]) -> dict[str, str]:
+    """PocketBase date field -> its target column, for the fields the target has."""
+    found = {}
+    for key in fields:
+        column = next((name for name in DATE_COLUMNS[key] if name in columns), None)
+        if column is not None:
+            found[key] = column
+    return found
+
+
+def extra_columns(columns: dict[str, str]) -> str:
+    return "".join(f", {importer.quote(column)}" for column in columns.values())
+
+
+def expected_dates(records: dict[str, dict], columns: dict[str, str]) -> dict[str, tuple]:
+    """Record ID -> the raw source dates as the target columns must hold them."""
+    return {
+        record_id: tuple(pb_instant(raw[key]) for key in columns)
+        for record_id, raw in records.items()
+    }
 
 
 async def check_accounts(engine, facts: dict, *, synthetic_superuser: str | None = None) -> dict:
-    """Auth records and the PocketBase admin, compared value by value with the source.
+    """Auth records and the PocketBase admin, compared value by value with the
+    raw SQLite source: identity, hash and token key; the admin's avatar,
+    created, updated and lastResetSentAt; the auth records' lastResetSentAt,
+    lastVerificationSentAt and lastLoginAlertSentAt. Each date the source
+    table has is compared in every target column that holds it ('' as NULL:
+    _superusers.created, updated and last_reset_sent_at in PPBase) and in the
+    import archive, which keeps its raw value (_buma_c11_rowids.auth_legacy,
+    _buma_c11_auth_archive.legacy).
 
     ``synthetic_superuser`` (the rehearsal's own login, after the import) is
     left out of the comparison of ``_superusers``.
     """
     result = {}
     async with engine.connect() as conn:
-        stored_auth = {}
+        target: dict[str, set[str]] = {}
+        for row in await rows_of(conn, TARGET_COLUMNS_SQL):
+            target.setdefault(row["table_name"], set()).add(row["column_name"])
+        stored_auth, stored_dates, archived, compared = {}, {}, {}, {}
         for name in sorted(facts["auth"]):
+            dates = facts["auth_dates"][name]
+            columns = compared[name] = date_columns(dates["fields"], target.get(name, set()))
+            sql = AUTH_ROW_SQL.format(table=importer.quote(name), extra=extra_columns(columns))
+            rows = await rows_of(conn, sql)
             stored_auth[name] = {
                 row["id"]: (
                     row["username"],
@@ -2687,23 +2803,84 @@ async def check_accounts(engine, facts: dict, *, synthetic_superuser: str | None
                     row["password_hash"],
                     row["token_key"],
                 )
-                for row in await rows_of(conn, AUTH_ROW_SQL.format(table=importer.quote(name)))
+                for row in rows
             }
-        superusers = {
-            row["id"]: (row["email"], row["password_hash"], row["token_key"], row["avatar"])
-            for row in await rows_of(conn, SUPERUSER_ROW_SQL)
+            stored_dates[name] = {
+                row["id"]: tuple(row[column] for column in columns.values()) for row in rows
+            }
+            archived[name] = {
+                row["record_id"]: as_json(row["auth_legacy"])
+                for row in await rows_of(conn, AUTH_ARCHIVE_SQL, {"id": dates["collection_id"]})
+            }
+        admins = facts["admin_dates"]
+        admin_columns = date_columns(admins["fields"], target.get(SUPERUSERS, set()))
+        superuser_rows = [
+            row
+            for row in await rows_of(
+                conn, SUPERUSER_ROW_SQL.format(extra=extra_columns(admin_columns))
+            )
             if row["id"] != synthetic_superuser
+        ]
+        admin_archive = {
+            row["record_id"]: as_json(row["legacy"])
+            for row in await rows_of(conn, ADMIN_ARCHIVE_SQL)
         }
+    superusers = {
+        row["id"]: (row["email"], row["password_hash"], row["token_key"], row["avatar"])
+        for row in superuser_rows
+    }
+    superuser_dates = {
+        row["id"]: tuple(row[column] for column in admin_columns.values()) for row in superuser_rows
+    }
     for name, source in sorted(facts["auth"].items()):
         mismatches = mismatched_records(source, stored_auth[name])
         require(not mismatches, "auth_records_differ", collection=name, records=mismatches)
-        result[name] = {"records": len(source), "identity_hash_token_key_equal": len(source)}
+        dates, columns = facts["auth_dates"][name], compared[name]
+        mismatches = mismatched_records(
+            expected_dates(dates["records"], columns), stored_dates[name]
+        )
+        require(
+            not mismatches,
+            "auth_record_dates_differ",
+            collection=name,
+            columns=sorted(columns.values()),
+            records=mismatches,
+        )
+        mismatches = mismatched_records(dates["records"], archived[name])
+        require(
+            not mismatches, "auth_record_dates_archive_differs", collection=name, records=mismatches
+        )
+        result[name] = {
+            "records": len(source),
+            "identity_hash_token_key_equal": len(source),
+            "source_date_fields": dates["fields"],
+            "date_columns_compared": sorted(columns.values()),
+            "dates_archived_raw_equal": len(dates["records"]),
+        }
     mismatches = mismatched_records(facts["admins"], superusers)
     require(not mismatches, "superusers_differ_from_source_admins", records=mismatches)
+    mismatches = mismatched_records(
+        expected_dates(admins["records"], admin_columns), superuser_dates
+    )
+    require(
+        not mismatches,
+        "superuser_dates_differ_from_source_admins",
+        columns=sorted(admin_columns.values()),
+        records=mismatches,
+    )
+    archive_expected = {
+        record_id: {key: raw[key] for key in ADMIN_ARCHIVED_DATES if key in raw}
+        for record_id, raw in admins["records"].items()
+    }
+    mismatches = mismatched_records(archive_expected, admin_archive)
+    require(not mismatches, "admin_dates_archive_differs", records=mismatches)
     result[SUPERUSERS] = {
         "source_admins": len(facts["admins"]),
         "imported": len(superusers),
         "email_hash_token_key_avatar_equal": len(superusers),
+        "date_columns_compared": sorted(admin_columns.values()),
+        "dates_equal": len(superusers),
+        "reset_time_archived_raw_equal": len(archive_expected),
     }
     return result
 
@@ -4572,7 +4749,9 @@ CLAIMS = (
         None,
     ),
     (
-        "accounts, the PocketBase admin, token secrets and mapped settings equal to the source",
+        "accounts (identity, hash, token key, auth dates) and the PocketBase admin (with "
+        "created, updated and lastResetSentAt) equal to the raw source in their columns and "
+        "the import archives; token secrets and mapped settings equal to the source",
         ("accounts", "tokens_and_settings"),
         None,
     ),
