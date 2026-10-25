@@ -537,7 +537,8 @@ Sources :
 
 Variabilité mesurée. Entre AP1 et AP2 (même code, mêmes données, charge
 différente), l'écart par étape va de −7 % (lectures HTTP) à +22 %
-(diagnostic) ; la somme des phases passe de 581,5 s à 650,7 s (+12 %). Les
+(diagnostic) ; la somme des phases (`passes[0].measures.phase_seconds`, huit
+clés) passe de 581,5 s pour AP1 à 650,7 s pour AP2 (+12 %). Les
 autres mesures répétées d'une même étape donnent des écarts du même ordre
 (D-0026, point 7) : import synthétique de 243 à 321 s (+32 %), diagnostic
 réel de 110 à 128 s, audit réel de 30 à 38 s ; avec AP1 et AP2, le
