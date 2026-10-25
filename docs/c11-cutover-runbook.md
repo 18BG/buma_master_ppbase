@@ -1,8 +1,8 @@
 # Runbook C11 — bascule et retour arrière
 
-**Version finale WS-F2 du 2026-10-25, non exécutée.** Ce document décrit la
-bascule des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers PPBase et
-PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
+**Version finale intégrée (WS-F3) du 2026-10-25, non exécutée.** Ce document
+décrit la bascule des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers
+PPBase et PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
 production et la bascule exigent une autorisation distincte de l'utilisateur,
 un backup frais et une fenêtre de maintenance (`docs/server-session-plan.md`,
 sections 1 et 8). `AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a
@@ -12,44 +12,46 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
 État à la rédaction :
 
 - les commandes citées sont celles des outils intégrés à `c11/integration`
-  (`0bb0b93` ; outils inchangés à `54d3d57`, qui complète D-0027) et, pour
-  `scripts/c11_real_rehearsal.py`, celles de la branche `c11/ws-g`
-  (`456dbae`, en correction : ses options, identiques dans son arbre de
-  travail, peuvent encore changer) ; options et codes de sortie relevés par
-  `--help` et dans le code ;
-- les durées et les ressources mesurées viennent de deux passages d'**aperçu**
-  de la répétition réelle et ne figurent qu'aux tableaux 5.1 et 5.2 ; le
-  rapport final `docs/c11-real-rehearsal-report.json` n'existe pas encore :
-  l'orchestrateur y reportera ses valeurs ;
+  (`a99a2a4`), répétition réelle comprise (`scripts/c11_real_rehearsal.py`,
+  fusionné en `1edfed1`) ; options et codes de sortie relevés par `--help` et
+  dans le code à `a99a2a4` ;
+- les durées et les ressources mesurées viennent du rapport final de la
+  répétition réelle, `docs/c11-real-rehearsal-report.json` (2026-10-25, deux
+  passages passés et identiques, BUMA `b7427fe`, PPBase `069e0bb`), et ne
+  figurent qu'aux tableaux 5.1 et 5.2 ; deux aperçus et une passe
+  intermédiaire y restent comme mesures de variabilité ;
 - **aucune commande d'import de production n'existe** : le point d'entrée
   `import_snapshot` refuse toute base autre que la base jetable
   `buma_c11_rehearsal` (6.6). Tant que l'outil décrit en 10.2 n'est pas écrit,
   relu, testé et autorisé, la porte G0 est un NO-GO ;
-- PPBase exigé : branche `fix/d0019-relation-maxselect` (`237b403` à la
-  rédaction), complétée par WS-A8 (fusion de WS-A6 et comptage de
-  `totalItems`) et WS-A7 (10.1), à la révision que relève le rapport final
-  (clé `code.ppbase.commit`), contrôlée par C-45 ; BUMA y ajoute le
-  raccordement de `c11/hookup` (`d0a6dc8`, mode d'erreur PocketBase 0.22).
+- PPBase exigé : branche `fix/d0019-relation-maxselect`, à la révision que
+  relève le rapport final, `069e0bb` (`code.ppbase.commit`), contrôlée par
+  C-45 ; elle contient les corrections intégrées depuis WS-F2 (D-0033 à
+  D-0038, D-0042). BUMA contient le raccordement de `c11/hookup` (fusionné en
+  `c333e14`) et la migration `1789236851` des vues (D-0039) ;
+- décisions : D-0024 à D-0039 publiées dans
+  `docs/decisions-and-divergences.md`, D-0040 à D-0042 publiées par
+  l'orchestrateur avec cette version ; quatre acceptations de l'utilisateur
+  restent exigées avant G0 (D-0029, D-0036, D-0039, D-0042 ; 2.1).
 
 ## Conventions
 
-- **L1 à L19** : lignes du tableau des durées (5.1) ; **R1 à R11** : lignes
+- **L1 à L20** : lignes du tableau des durées (5.1) ; **R1 à R12** : lignes
   du tableau des ressources (5.2). Ces deux tableaux sont les seuls endroits
   du runbook où figurent des durées et des ressources mesurées ; ailleurs, le
   texte renvoie à leurs lignes.
-- **[aperçu]** : valeur des passages d'aperçu AP1 et AP2 de la répétition
-  réelle (5.1), à remplacer par celle du rapport final.
+- **P1, P2** : les deux passages du rapport final de la répétition réelle ;
+  **AP1, AP2, AP3** : les deux aperçus et la passe intermédiaire, gardés
+  comme mesures de variabilité (5.1).
 - **[durée non mesurée]** : étape propre à la production, ou qui manipule les
   octets des fichiers, jamais chronométrée ; à mesurer au diagnostic à blanc
   (6.1), lors d'un essai autorisé par l'utilisateur ou le jour J.
 - **[outil non attribué]** : contrôle ou action nécessaire pour lequel aucun
   outil n'existe ; l'intention est décrite ; l'outil est à écrire, relire et
   tester avant G0 (10.2).
-- **[à confirmer à l'intégration]** : comportement attendu d'un chantier qui
-  n'est pas encore intégré (10.1), à ne pas tenir pour acquis.
 - `<…>` : valeur fournie le jour J. `I1` à `I25` renvoient aux informations
-  de la section 3, `G0` à `G6` aux portes de la section 7, `C-01` à `C-46` aux
-  contrôles de la section 6 ; C-44 à C-46, ajoutés à la version finale,
+  de la section 3, `G0` à `G6` aux portes de la section 7, `C-01` à `C-47` aux
+  contrôles de la section 6 ; C-44 à C-47, ajoutés aux versions finales,
   figurent là où ils s'appliquent.
 - `<privé>` : dossier privé de la bascule (dossiers 0700, fichiers 0600), hors
   de tout dépôt Git ou dans `backups/` (ignoré par Git). Les rapports publics
@@ -134,7 +136,28 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - les seuils d'arrêt de la section 7 et les marges de durée de 5.1 ;
 - le sort de chaque écart et de chaque constat de la section 10 : correction,
   ou divergence acceptée avec son impact client et son test de régression
-  (`AGENTS.md`) ; D-0029 attend explicitement l'acceptation de l'utilisateur ;
+  (`AGENTS.md`) ;
+- **quatre acceptations explicites de l'utilisateur**, exigées avant G0, ou à
+  défaut la correction intégrée et revérifiée par les répétitions (annexe A).
+  Chacune s'inscrit dans sa section de `docs/decisions-and-divergences.md` par
+  une ligne qui commence par `Statut : acceptée par l'utilisateur le
+  AAAA-MM-JJ`, la convention que lit la répétition réelle
+  (`divergence_decision_convention` du rapport final) ; une telle ligne
+  accepte tous les codes de sa section, une acceptation partielle exige une
+  section propre :
+  - D-0029 : ordre des clés des objets JSON (`jsonb`) et filtres `= null` sur
+    les SQL NULL des champs json (7 objets et 100 valeurs réels) ;
+  - D-0036 : filtres et tris sur les colonnes NULL des vues (LEFT JOIN sans
+    correspondance), PPBase gardant la sémantique NULL de PostgreSQL ; le
+    chantier PPBase WS-A11, qui les corrigeait, n'est pas intégré (10.1) ;
+  - D-0039 : nombres servis en chaîne (`agent_sim`, `pdv_sim` de quatre vues
+    clients et retours, `number` de `buma_agent_list_view`), entiers 1/0
+    servis `true`/`false` (`isNafama`, `payed`, `salePayed`) et autres écarts
+    restants des vues, coût de la vue des dépenses compris (L20) ;
+  - D-0042 : validation partielle des mises à jour (PPBase ne valide que les
+    champs modifiés, PocketBase tous les champs du record) ;
+- la politique de sauvegarde de la base après la bascule (I18) : par
+  `pg_dump`, la sauvegarde native de PPBase refusant cette base (C-47) ;
 - la politique des machines pendant la fenêtre (C-46), proposée par
   l'infrastructure et approuvée par le décideur ;
 - les personnes de chaque rôle (section 4).
@@ -142,29 +165,52 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 ### 2.2 Prérequis techniques acquis avant le jour J
 
 - **Code de release figé.** BUMA : un commit de `features/auth` qui contient
-  C11 intégré, dont la migration
-  `pb_migrations/1789236850_c11_relation_multiple_columns.py` (D-0025),
-  `scripts/c11_real_rehearsal.py` (WS-G) et le raccordement de `c11/hookup`
-  (`d0a6dc8`) : `pb.set_error_compat("0.22")`, première instruction de
-  `register(pb)` dans `app/hooks/register.py` (mode d'erreur PocketBase 0.22,
-  D-0034), contexte de rôle des réponses d'auth (`app/hooks/auth.py`) et
-  contexte de requête de l'expand de la connexion par username
-  (`app/auth/login.py`, D-0033) [à confirmer à l'intégration]. PPBase :
-  branche `fix/d0019-relation-maxselect` (`237b403` à la rédaction :
-  correction D-0019, WS-A5 et WS-A2), complétée par WS-A8 (fusion de WS-A6 :
-  expand filtré par la viewRule de la cible, emails des comptes et mode
-  d'erreur 0.22 ; `totalItems` compté comme PocketBase, D-0035) et par WS-A7
-  (service des fichiers) ; la révision exigée est celle que relève le rapport
-  final, `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`
-  (C-45). La version du paquet PPBase ne peut pas l'exprimer (0.3.2 avant et
-  après la correction, D-0025).
+  C11 intégré, dont les douze migrations de `pb_migrations/`, de
+  `1789236840` à `1789236851` (C-15), avec
+  `pb_migrations/1789236850_c11_relation_multiple_columns.py` (D-0025) et
+  `pb_migrations/1789236851_c11_view_sqlite_semantics.py` (D-0039),
+  `scripts/c11_real_rehearsal.py` (WS-G, D-0041) et le raccordement de
+  `c11/hookup` (fusionné en `c333e14`) : `pb.set_error_compat("0.22")`,
+  première instruction de `register(pb)` (`app/hooks/register.py:51`, mode
+  d'erreur PocketBase 0.22, D-0034),
+  `pb.set_auth_record_rule_context(load_auth_record_context)`
+  (`app/hooks/auth.py:39`, contexte de rôle des réponses d'auth, D-0033) et
+  `request_context=auth_response_rule_context(…)` dans l'expand de la
+  connexion par username (`app/auth/login.py:133-147`, D-0033). Ce commit est
+  `code.buma.commit` du rapport final (`b7427fe`) ou un descendant dont la
+  différence avec lui ne touche que `docs/` (C-45) ; sinon la répétition réelle
+  est rejouée au commit de release. PPBase : branche
+  `fix/d0019-relation-maxselect` à la révision que relève le rapport final,
+  `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`, soit
+  `069e0bb` (C-45) : correction D-0019 (D-0025), WS-A5 et WS-A2 (D-0027,
+  D-0030 à D-0032), WS-A6 et WS-A8 (expand filtré par la viewRule de la cible
+  et emails des comptes, D-0033 ; mode d'erreur 0.22 dans
+  `ppbase.middleware.error_compat`, D-0034 ; `totalItems`, D-0035), WS-A9
+  (valeurs zéro, D-0036), WS-A7 (service des fichiers, D-0037), WS-A10 (noms
+  de fichiers des écritures, D-0038) et WS-A12 (booléens écrits, D-0042). La
+  version du paquet PPBase ne peut pas l'exprimer (0.3.2 avant et après la
+  correction, D-0025).
 - **Répétition réelle finale passante** : `docs/c11-real-rehearsal-report.json`
   avec `status` `passed`, deux passages aux agrégats identiques
-  (`repeatability.identical`), `accepted_divergences` limité à des écarts
-  décidés, commits égaux aux commits de release (`code.buma.commit`,
-  `code.ppbase.commit`) et arbres propres (`code.buma.tracked_files_clean`,
-  `code.ppbase.tracked_files_clean`). Commande : annexe A. Ses valeurs
-  remplacent celles des aperçus AP1 et AP2 dans les tableaux 5.1 et 5.2.
+  (`repeatability.identical`), commits égaux aux commits de release
+  (`code.buma.commit` selon la règle ci-dessus, `code.ppbase.commit`) et
+  arbres propres (`code.buma.tracked_files_clean`,
+  `code.ppbase.tracked_files_clean`). Le rapport du 2026-10-25 remplit ces
+  critères (D-0041) ; ses trois divergences documentées
+  (`acceptance_still_requested` : `jsonb_key_order_normalized`, D-0029 ;
+  `number_served_as_text` et `sqlite_integer_boolean_served_as_boolean`,
+  D-0039) ne sont admises qu'après l'acceptation de l'utilisateur (2.1) :
+  rejouée ensuite, la répétition les range dans `accepted_divergences` et
+  `acceptance_still_requested` est vide. Commande : annexe A. Ses durées et
+  ses ressources sont aux tableaux 5.1 et 5.2.
+- **Tableau de bord PPBase construit.** `/_/` est servi depuis
+  `ppbase/admin/dist/`, construit depuis `admin-ui/` du checkout PPBase de
+  release (`npm ci` puis `npm run build`, `admin-ui/package.json`,
+  `admin-ui/vite.config.ts:13-16`) et ignoré par Git (`.gitignore` de
+  PPBase) ; sans lui, `/_/` répond 404 (`ppbase/app.py:460-490`, mesuré par
+  WS-F3 sur un checkout `069e0bb` non construit) et C-35 échoue. Les
+  répétitions n'ouvrent pas le tableau de bord : construction et écrans
+  restent à vérifier sur staging (6.9) [non exécuté par WS-F3].
 - **Porte de release** (annexe A) passante sur ces commits, analyse des
   échecs PPBase comprise.
 - **Outils de 10.2** nécessaires aux portes G1 à G4, dont l'import de
@@ -221,7 +267,23 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - PostgreSQL de production en version 16, celle des répétitions (R10) ; une
   autre version majeure impose une répétition supplémentaire. PPBase se
   connecte à PostgreSQL sans TLS (`ppbase/db/engine.py:50`) : PostgreSQL sur
-  le même hôte ou sur un réseau privé de confiance (I6).
+  le même hôte ou sur un réseau privé de confiance (I6). Les répétitions ont
+  joint un PostgreSQL local par la boucle locale : sur un réseau privé, les
+  durées de L11 et L13 au moins changent [durée non mesurée] (5.1).
+- **Ordre des textes de la base de production.** PocketBase trie le texte
+  dans SQLite, octet par octet (collation BINARY). La cible des répétitions,
+  image `postgres:16-alpine` (musl), trie aussi par octets malgré sa
+  collation `en_US.utf8` (`passes[i].checks.http.sort.target_collation` du
+  rapport final) ; d'après le modèle glibc de l'hôte (glibc 2.39,
+  `en_US.utf8`, calcul du banc et non base PostgreSQL glibc), une base glibc
+  changerait 2 905 des 5 826 positions des clients triés par `name,id`
+  (`passes[i].checks.http.sort.glibc_comparison`) ; une base ICU n'est pas
+  mesurée (D-0041). La base de production est donc
+  créée avec un ordre des octets (collation `C`, ou une image musl comme les
+  répétitions), ou l'écart est décidé avant G0 avec son impact client (ordre
+  des listes triées sur un texte) ; dans les deux cas, la collation retenue
+  est consignée (I6) et vérifiée sur staging [non répété avec la collation
+  `C` ni sur la machine de production].
 - Horloges synchronisées (NTP) sur l'hôte PocketBase, l'hôte PPBase et le
   serveur PostgreSQL (contrôles C-10 et C-28).
 - **Aucun redémarrage automatique possible pendant la fenêtre (C-46).** Le
