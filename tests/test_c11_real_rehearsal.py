@@ -168,6 +168,33 @@ def test_paths_refusals(tmp_path):
     refused(lambda: rehearsal.check_paths(code_in_backup, tmp_path), "code_inside_the_backup")
 
 
+def test_source_migrations_must_be_the_frozen_migrations_directory(tmp_path):
+    from scripts.c11_idempotency_source_check import SOURCE_MIGRATION
+
+    args = backup_layout(tmp_path)
+    migrations = tmp_path / "migrationsDir"
+
+    def check():
+        rehearsal.check_paths(
+            SimpleNamespace(**{**vars(args), "source_migrations": migrations}), tmp_path
+        )
+
+    refused(check, "source_migrations_directory_required")
+    migrations.write_text("not a directory")
+    refused(check, "source_migrations_directory_required")
+    migrations.unlink()
+    migrations.mkdir()
+    (migrations / "README.md").write_text("synthetic")
+    refused(check, "source_migrations_without_js_migrations")
+    (migrations / "1730323350_updated_synthetic.js").write_text("migrate(() => {})")
+    refused(check, "source_migrations_without_the_d0022_migration")
+    (migrations / SOURCE_MIGRATION).write_text("migrate(() => {})")
+    check()
+    rehearsal.check_paths(SimpleNamespace(**{**vars(args), "source_migrations": None}), tmp_path)
+    parser = rehearsal.build_parser()
+    assert "migrationsDir" in parser.format_help()
+
+
 def test_public_report_in_the_repository_requires_committed_code(tmp_path, monkeypatch):
     args = backup_layout(tmp_path)
     args.report = rehearsal.PROJECT / "docs" / "c11-real-rehearsal-test-only.json"

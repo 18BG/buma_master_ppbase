@@ -421,6 +421,8 @@ def check_paths(args, cwd: Path) -> None:
         require(not inside(code_root, data), "code_inside_the_backup")
     require(Path(args.manifest).is_file(), "manifest_required")
     require(Path(args.schema).is_file(), "schema_export_required")
+    if getattr(args, "source_migrations", None) is not None:
+        check_source_migrations(Path(args.source_migrations))
     report, private = Path(args.report), Path(args.private_dir)
     for name, path in (("report", report), ("private_dir", private)):
         require(not importer.path_present(path), "output_path_must_be_new", output=name)
@@ -434,6 +436,17 @@ def check_paths(args, cwd: Path) -> None:
     if inside(report, PROJECT):
         # A published report must come from committed code.
         require(git_state(PROJECT)["tracked_files_clean"] is True, "report_requires_committed_code")
+
+
+def check_source_migrations(path: Path) -> None:
+    """The frozen source's migrationsDir: a directory of *.js migrations that
+    holds the source migration of D-0022, never a guess."""
+    from scripts.c11_idempotency_source_check import SOURCE_MIGRATION
+
+    require(path.is_dir(), "source_migrations_directory_required")
+    migrations = {entry.name for entry in path.glob("*.js") if entry.is_file()}
+    require(migrations, "source_migrations_without_js_migrations")
+    require(SOURCE_MIGRATION in migrations, "source_migrations_without_the_d0022_migration")
 
 
 def check_container(info: dict, run_id: str) -> dict:
@@ -3750,7 +3763,10 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
                     "diagnostic": str(diagnostic_path),
                     "details": str(pass_dir / "diagnostic-details.json"),
                     "audit": str(pass_dir / "independent-audit.json"),
-                    "source_migrations": str(args.source_migrations or ""),
+                    # Resolved: the child runs in the pass directory.
+                    "source_migrations": (
+                        str(args.source_migrations.resolve()) if args.source_migrations else ""
+                    ),
                 },
                 pass_dir,
                 running,
@@ -4036,7 +4052,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source-migrations",
         type=Path,
-        help="Frozen source pb_migrations (read only): adds the D-0022 idempotency check",
+        help=(
+            "Frozen source migrationsDir (read only; *.js migrations, with "
+            "1785599959_updated_buma_transaction.js): adds the D-0022 idempotency check"
+        ),
     )
     parser.add_argument(
         "--accept-divergence",
