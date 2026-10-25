@@ -969,6 +969,31 @@ def test_a_comment_in_a_fenced_block_does_not_end_a_decision():
     assert covered["jsonb_key_order_normalized"]["state"] == rehearsal.ACCEPTED
 
 
+def test_an_acceptance_line_inside_a_fenced_block_accepts_nothing():
+    decisions = (
+        "## D-0029 — exemple\n\n- `jsonb_key_order_normalized`\n\n"
+        "~~~text\nStatut : acceptée par l'utilisateur le 2026-10-25\n~~~\n"
+    )
+    covered = rehearsal.divergence_decisions(["jsonb_key_order_normalized=D-0029"], decisions)
+    assert covered["jsonb_key_order_normalized"]["state"] == rehearsal.REQUESTED
+
+
+def test_an_inline_span_at_line_start_opens_no_fence():
+    decisions = (
+        REQUESTED_SECTION
+        + "\n```x``` reste du code en ligne\n\n## D-0030 — suivante\n\n"
+        + "Statut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    sections = rehearsal.decision_sections(decisions)
+    assert "Statut : acceptée" not in sections["D-0029"]
+    assert "Statut : acceptée" in sections["D-0030"]
+
+
+def test_an_unclosed_fence_is_refused():
+    decisions = REQUESTED_SECTION + "\n```sh\n# jamais fermé\n## D-0030 — suivante\n"
+    refused(lambda: rehearsal.decision_sections(decisions), "decisions_unbalanced_fence")
+
+
 def test_an_impossible_acceptance_date_is_refused():
     refused(
         lambda: rehearsal.divergence_decisions(

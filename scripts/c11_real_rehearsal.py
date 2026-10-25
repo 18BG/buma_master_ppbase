@@ -4406,24 +4406,42 @@ def privacy_check(ctx, report: dict) -> dict:
     }
 
 
+# CommonMark fenced code blocks: an opener of 3+ backticks (whose info string
+# holds no backtick) or tildes, closed by the same character, at least as long.
+FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
+
+
 def decision_sections(text: str) -> dict[str, str]:
     """'## D-NNNN' heading -> the text of its section, which ends at the next
     heading of level 1 or 2 (another decision or a section such as
-    '## Divergences à décider plus tard', never part of a decision)."""
+    '## Divergences à décider plus tard', never part of a decision).
+
+    Fenced code blocks are left out of every section: a '# comment' there is no
+    heading, and an acceptance line there accepts nothing. A fence left open
+    is refused rather than guessed."""
     sections: dict[str, list[str]] = {}
     current = None
-    fenced = False
+    fence: tuple[str, int] | None = None
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            # A '# comment' inside a fenced code block is not a heading.
-            fenced = not fenced
-        if not fenced and re.match(r"#{1,2} ", line):
+        if fence is not None:
+            closer = FENCE_CLOSE.match(line)
+            if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= fence[1]:
+                fence = None
+            continue
+        opener = FENCE_OPEN.match(line)
+        if opener and not (opener.group(1)[0] == "`" and "`" in opener.group(2)):
+            fence = (opener.group(1)[0], len(opener.group(1)))
+            continue
+        if re.match(r"#{1,2} ", line):
             match = re.match(r"## (D-[0-9]{4})\b", line)
             current = match.group(1) if match else None
             if current is not None:
                 sections[current] = [line]
         elif current is not None:
             sections[current].append(line)
+    if fence is not None:
+        raise RehearsalFailure("decisions_unbalanced_fence")
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
