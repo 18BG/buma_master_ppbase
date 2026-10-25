@@ -225,12 +225,15 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - Horloges synchronisées (NTP) sur l'hôte PocketBase, l'hôte PPBase et le
   serveur PostgreSQL (contrôles C-10 et C-28).
 - **Aucun redémarrage automatique possible pendant la fenêtre (C-46).** Le
-  2026-10-24, sur le serveur de session, `apt-daily-upgrade.timer` (06:26:29)
-  a lancé `unattended-upgrade`, qui a installé un correctif `zlib1g`
-  (06:27:11 à 06:27:15) ; le hook `DPkg::Post-Invoke` de `needrestart` 3.6
-  (`-m u`) a alors redémarré les services liés à l'ancienne bibliothèque,
-  dont l'hôte de la session (`docs/progress/ledger.md`, section « Interruption
-  de 06:27 à 10:37 »). Pendant une bascule, le même mécanisme pourrait
+  2026-10-24, sur le serveur de session, `apt-daily-upgrade.timer` (06:26:29
+  heure du serveur, CEST, soit 04:26:29 UTC) a lancé `unattended-upgrade`,
+  qui a installé un correctif `zlib1g` (06:27:11 à 06:27:15 CEST) ; le hook
+  `DPkg::Post-Invoke` de `needrestart` 3.6 (`-m u`) a alors redémarré les
+  services liés à l'ancienne bibliothèque, dont l'hôte de la session
+  (`docs/progress/ledger.md`, section « Interruption de 06:27 à 10:37 »).
+  Le 2026-10-25, les commandes de 6.1, étape 2, relevaient encore sur ce
+  serveur une prochaine exécution planifiée de `apt-daily-upgrade.timer` et
+  le hook `-m u` actif. Pendant une bascule, le même mécanisme pourrait
   redémarrer PocketBase sous gel (capture annulée, 6.3), PostgreSQL pendant
   l'import (NO-GO) ou PPBase pendant les contrôles. L'infrastructure vérifie
   donc chaque hôte avant la fenêtre (6.1, étape 2) et décide ; ce runbook ne
@@ -1957,6 +1960,8 @@ propre conteneur PostgreSQL jetable et ne visent jamais une base existante :
 
 ```sh
 BUMA_SCHEMA_EXPORT=<export corrigé> PYTHONDONTWRITEBYTECODE=1 \
+  BUMA_C11_POCKETBASE_0_22_27=<binaire pocketbase 0.22.27> \
+  BUMA_C11_POCKETBASE_0_22_34=<binaire pocketbase 0.22.34> \
   .venv/bin/python -m pytest -p no:cacheprovider -q
 .venv/bin/python -m ruff check app tests scripts \
   pb_migrations/1789236849_c11_source_transaction_idempotency.py \
@@ -1988,7 +1993,15 @@ D-0022 ; les anciennes migrations générées restent hors de son périmètre.
 `scripts.c11_rehearsal` accepte la version que déclare le binaire si le
 constructeur de fixture et l'importeur la valident
 (`scripts/c11_rehearsal.py:2565-2576`) : utiliser 0.22.34, version de la
-production. Les cinq bancs rendent un rapport `passed`.
+production. Les variables `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`
+désignent les binaires officiels (annexe B) dont ont besoin les tests de
+fixture et de colonnes relationnelles (`tests/test_c11_fixture.py`,
+`tests/test_c11_relation_columns.py`) ; sans elles, ces tests ne
+s'exécutent pas. `--legacy-ppbase` désigne le dépôt Git du checkout PPBase
+de release, qui contient `c6821aa`, antérieur à D-0019 : l'outil exporte ce
+commit par `git archive` sans changer de branche
+(`scripts/c11_relation_columns_runtime.py:29-36`). Les quatre bancs rendent
+un rapport `passed`.
 
 Répétition réelle, sur le paquet base de données (`data.db` sans `storage/`)
 et son manifeste privé, dans un PostgreSQL jetable du serveur de session
