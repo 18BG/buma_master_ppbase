@@ -144,14 +144,20 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - **Code de release figé.** BUMA : un commit de `features/auth` qui contient
   C11 intégré, dont la migration
   `pb_migrations/1789236850_c11_relation_multiple_columns.py` (D-0025),
-  `scripts/c11_real_rehearsal.py` (WS-G) et l'activation du mode d'erreur
-  PocketBase 0.22 par l'enregistrement des hooks BUMA (`app/hooks/register.py`)
-  [à confirmer à l'intégration : WS-A6]. PPBase : branche
-  `fix/d0019-relation-maxselect` (`237b403` à la rédaction : correction
-  D-0019, WS-A5 et WS-A2), complétée par WS-A6 et WS-A7 ; la révision exigée
-  est celle que relève le rapport final, `code.ppbase.commit` de
-  `docs/c11-real-rehearsal-report.json` (C-45). La version du paquet PPBase
-  ne peut pas l'exprimer (0.3.2 avant et après la correction, D-0025).
+  `scripts/c11_real_rehearsal.py` (WS-G) et le raccordement de `c11/hookup`
+  (`d0a6dc8`) : `pb.set_error_compat("0.22")`, première instruction de
+  `register(pb)` dans `app/hooks/register.py` (mode d'erreur PocketBase 0.22,
+  D-0034), contexte de rôle des réponses d'auth (`app/hooks/auth.py`) et
+  contexte de requête de l'expand de la connexion par username
+  (`app/auth/login.py`, D-0033) [à confirmer à l'intégration]. PPBase :
+  branche `fix/d0019-relation-maxselect` (`237b403` à la rédaction :
+  correction D-0019, WS-A5 et WS-A2), complétée par WS-A8 (fusion de WS-A6 :
+  expand filtré par la viewRule de la cible, emails des comptes et mode
+  d'erreur 0.22 ; `totalItems` compté comme PocketBase, D-0035) et par WS-A7
+  (service des fichiers) ; la révision exigée est celle que relève le rapport
+  final, `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`
+  (C-45). La version du paquet PPBase ne peut pas l'exprimer (0.3.2 avant et
+  après la correction, D-0025).
 - **Répétition réelle finale passante** : `docs/c11-real-rehearsal-report.json`
   avec `status` `passed`, deux passages aux agrégats identiques
   (`repeatability.identical`), `accepted_divergences` limité à des écarts
@@ -281,7 +287,7 @@ L'outillage compare les 114 définitions de la capture à l'export corrigé,
 dont l'empreinte est figée (`scripts/c11_import.py:42`, `:338-341`) : une
 collection en plus (`unexpected_collection`) ou en moins
 (`missing_collection`), ou toute différence de règles, d'index, d'options ou
-de champs (`schema_drift`), bloque (`scripts/c11_import.py:1745-1750`,
+de champs (`schema_drift`), bloque (`scripts/c11_import.py:1747-1752`,
 `:1776-1808`, C-07). Les migrations de référence de PPBase sont générées
 depuis cet export (`pb_migrations/1789236840_buma_master_schema_baseline.py`,
 `pb_migrations/1789236842_buma_master_views.py`). Or la production modifie
@@ -643,16 +649,26 @@ bascule ; la fenêtre n'est fixée qu'après lui.
 
    ```sh
    git rev-parse HEAD
-   git status --porcelain
+   git status --porcelain --untracked-files=no
+   git status --porcelain --untracked-files=all
    git -C <checkout PPBase> rev-parse HEAD
-   git -C <checkout PPBase> status --porcelain
-   .venv/bin/python -c "import ppbase, ppbase.models.field_multiplicity; print(ppbase.__file__)"
+   git -C <checkout PPBase> status --porcelain --untracked-files=no
+   git -C <checkout PPBase> status --porcelain --untracked-files=all
+   PYTHONPATH=<checkout BUMA>:<checkout PPBase> .venv/bin/python -c \
+     "import ppbase, ppbase.models.field_multiplicity, ppbase.middleware.error_compat; print(ppbase.__file__)"
    ```
 
    donnent les commits `code.buma.commit` et `code.ppbase.commit` du rapport
-   final, deux états vides, et un chemin sous `<checkout PPBase>`. Sans
-   `ppbase.models.field_multiplicity`, les hooks BUMA ne se chargent pas
-   (D-0025). Y copier aussi l'export corrigé, dont le SHA-256 est contrôlé
+   final ; deux états vides pour les fichiers suivis, critère
+   `tracked_files_clean` de la répétition (`git_state` de
+   `scripts/c11_real_rehearsal.py`) ; les fichiers non suivis, consignés, ne
+   sont que ceux de l'installation (par exemple
+   `buma_master_ppbase.egg-info/`, que `.gitignore` n'exclut pas) ; et un
+   chemin sous `<checkout PPBase>`. Sans `ppbase.models.field_multiplicity`,
+   les hooks BUMA ne se chargent pas (D-0025) ; sans
+   `ppbase.middleware.error_compat`, `pb.set_error_compat` manque au
+   raccordement (D-0034) [à confirmer à l'intégration : WS-A8]. Y copier
+   aussi l'export corrigé, dont le SHA-256 est contrôlé
    par l'outillage (`scripts/c11_import.py:42`, `:338-341`), et un checkout en
    lecture seule de la source gelée `530018c` (C-08, `--source-migrations`).
 2. **C-46**, machines : sur l'hôte PocketBase, la machine de bascule et le
@@ -707,16 +723,18 @@ bascule ; la fenêtre n'est fixée qu'après lui.
      `examples/base/main.go:73-79`) et la cohabitation avec la route `GET /`
      de BUMA (10.4) sont à vérifier sur staging ; non vérifié par WS-F.
 
-   Le mode d'erreur PocketBase 0.22 (enveloppe `{code, message, data}`) est
-   activé par l'enregistrement des hooks BUMA, pas par ce fichier
-   [à confirmer à l'intégration : WS-A6] ; C-44 le contrôle.
+   Le mode d'erreur PocketBase 0.22 (enveloppe `{code, message, data}` et
+   messages de 0.22.34) est activé par l'enregistrement des hooks BUMA,
+   `pb.set_error_compat("0.22")` (`c11/hookup`, `d0a6dc8`, D-0034), et non
+   par ce fichier [à confirmer à l'intégration] ; C-44 le contrôle.
 4. Dossier de lancement de PPBase : un dossier vide et privé, sans `.env` ni
    `pb_hooks/` : PPBase lit `./.env` (`ppbase/config.py:118-123`), charge les
    fichiers `*.py` de `./pb_hooks` (`ppbase/config.py:109`,
    `ppbase/services/hook_manager.py:315-326`) et les surveille
-   (`ppbase/app.py:258-278`). `PYTHONPATH=<checkout BUMA>` donne le module
-   `app` du checkout de release, comme les répétitions
-   (`scripts/c11_rehearsal.py:2284-2320`). Ne pas utiliser les cibles `make`,
+   (`ppbase/app.py:258-278`). `PYTHONPATH=<checkout BUMA>:<checkout PPBase>`
+   donne le module `app` du checkout de release, puis PPBase, dans l'ordre du
+   serveur de la répétition réelle (`PPBaseServer` de
+   `scripts/c11_real_rehearsal.py`). Ne pas utiliser les cibles `make`,
    qui visent par défaut la base locale du port `55434`. Ne jamais passer
    l'URL PostgreSQL par `--db` : le mot de passe serait visible dans la liste
    des processus ; les outils cités lisent `PPBASE_DATABASE_URL`, et les deux
@@ -889,11 +907,13 @@ Dans les deux cas :
    0700 et fichiers 0600, CRC-32 et SHA-256 de chaque membre, relecture
    complète, archive inchangée du début à la fin, manifeste privé publié
    atomiquement ; la sortie standard porte un seul résumé agrégé, sans nom
-   de membre. `--expect-manifest <manifeste>` compare en plus à un manifeste
+   de membre, et la progression va sur la sortie d'erreur. `--expect-manifest <manifeste>` compare en plus à un manifeste
    existant de la même capture. Codes de sortie (`--help`) :
    - 0 : extrait et vérifié, manifeste écrit (`"ok": true`) ;
    - 1 : refus ou échec ; rien ne reste, sauf le manifeste quand seul le
      contenu vérifié diffère de `--expect-manifest` ;
+   - 2 : arguments refusés par `argparse`, avant toute action (code omis par
+     l'aide, D-0028) ;
    - 3 : la destination créée n'a pas pu être supprimée (`cleanup_error`) :
      ne jamais l'utiliser, l'inspecter, la supprimer à la main, relancer
      avec des chemins neufs ;
@@ -1190,7 +1210,8 @@ répétitions (`scripts/c11_rehearsal.py:2284-2320`, `PPBaseServer` de
   --no-automigrate --no-apply-migrations-on-start --no-generate-migrations
 ```
 
-avec `PYTHONPATH=<checkout BUMA>`. Si PPBase est d'abord lancé hors service,
+avec `PYTHONPATH=<checkout BUMA>:<checkout PPBase>` (6.1, étape 4). Si
+PPBase est d'abord lancé hors service,
 rejouer C-31, C-44 et C-41 après le passage sous service, avant G5, et le
 consigner. `--generate-migrations` reste désactivé sauf décision (I2) :
 actif, une modification de collection dans le tableau de bord écrit un
@@ -1242,9 +1263,13 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   PocketBase 0.22.34 répond
   `{"code":400,"message":"Failed to authenticate.","data":{}}`
   (`forms/record_password_login.go:83-85`, `apis/record_auth.go:316-317`,
-  `apis/api_error.go:11-16`, `:67-89`) ; PPBase renseigne `data.identity`
-  (`app/auth/login.py:108-113`, `ppbase/api/record_auth.py:286-291`) : sans
-  correction ni décision avant G0 (10.4), C-33 échoue.
+  `apis/api_error.go:11-16`, `:67-89`) ; PPBase `237b403` renseigne
+  `data.identity` (`app/auth/login.py:108-113`,
+  `ppbase/api/record_auth.py:286-291`). Le mode d'erreur 0.22 de WS-A6
+  réécrit ce `data` en `{}` pour les connexions natives (`docs/error-compat.md`
+  de `c11/ws-a6`) ; le même effet sur la connexion par username de BUMA est
+  [à confirmer à l'intégration]. Sans correction ni décision avant G0 (10.4),
+  C-33 échoue.
 - **C-34** : continuité des sessions : le jeton PocketBase de 6.1 de chaque
   compte de contrôle est accepté après l'import : `POST
   /api/collections/<collection>/auth-refresh` pour `users` et `agent_users`,
@@ -1272,13 +1297,16 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   /api/admins/auth-with-password`) et ouvre le tableau de bord `/_/` ;
   72 collections et 42 vues listées ; aucune modification.
 - **C-44** : mode d'erreur PocketBase 0.22 actif [à confirmer à
-  l'intégration : WS-A6]. Avec le jeton administrateur de C-35,
+  l'intégration : WS-A8 et `c11/hookup`]. Avec le jeton administrateur de C-35,
   `GET /api/collections/users/records/<ID inexistant de 15 caractères>`
   répond 404 avec la clé `code` à 404 et sans clé `status`, comme PocketBase
   0.22.34 : `{"code":404,"message":"The requested resource wasn't
   found.","data":{}}` (`apis/record_crud.go:171-174`,
   `apis/api_error.go:31-38`, `:67-89`). PPBase `237b403` sert `code` à côté
-  de `status` (`ppbase/app.py:426-429`) : sans le mode 0.22, C-44 échoue.
+  de `status` (`ppbase/app.py:426-429`) ; selon le projet D-0034, WS-A8
+  retire cette recopie hors du mode 0.22 [à confirmer à l'intégration].
+  Dans les deux cas, sans `pb.set_error_compat("0.22")` (6.1, étape 3),
+  C-44 échoue.
 - **C-36** : lectures natives avec un compte de contrôle : liste filtrée de
   `buma_transaction` avec `expand=article,author` (enveloppe `page`,
   `perPage`, `totalItems`, `totalPages`, `items`) ; une vente dont le client
@@ -1288,19 +1316,27 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   `buma_stockage_no_manager` et `buma_stock_transaction_list_view`, rowids
   égaux à la source ; une liste lisible sans compte, avec `expand` vers une
   cible dont la viewRule n'est pas publique : aucun record protégé développé
-  (D-0033, `apis/record_helpers.go:153-189`) [à confirmer à l'intégration :
-  WS-A6].
+  (D-0033, `apis/record_helpers.go:153-174`, `:177-210`) [à confirmer à
+  l'intégration : WS-A8] ; la vue publique `buma_article_stockage_list_view`,
+  dont les ids se répètent (989 lignes pour 42 ids distincts en septembre,
+  D-0035) : `totalItems` égal au nombre d'ids distincts et `totalPages`
+  calculé dessus, comme PocketBase (`COUNT(DISTINCT id)`,
+  `tools/search/provider.go:238-256`), items inchangés [à confirmer à
+  l'intégration : WS-A8].
 - **C-37** : fichiers : échantillon de fichiers présents, d'images ou de PDF
   (servis `inline` par PocketBase) et d'autres types (servis `attachment`),
   téléchargés par `/api/files/<collectionId>/<recordId>/<fichier>` : octets
   égaux au manifeste, et statut et en-têtes égaux à ceux de PocketBase
   0.22.34 selon les règles ci-dessus (aucun des 20 champs fichiers de
   l'export n'est protégé). PocketBase sert le type enregistré dans les
-  `.attrs` à l'envoi, avec `inline` ou `attachment; filename=`
-  (`tools/filesystem/filesystem.go:168-215`, `:367-377`, `:393-430`) ;
+  `.attrs` à l'envoi, avec `Content-Disposition` `inline; filename=<nom>`
+  ou `attachment; filename=<nom>`, et retire `X-Frame-Options`
+  (`tools/filesystem/filesystem.go:168-215`, `:367-377`, `:393-430` ;
+  `apis/file.go:203-206`) ;
   PPBase `237b403` déduit le type de l'extension et n'envoie
   `Content-Disposition` qu'avec `download` (`ppbase/api/files.py:141-145`,
-  `:1117-1145`) : sans correction (WS-A7) ni décision avant G0, C-37 échoue.
+  `:1117-1145`) : sans correction (WS-A7, en relecture) ni décision avant
+  G0, C-37 échoue.
   Une référence de fichier absent répond 404 « The requested resource wasn't
   found. » dans les deux systèmes (`apis/file.go:213-215`,
   `apis/api_error.go:31-38` ; `ppbase/api/files.py:84-92`), dans l'enveloppe
@@ -1702,15 +1738,23 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 
 ### 10.1 Intégration encore attendue à la rédaction
 
-- WS-A6 (PPBase) : expand filtré par la viewRule de la cible (D-0033), mode
-  d'erreur PocketBase 0.22 activé par BUMA dans `app/hooks/register.py`
-  (C-44), emails des comptes visibles par la manageRule (10.4).
-- WS-A7 (PPBase) : service des fichiers : miniature par défaut,
-  `Content-Disposition`, `Content-Type` des `.attrs` (C-37).
+- WS-A8 (PPBase), en cours : fusion de WS-A6 dans
+  `fix/d0019-relation-maxselect` (expand filtré par la viewRule de la cible et
+  emails des comptes comme `EnrichRecords`, D-0033 ; mode d'erreur PocketBase
+  0.22, D-0034) et `totalItems` compté en `COUNT(DISTINCT id)` comme
+  PocketBase (D-0035) ; C-33, C-36, C-44, C-45.
+- WS-A7 (PPBase), branche `c11/ws-a7`, en relecture : service des fichiers
+  comme PocketBase (type des `.attrs`, `Content-Disposition`, miniature par
+  défaut, `HEAD`) ; C-37.
+- Raccordement BUMA `c11/hookup` (`d0a6dc8`) : `pb.set_error_compat("0.22")`
+  dans `app/hooks/register.py`, contexte de rôle des réponses d'auth
+  (`app/hooks/auth.py`) et contexte de requête de l'expand de la connexion
+  par username (`app/auth/login.py`) ; il exige le PPBase de WS-A8 (C-44,
+  C-45).
 - WS-G (BUMA) : `scripts/c11_real_rehearsal.py`, de la branche `c11/ws-g`, et
   le rapport final `docs/c11-real-rehearsal-report.json` (deux passages, code
-  intégré), dont les valeurs remplacent l'aperçu dans 5.1 et 5.2.
-- Publication de D-0030 à D-0033 par l'orchestrateur.
+  intégré), dont les valeurs remplacent AP1 et AP2 dans 5.1 et 5.2.
+- Publication de D-0030 à D-0035 par l'orchestrateur.
 
 ### 10.2 Outils non attribués
 
@@ -1742,8 +1786,8 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 
 Toujours en vigueur : D-0016 (rowid), D-0018 (console PostgreSQL), D-0021
 (historique réel), D-0022 (index d'idempotence source), D-0023 (ordre du
-lookup). D-0019 est résolu par D-0025. D-0030 à D-0033 sont des projets de
-l'orchestrateur, publiés sous ces numéros.
+lookup). D-0019 est résolu par D-0025. D-0030 à D-0035 sont des projets de
+l'orchestrateur, publiés sous ces numéros (marqués « projet » ci-dessous).
 
 | Décision | Effet pour les clients ou l'exploitation | Dans ce runbook |
 | --- | --- | --- |
@@ -1753,10 +1797,12 @@ l'orchestrateur, publiés sous ces numéros.
 | D-0027 | sessions 0.22 reprises, sans reconnexion forcée ; nouveaux jetons de type `auth` (SDK JS 0.21 : `isAuthRecord` faux, à vérifier sur les clients, I8) ; `PATCH /api/settings` ne révoque rien, la rotation SQL est la seule révocation globale mesurée (`PUT /api/collections/import` non mesuré, à ne pas utiliser) ; emails d'authentification par `PPBASE_SMTP_*`, mais email de test par le SMTP importé de production, interdit tant que `smtp` vient de la production ; liens sur `meta.appURL` (défaut `http://localhost:8090`) ; jamais `request-*`, `confirm-*` ni email de test pendant une répétition sur données réelles ; gel avant le backup frais ; au retour arrière, un jeton à usage 0.22 consommé sur PPBase reste utilisable sur PocketBase (mesuré) ; journaux PPBase confidentiels | I16, 6.1, C-26, C-33, C-34, 6.9, 6.11, 6.12, 8.3, annexe A |
 | D-0028 | extraction plus stricte que PocketBase ; à lancer dans `tmux` ou `screen` | 6.4 ; L5 |
 | D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; acceptation de l'utilisateur demandée | 2.1, G0 ; règles de comparaison de 6.9 |
-| D-0030 | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; écart restant : `data.rule` au lieu de `data: {}` sur une création refusée | staging (6.9) ; 10.4 |
-| D-0031 | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
-| D-0032 | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
-| D-0033 | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) | C-36 [à confirmer à l'intégration : WS-A6] |
+| D-0030 (projet) | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; écart restant : `data.rule` au lieu de `data: {}` sur une création refusée | staging (6.9) ; 10.4 |
+| D-0031 (projet) | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
+| D-0032 (projet) | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
+| D-0033 (projet) | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) ; emails des comptes montrés à l'admin, au propriétaire et à qui satisfait la manageRule, comme `EnrichRecords` ; réponses d'auth développées comme le record authentifié (raccordement `c11/hookup`) ; écarts restants : ordre des back-relations `_via_`, `fields=id,expand` qui retire l'expand | C-36 [à confirmer à l'intégration : WS-A8, `c11/hookup`] |
+| D-0034 (projet) | erreurs JSON au format PocketBase 0.22 (`{code, message, data}` et messages de 0.22.34), mode activé par BUMA (`pb.set_error_compat("0.22")`) ; statuts jamais modifiés ; écarts restants : 7 statuts non réécrits, détails de `data`, exception non gérée servie en 500 texte | 6.1, C-33, C-44 ; 10.4 |
+| D-0035 (projet) | `totalItems` et `totalPages` comptés sur `COUNT(DISTINCT id)` comme PocketBase ; items servis inchangés ; une vue publique réelle a 989 lignes pour 42 ids | C-36 [à confirmer à l'intégration : WS-A8] |
 
 ### 10.4 Écarts PPBase restants, à corriger ou à décider avant G0
 
@@ -1768,12 +1814,13 @@ client et test de régression (`AGENTS.md`).
 
 | Écart | PocketBase 0.22.34 | PPBase | Impact client | Suite |
 | --- | --- | --- | --- | --- |
-| enveloppe des erreurs natives | `{code, message, data}` (`apis/api_error.go:11-16`) | `{status, message, data}` avec `code` ajouté (`ppbase/app.py:426-429`, `:534-578`) | client qui lit `code` ou `status` d'une erreur native | mode 0.22 de WS-A6 (C-44) |
-| libellés de refus | « Only admins can perform this action. » (`apis/record_crud.go:57`, `:155`) | « Only superusers… » | client qui affiche ou compare le message | mode 0.22 de WS-A6 |
-| échec de connexion | `data: {}` (C-33) | `data.identity` (`ppbase/api/record_auth.py:286-291`) | client qui lit `data` d'un échec de connexion | ouvert (classe `failed_login_identity_detail`) |
+| enveloppe des erreurs natives | `{code, message, data}` (`apis/api_error.go:11-16`) | `{status, message, data}` avec `code` ajouté (`ppbase/app.py:426-429`, `:534-578`) | client qui lit `code` ou `status` d'une erreur native | mode 0.22, D-0034 (WS-A8, `c11/hookup`) ; C-44 |
+| libellés de refus | « Only admins can perform this action. » (`apis/record_crud.go:57`, `:155`) | « Only superusers… » | client qui affiche ou compare le message | mode 0.22, D-0034 |
+| échec de connexion | `data: {}` (C-33) | `data.identity` (`ppbase/api/record_auth.py:286-291`) | client qui lit `data` d'un échec de connexion | classe `failed_login_identity_detail` ; le mode 0.22 réécrit `data` en `{}` pour les connexions natives, effet sur la connexion par username de BUMA à confirmer (C-33) |
+| `totalItems` d'une liste | `COUNT(DISTINCT id)` (`tools/search/provider.go:238-256`) | `COUNT(*)` (`ppbase/services/record_service.py:889-898`) | pagination d'une vue à ids répétés : 989 au lieu de 42 sur une vue publique réelle | D-0035, WS-A8 ; C-36 |
 | `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte | ouvert (classe `json_content_type_charset`) |
-| type, disposition et miniature des fichiers | type des `.attrs`, `inline` ou `attachment; filename=` (`tools/filesystem/filesystem.go:367-377`, `:393-430`) ; miniature 100x100 par défaut (`apis/file.go:26-27`, `:162-193`) | type par l'extension, `Content-Disposition` seulement avec `download` (`ppbase/api/files.py:141-145`, `:1117-1145`) ; original servi pour `thumb=100x100` | nom et mode d'ouverture dans le navigateur ; taille des vignettes | WS-A7 (C-37) |
-| emails des comptes et manageRule | visibles par les admins, le propriétaire et la manageRule (`apis/record_helpers.go:216-270`) | superusers et propriétaire | session `isAdmin` sans les emails des autres comptes | WS-A6 |
+| type, disposition et miniature des fichiers | type des `.attrs`, `inline` ou `attachment; filename=` (`tools/filesystem/filesystem.go:367-377`, `:393-430`) ; miniature 100x100 par défaut (`apis/file.go:26-27`, `:162-193`) | type par l'extension, `Content-Disposition` seulement avec `download` (`ppbase/api/files.py:141-145`, `:1117-1145`) ; original servi pour `thumb=100x100` | nom et mode d'ouverture dans le navigateur ; taille des vignettes | classes `file_content_disposition_missing` et `default_thumb_size_serves_original` ; WS-A7 (C-37) |
+| emails des comptes et manageRule | visibles par les admins, le propriétaire et la manageRule (`apis/record_helpers.go:216-279`) | superusers et propriétaire | session `isAdmin` sans les emails des autres comptes | D-0033 (WS-A6, fusionné par WS-A8) |
 | `GET /api/health` | `data.canBackup` (`apis/health.go:23-42`) | `data.version` en plus (`ppbase/api/health.py:14-26`) | sonde qui compare le corps | ouvert, non consigné |
 | routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) | `GET /` JSON de santé (`app/hooks/health.py`), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
 | `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2009`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
@@ -1784,9 +1831,9 @@ client et test de régression (`AGENTS.md`).
 | journal de requêtes | `logs.db` séparé | table `_requests`, sans rétention appliquée | données personnelles dans la base | 6.11, I18 |
 | TLS vers la base | sans objet (SQLite) | désactivé (`ppbase/db/engine.py:50`) | aucun ; exploitation | I6 |
 
-Autres constats sans décision : SMTP de PPBase lu dans son seul environnement
-(I16, D-0027) ; règle `buma_sql_table` si la console a servi depuis l'export
-(2.4).
+Autres constats sans décision : SMTP de PPBase lu dans son environnement,
+sauf l'email de test qui utilise le SMTP importé (I16, D-0027) ; règle
+`buma_sql_table` si la console a servi depuis l'export (2.4).
 
 ## 11. Références
 
@@ -1823,8 +1870,9 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
 - `apis/record_crud.go:57`, `:155` : refus « Only admins » ; `:171-174` :
   404 d'un record introuvable.
 - `apis/file.go:26-27`, `:162-193` : miniatures par défaut et créées à la
-  demande ; `:213-215` et `apis/api_error.go:31-38` : 404 pour un fichier
-  absent du stockage.
+  demande ; `:203-206` : `X-Frame-Options` retiré des fichiers servis ;
+  `:213-215` et `apis/api_error.go:31-38` : 404 pour un fichier absent du
+  stockage.
 - `tools/filesystem/filesystem.go:168-215` : type détecté et enregistré à
   l'envoi ; `:367-377` et `:393-430` : en-têtes servis
   (`Content-Disposition`, `Content-Type`, `Content-Security-Policy`,
@@ -1834,31 +1882,39 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
   `apis/record_auth.go:316-317` : mauvais mot de passe ;
   `apis/record_auth.go:46` et `apis/middlewares.go:94-110` : refresh limité
   à la collection du record.
-- `apis/record_helpers.go:153-189` : expand filtré par la viewRule de la
-  cible ; `:216-270` : visibilité des emails des comptes.
+- `apis/record_helpers.go:153-174` et `:177-210` : `EnrichRecords` et
+  expand filtré par la viewRule de la cible ; `:216-279` : visibilité des
+  emails des comptes.
+- `tools/search/provider.go:238-256` : `totalItems` compté en
+  `COUNT(DISTINCT id)`, `totalPages` calculé dessus.
 - `tokens/tokens.go:5-6`, `tokens/record.go:13-27`, `tokens/admin.go:11-17`,
   `apis/middlewares.go:217-254`, `daos/admin.go:52-78` : types, signature et
-  lecture des jetons ; `models/settings/settings.go:97-115` : `cronMaxKeep`
-  et durées par défaut des jetons d'authentification (14 jours).
+  lecture des jetons ; `models/settings/settings.go:77` : URL de
+  l'application par défaut ; `:97-115` : `cronMaxKeep` et durées par défaut
+  des jetons d'authentification (14 jours).
 - Comparaison : `v0.23.0`, `core/record_tokens.go:13` (type `auth`) et
   `core/settings_model.go:127` (limites de débit, absentes de 0.22.34).
 
 PPBase `237b403` (`fix/d0019-relation-maxselect` à la rédaction : correction
-D-0019, WS-A5, WS-A2 ; avant WS-A6 et WS-A7, dont les lignes pourront
+D-0019, WS-A5, WS-A2 ; avant WS-A8 et WS-A7, dont les lignes pourront
 bouger) : `ppbase/__main__.py:667-674` ; `ppbase/config.py:29-30`, `:39`,
 `:86-92`, `:95`, `:109`, `:118-123`, `:125-171`, `:179-183` ;
 `ppbase/app.py:70-74`, `:189-214`, `:258-278`, `:280-284`, `:426-429`,
 `:492-532`, `:534-578` ; `ppbase/api/deps.py:89-101` ;
 `ppbase/api/files.py:84-92`, `:141-145`, `:1117-1145` ;
 `ppbase/api/health.py:14-26` ; `ppbase/api/record_auth.py:286-291` ;
-`ppbase/api/records.py:2009` ; `ppbase/api/settings.py:88-93`, `:94-102` ;
+`ppbase/api/collections.py:448` ; `ppbase/api/records.py:2009` ;
+`ppbase/api/settings.py:88-93`, `:94-102`, `:151-180`, `:482-534` ;
 `ppbase/backup/automation.py:144-175` ; `ppbase/db/engine.py:45-50` ;
 `ppbase/middleware/rate_limit.py:26-30` ;
 `ppbase/middleware/request_logger.py:1-6`, `:31-56` ;
-`ppbase/services/app_url.py:32-51` ; `ppbase/services/auth_service.py:19`,
-`:487` ; `ppbase/services/file_storage.py:466-480` ;
+`ppbase/services/app_url.py:29`, `:32-51` ;
+`ppbase/services/auth_service.py:19`, `:487` ;
+`ppbase/services/file_storage.py:466-480` ;
 `ppbase/services/hook_manager.py:315-326` ;
-`ppbase/services/mail_service.py:49-72`.
+`ppbase/services/mail_service.py:49-72` ;
+`ppbase/services/record_service.py:889-898`. Branche `c11/ws-a6`
+(`2b79069`) : `docs/error-compat.md`, `ppbase/middleware/error_compat.py`.
 
 Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `docs/c11-master-diagnostic.md`, `docs/c11-master-initial-diagnostic.json`,
@@ -1866,7 +1922,8 @@ Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `docs/c11-synthetic-rehearsal-report.json`, `docs/c11-auth-runtime-report.json`,
 `docs/c11-pb-0.22.34-reference-report.json`, `docs/c11-real-rehearsal-report.json`
 (attendu), `docs/next-agent-handoff.md`, `docs/decisions-and-divergences.md`
-(D-0016, D-0018 à D-0029), `docs/contracts/authentication.md`,
+(D-0016, D-0018 à D-0029 ; D-0027 complétée sur `c11/integration` en
+`527bfa1`), `docs/contracts/authentication.md`,
 `docs/contracts/c11-auth-import.md`, `docs/contracts/legacy-sql.md`,
 `docs/contracts/rowid.md`, `docs/contracts/routes.json`,
 `docs/contracts/settings-referentials.md`, `docs/test-matrix.md`,
@@ -1882,7 +1939,11 @@ Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `app/hooks/register.py`, `app/hooks/health.py`, `app/hooks/poc.py`,
 `pb_migrations/1789236842_buma_master_views.py`,
 `pb_migrations/1789236846_c5_reference_defaults.py`,
-`pb_migrations/1789236850_c11_relation_multiple_columns.py`.
+`pb_migrations/1789236850_c11_relation_multiple_columns.py` ; branche
+`c11/hookup` (`d0a6dc8`) : `app/hooks/register.py`, `app/hooks/auth.py`,
+`app/auth/login.py`. Projets D-0030 à D-0035 : fichier de travail de
+l'orchestrateur, non versionné, publié par lui dans
+`docs/decisions-and-divergences.md`.
 Source gelée `buma_master_hooks@530018c` : `src/entries/index.pb.ts`,
 `src/entries/master.article.ts`, `src/entries/master.pb.ts`,
 `src/entries/master.rupture.ts`, `src/entries/master.setup.ts`,
