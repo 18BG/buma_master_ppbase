@@ -1292,9 +1292,12 @@ Contrôles :
    modèles d'email) ; `s3`, `backups`, OAuth2 et `_externalAuths` ne sont pas
    importés (D-0027). Aucun secret n'est journalisé. À faire **avant** tout
    démarrage de PPBase sur cette base. Sans superuser, le démarrage n'écrit
-   que la ligne `_params` de clé `_setup_token` et imprime dans sa console
-   une URL d'installation à usage unique (`ppbase/app.py:189-214`,
-   `ppbase/services/setup_service.py:13-38`). Cette ligne seule ne bloque
+   dans la base que la ligne `_params` de clé `_setup_token` (seule écriture
+   que la répétition synthétique admet dans ce cas,
+   `scripts/c11_rehearsal.py:2412-2431`) et imprime
+   dans sa console une URL d'installation à usage unique
+   (`ppbase/app.py:189-214`, `ppbase/services/setup_service.py:13-38`).
+   Cette ligne seule ne bloque
    pas l'import, qui ne refuse qu'une des 72 tables non vide
    (`target_not_empty`), une archive d'un import antérieur
    (`rowid_archive_exists`, `auth_archive_exists`), `_superusers` non vide
