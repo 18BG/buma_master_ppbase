@@ -55,7 +55,8 @@ lookup per query and per table (an id array, then the archive's primary key),
 not one function call per row.
 
 Requires PostgreSQL 16 (``pg_input_is_valid``). Apply with no PPBase server
-running, as the column types of three views change.
+running: eight of these views change column types, and a running server keeps
+asyncpg prepared statements of the old ones.
 """
 
 from __future__ import annotations
