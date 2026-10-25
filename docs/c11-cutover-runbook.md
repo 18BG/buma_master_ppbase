@@ -410,19 +410,27 @@ Accès et comptes :
   après C-34.
 - **I16** — SMTP. PocketBase 0.22.34 envoie ses emails par le SMTP de ses
   paramètres s'il est actif, sinon par `sendmail` (`core/base.go:495-509`).
-  PPBase n'utilise que son environnement (`PPBASE_SMTP_*`,
-  `ppbase/config.py:86-92`, `ppbase/services/mail_service.py:49-72`), jamais
-  `_params.settings.smtp` importé (D-0027 ; contrat
-  `docs/contracts/c11-auth-import.md` §3). Sans `PPBASE_SMTP_HOST`, rien
-  n'est envoyé et seul un avertissement sans destinataire, lien ni jeton est
-  journalisé, sauf en `PPBASE_DEV`, qui journalise corps, liens et jetons
-  (`mail_service.py:56-66`) et ne doit jamais être activé en production. Les
-  liens sont construits sur le seul `meta.appURL` importé
-  (`ppbase/services/app_url.py:32-51`, comme `mails/admin.go:22-26` et
-  `mails/record.go:175-184` de 0.22.34). À fournir : paramètres SMTP de
-  PPBase en production (en pratique ceux du SMTP de PocketBase), ou décision
-  de ne pas en avoir (aucun email de vérification, de réinitialisation ni de
-  changement d'email), et politique d'accès aux journaux.
+  PPBase envoie ses emails d'authentification par son seul environnement
+  (`PPBASE_SMTP_*`, `ppbase/config.py:86-92`,
+  `ppbase/services/mail_service.py:49-72`), **sauf** l'email de test
+  `POST /api/settings/test/email`, envoyé avec le `_params.settings.smtp`
+  importé, donc avec les identifiants SMTP de production
+  (`ppbase/api/settings.py:482-534`, `_smtp_config_from_settings` aux lignes
+  `:151-180` ; D-0027 ; contrat `docs/contracts/c11-auth-import.md` §3 et §9).
+  Cet appel est interdit tant que `smtp` vient de la production : répétitions,
+  staging et contrôles avant ouverture (6.9). Sans `PPBASE_SMTP_HOST`, aucun
+  email d'authentification n'est envoyé et seul un avertissement sans
+  destinataire, lien ni jeton est journalisé, sauf en `PPBASE_DEV`, qui
+  journalise corps, liens et jetons (`ppbase/services/mail_service.py:56-66`)
+  et ne doit jamais être activé en production. Les liens sont construits sur
+  le seul `meta.appURL` importé, ou sur `http://localhost:8090` s'il manque ou
+  n'est pas une URL absolue (`ppbase/services/app_url.py:29`, `:32-51`, comme
+  `mails/admin.go:22-26` et `mails/record.go:175-184` de 0.22.34, défaut
+  `models/settings/settings.go:77`) : C-26 le contrôle. À fournir :
+  paramètres SMTP de PPBase en production (en pratique ceux du SMTP de
+  PocketBase), ou décision de ne pas en avoir (aucun email de vérification,
+  de réinitialisation ni de changement d'email), et politique d'accès aux
+  journaux.
 
 Sauvegardes, rétention et décisions :
 
@@ -677,8 +685,9 @@ bascule ; la fenêtre n'est fixée qu'après lui.
    (`scripts/c11_auth_runtime.py:1555-1571`). `PPBASE_DEV` reste absent ou
    faux. Y ajouter :
    - `PPBASE_SMTP_HOST`, `PPBASE_SMTP_PORT`, `PPBASE_SMTP_USERNAME`,
-     `PPBASE_SMTP_PASSWORD` et `PPBASE_SMTP_FROM`, selon I16 : c'est la seule
-     configuration d'envoi que PPBase lit ;
+     `PPBASE_SMTP_PASSWORD` et `PPBASE_SMTP_FROM`, selon I16 : c'est la
+     configuration d'envoi des emails d'authentification ; seul l'email de
+     test, interdit (I16), utilise le SMTP importé ;
    - `PPBASE_JWT_SECRET`, secret propre à PPBase. Sans lui, PPBase génère et
      conserve `<PPBASE_DATA_DIR>/.jwt_secret` (0600) et l'annonce au
      démarrage (`ppbase/config.py:125-171`, `ppbase/app.py:70-74`). Il ne
@@ -1189,7 +1198,11 @@ fichier dans le dossier des migrations (`ppbase/config.py:179-183`). Durée du
 démarrage : L15.
 
 Contrôles en lecture seule, sans écriture métier sur la production ; records
-choisis en privé, jamais cités. Chaque réponse est comparée à celle de
+choisis en privé, jamais cités. Jamais d'appel à `POST
+/api/settings/test/email`, qui enverrait un email avec les identifiants SMTP
+de production importés (I16), ni aux routes `request-*` et `confirm-*`, qui
+écrivent l'état d'authentification ou envoient des emails (D-0027 ; contrat
+`docs/contracts/c11-auth-import.md` §7). Chaque réponse est comparée à celle de
 PocketBase 0.22.34 pour la même requête, erreurs comprises. La référence
 vient de C-39 le jour J ou, à défaut, de la comparaison faite sur staging
 avant le jour J (scénarios ci-dessous). Règles de comparaison :
@@ -1319,12 +1332,13 @@ cette seule base. Règles d'isolement :
 
 - aucune exposition aux clients de production : ni URL, ni DNS, ni amont de
   proxy partagés avec la production ; accès réservé aux testeurs nommés ;
-- SMTP neutralisé : aucun `PPBASE_SMTP_*`, donc aucun envoi, et jamais
-  `PPBASE_DEV`, qui écrirait corps, liens et jetons des emails dans les
-  journaux (I16) ; ne jamais appeler `/api/settings/test/email`, qui
-  utiliserait les identifiants SMTP de production importés (contrat
-  `docs/contracts/c11-auth-import.md` §9) ; journaux du staging privés et
-  détruits avec lui ;
+- SMTP neutralisé : aucun `PPBASE_SMTP_*`, donc aucun email
+  d'authentification envoyé, et jamais `PPBASE_DEV`, qui écrirait corps,
+  liens et jetons des emails dans les journaux (I16) ; ne jamais appeler
+  `POST /api/settings/test/email`, qui utiliserait les identifiants SMTP de
+  production importés, ni les routes `request-*` et `confirm-*` (D-0027 ;
+  contrat `docs/contracts/c11-auth-import.md` §9) ; journaux du staging
+  privés et détruits avec lui ;
 - secrets de jetons distincts de la production. Le staging contient les
   `tokenKey` réelles : avec les secrets de production, il accepterait les
   jetons de production, et un jeton `admin` qu'il émettrait pour
@@ -1438,16 +1452,20 @@ et la capture sont conservés selon I17.
 
 ### 6.12 Révocation globale d'urgence des sessions
 
-PPBase n'offre aucune voie API ni tableau de bord pour faire tourner un
-secret de session : `PATCH /api/settings`, la procédure « Invalidate all
-previously issued tokens » du tableau de bord 0.22, y répond 200 sans effet
-(D-0027 ; contrat `docs/contracts/c11-auth-import.md` §3). La rotation SQL
-du contrat (§7), prouvée par le banc des sessions
-(`comparison.session_revocation_emergency_sql` de
-`docs/c11-auth-runtime-report.json`), est **la seule révocation globale**.
-Décidée par le décideur, exécutée par l'opérateur sur la base de production,
-en une transaction (la requête est celle du banc,
-`EMERGENCY_SESSION_REVOCATION_SQL`, `scripts/c11_auth_runtime.py:296-301`) :
+PPBase n'offre aucune voie mesurée, par l'API ou le tableau de bord, pour
+faire tourner un secret de session : `PATCH /api/settings`, la procédure
+« Invalidate all previously issued tokens » du tableau de bord 0.22, y répond
+200 sans effet (D-0027 ; contrat `docs/contracts/c11-auth-import.md` §3). La
+rotation SQL du contrat (§7), prouvée sans redémarrage par le banc des
+sessions (`comparison.session_revocation_emergency_sql` de
+`docs/c11-auth-runtime-report.json`), est **la seule révocation globale
+mesurée** et la seule à employer. À la lecture du code,
+`PUT /api/collections/import` (`ppbase/api/collections.py:448`) avec un
+secret explicite non masqué remplacerait aussi ce secret : voie non mesurée,
+à ne pas utiliser (D-0027). Décidée par le décideur, la rotation est exécutée
+par l'opérateur sur la base de production, en une transaction (la requête est
+celle du banc, `EMERGENCY_SESSION_REVOCATION_SQL`,
+`scripts/c11_auth_runtime.py:296-301`) :
 
 ```sql
 BEGIN;
@@ -1474,8 +1492,9 @@ COMMIT;
   une révocation 0.22.
 - Limites : seule la rotation d'`authToken` est prouvée ; les autres
   secrets (`passwordResetToken`, `verificationToken`, `emailChangeToken`,
-  `fileToken`) ne changent pas (contrat §9). Pour un seul compte, la voie API
-  suffit : un admin change son mot de passe, comme en 0.22.
+  `fileToken`) ne changent pas, et le même `jsonb_set` sur eux n'est pas
+  mesuré (contrat §9). Pour un seul compte, la voie API suffit : un admin
+  change son mot de passe, comme en 0.22.
 - Retour arrière : PocketBase garde ses anciens secrets ; les sessions
   révoquées sur PPBase redeviennent valables sur PocketBase jusqu'à leur
   `exp`, sauf révocation faite aussi côté PocketBase (Settings → Token
@@ -1628,7 +1647,9 @@ Impact client d'un retour après ouverture (D-0027 ; contrat
   ressaisie, et leurs IDs n'y existent pas ;
 - les fichiers envoyés et les changements de compte faits dans PPBase (mot de
   passe, email, vérification) n'y sont pas ; un jeton à usage 0.22 consommé
-  sur PPBase reste utilisable sur PocketBase jusqu'à son `exp` ;
+  sur PPBase reste utilisable sur PocketBase jusqu'à son `exp` (mesuré) ; le
+  sort, sur PocketBase, des jetons à usage émis par PPBase après la bascule
+  n'est pas mesuré ;
 - PPBase émet des jetons de record de type `auth`
   (`ppbase/services/auth_service.py:19`, `:487`), que PocketBase 0.22.34 ne
   reconnaît pas : il ne charge que `admin` et `authRecord`
@@ -1729,7 +1750,7 @@ l'orchestrateur, publiés sous ces numéros.
 | D-0024 | version source 0.22.34 validée ; version fournie avec le backup, jamais devinée ; seuls les binaires officiels linux amd64 sont comparés | `--source-version 0.22.34` (6.5) ; C-02 |
 | D-0025 | relations à `maxSelect` nul servies en listes ; écriture API vers une cible absente refusée en 400, y compris la mise à jour d'un record qui porte un orphelin historique ; suppressions qui nettoient les références, comme en production ; PPBase corrigé exigé ; `1789236850` sans effet sur une base neuve, à appliquer serveur arrêté ; écarts PPBase restants listés (dont `minSelect` non appliqué, tri sur un champ multiple, expand `_via_` absent, aucun hook de modèle pendant le nettoyage) | C-45, C-15, C-20, C-36 ; 10.4 |
 | D-0026 | historiques importés tels quels, anomalies comprises, sans troncature ni conversion ; une seule transaction ; SIGTERM et SIGHUP annulent proprement sous `cancelled_by_termination` ; après SIGKILL ou OOM, seul le staging privé reste | 6.6 ; C-17 à C-23 ; L11, L12 |
-| D-0027 | sessions 0.22 reprises, sans reconnexion forcée ; nouveaux jetons de type `auth` (SDK JS 0.21 : `isAuthRecord` faux, à vérifier sur les clients, I8) ; `PATCH /api/settings` ne révoque rien ; emails par `PPBASE_SMTP_*` seulement, liens sur `meta.appURL` ; gel avant le backup frais ; journaux PPBase confidentiels | 6.1, C-26, C-33, C-34, 6.11, 6.12, 8.3 |
+| D-0027 | sessions 0.22 reprises, sans reconnexion forcée ; nouveaux jetons de type `auth` (SDK JS 0.21 : `isAuthRecord` faux, à vérifier sur les clients, I8) ; `PATCH /api/settings` ne révoque rien, la rotation SQL est la seule révocation globale mesurée (`PUT /api/collections/import` non mesuré, à ne pas utiliser) ; emails d'authentification par `PPBASE_SMTP_*`, mais email de test par le SMTP importé de production, interdit tant que `smtp` vient de la production ; liens sur `meta.appURL` (défaut `http://localhost:8090`) ; jamais `request-*`, `confirm-*` ni email de test pendant une répétition sur données réelles ; gel avant le backup frais ; au retour arrière, un jeton à usage 0.22 consommé sur PPBase reste utilisable sur PocketBase (mesuré) ; journaux PPBase confidentiels | I16, 6.1, C-26, C-33, C-34, 6.9, 6.11, 6.12, 8.3, annexe A |
 | D-0028 | extraction plus stricte que PocketBase ; à lancer dans `tmux` ou `screen` | 6.4 ; L5 |
 | D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; acceptation de l'utilisateur demandée | 2.1, G0 ; règles de comparaison de 6.9 |
 | D-0030 | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; écart restant : `data.rule` au lieu de `data: {}` sur une création refusée | staging (6.9) ; 10.4 |
@@ -1927,12 +1948,25 @@ dossier du backup :
 ```
 
 Deux passages par défaut (`--passes`), conteneur limité par défaut à 2 Gio et
-2 CPU (`--memory`, `--cpus`) ; `--accept-divergence CODE=D-NNNN` seulement
-pour un écart décidé. Code de sortie 0 si le rapport est `passed` et que son
-contrôle de confidentialité passe, 1 sinon ; le rapport public n'est écrit
-qu'après ce contrôle. Options relevées sur `c11/ws-g` (`d792a50`), à
-revérifier par `--help` au commit de release. Le rapport final publié est
+2 CPU (`--memory`, `--cpus`) ; `--source-migrations` ajoute le contrôle
+d'idempotence de D-0022 (L8) ; `--accept-divergence CODE=D-NNNN` seulement
+pour un écart décidé. Codes de sortie : 0 si le rapport est `passed` et que
+son contrôle de confidentialité passe ; 1 sinon, le rapport public n'étant
+écrit qu'après ce contrôle ; 2 si la commande est refusée avant tout passage
+(interpréteur non isolé ; données, manifeste ou export absents ; sorties
+qui ne sont pas des chemins neufs ; parent du dossier privé accessible à
+d'autres que son propriétaire ; code de divergence inconnu). Options et
+codes relevés par `--help` et dans `main()` sur `c11/ws-g` (`456dbae`),
+à revérifier au commit de release. Le rapport final publié est
 `docs/c11-real-rehearsal-report.json` (2.2).
+
+Sur données réelles, le serveur PPBase de la répétition porte les secrets de
+jetons et le SMTP de production importés et accepte les sessions réelles
+encore valides : l'outil le lance en boucle locale, sans `PPBASE_SMTP_*`
+(`passes[i].server.live_process.smtp_variables` à 0) ni `PPBASE_DEV`.
+Personne n'y appelle `POST /api/settings/test/email`, ni les routes
+`request-*` et `confirm-*` (D-0027 ; contrat
+`docs/contracts/c11-auth-import.md` §9) ; ses journaux restent privés.
 
 Côté PPBase, `pytest -p no:cacheprovider -q tests` au commit de release :
 aucun échec nouveau, et chacun des échecs antérieurs analysé et consigné
