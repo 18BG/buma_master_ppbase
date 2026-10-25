@@ -307,8 +307,25 @@ def test_privacy_exempts_schema_names_code_literals_and_digests():
 
 def test_code_literals_are_the_string_constants_of_the_sources(tmp_path):
     source = tmp_path / "module.py"
-    source.write_text('A = "first"\n\ndef f():\n    return {"second": 1}\n')
-    assert rehearsal.code_literals(source) == {"first", "second"}
+    source.write_text(
+        'A = "first"\n\ndef f():\n    return {"second": 1, "x": "a claim of PostgreSQL"}\n'
+    )
+    literals = rehearsal.code_literals(source)
+    # Whole constants, and their tokens of 8+ characters (code words, not data).
+    assert literals == {"first", "second", "x", "a claim of PostgreSQL", "PostgreSQL"}
+
+
+def test_a_code_word_equal_to_a_real_value_is_not_a_leak(tmp_path):
+    source = tmp_path / "module.py"
+    source.write_text('CLAIM = "every record imported in one transaction"\n')
+    sensitive = rehearsal.HashedValues(["transaction", "a-real-secret-value"])
+    exempt = rehearsal.code_literals(source)
+    report = {"proves": ["every record imported in one transaction"]}
+    assert rehearsal.privacy_violations(report, sensitive, exempt) == []
+    leaked = {"proves": ["every record imported in one transaction a-real-secret-value"]}
+    assert rehearsal.privacy_violations(leaked, sensitive, exempt) == [
+        {"path": "$.proves[0]", "reason": "real_value"}
+    ]
 
 
 def test_hashed_values_membership_survives_compaction(monkeypatch):
@@ -969,19 +986,43 @@ def test_row_number_views_compare_as_multisets_ids_aside():
         "served": 2,
         "rows_only_in_source": 0,
         "rows_only_served": 0,
+        "rows_served_more_often_than_in_source": 0,
+        "source_rows_never_served": 0,
+        "rows_explained_by_one_key": {},
+        "rows_differing_in_several_keys": 0,
         "unmodeled_keys": [],
     }
-    # A changed value, a boolean for a number, a missing or duplicated row.
+    # A changed value or a boolean for a number: one key explains the row.
     for served in (
         [served_row("1", "c2", 7.5), served_row("2", "c1", 6)],
         [served_row("1", "c2", 7.5), served_row("2", "c1", True)],
+    ):
+        problems, counts, samples = rehearsal.multiset_comparison(expected, served)
+        assert problems == ["value_differs:total"]
+        assert counts["rows_explained_by_one_key"] == {"total:differs": 1}
+        assert samples["only_in_source"]  # private evidence, never in the report
+    # A missing or duplicated row: nothing explains it.
+    for served in (
         [served_row("1", "c2", 7.5)],
         [served_row("1", "c2", 7.5), served_row("2", "c2", 7.5)],
     ):
         problems, counts, samples = rehearsal.multiset_comparison(expected, served)
         assert "rows_differ_from_sqlite_ids_aside" in problems
-        assert counts["rows_only_in_source"] >= 1
-        assert samples["only_in_source"]  # private evidence, never in the report
+        assert counts["rows_only_in_source"] == counts["rows_differing_in_several_keys"] == 1
+        assert counts["source_rows_never_served"] == 1
+    # Paging that numbers the rows again: one row served twice, another never.
+    _problems, counts, _samples = rehearsal.multiset_comparison(
+        expected, [served_row("1", "c2", 7.5), served_row("2", "c2", 7.5)]
+    )
+    assert counts["rows_served_more_often_than_in_source"] == 1
+    # A SQL NULL served as null where PocketBase serves "": the named divergence.
+    raw_null = [{"id": "1", "caisse": None, "total": 5}, {"id": "2", "caisse": "c2", "total": 7.5}]
+    expected_null = [rehearsal.expected_record(ROW_VIEW, r, email_visible=True) for r in raw_null]
+    problems, counts, _samples = rehearsal.multiset_comparison(
+        expected_null, [served_row("1", "c2", 7.5), served_row("2", None, 5)]
+    )
+    assert problems == ["null_served_for_pocketbase_zero_value:caisse"]
+    assert counts["rows_explained_by_one_key"] == {"caisse:null_for_zero_value": 1}
     # Same rows, other IDs (a page served twice, another skipped).
     problems, _counts, _samples = rehearsal.multiset_comparison(
         expected, [served_row("1", "c2", 7.5), served_row("3", "c1", 5)]
@@ -1233,7 +1274,7 @@ def test_a_null_date_is_the_named_divergence_only_for_an_empty_source_date():
     assert rehearsal.value_problems(lost) == ["value_differs:due"]
     values = rehearsal.ServedValues()
     values.add(DATED, outcomes)
-    assert values.summary()["empty_date_served_as_null_fields"] == {"dated.due": 1}
+    assert values.summary()["named_differences"] == {"empty_date_served_as_null": {"dated.due": 1}}
 
 
 def test_an_out_of_range_number_text_is_not_modeled():
@@ -1269,7 +1310,7 @@ def test_served_values_summary_holds_counts_and_names_only():
     assert summary["records_compared"] == {"auth": 2}
     assert summary["values"] == {"differs": 1, "equal": 2, "json_key_order": 1, "unmodeled": 1}
     assert summary["differing_fields"] == {"users.name": 1}
-    assert summary["json_key_order_fields_d0029"] == {"users.more": 1}
+    assert summary["named_differences"] == {"jsonb_key_order_normalized": {"users.more": 1}}
     assert summary["unmodeled_fields"] == {"users.created": 1}
     assert summary["values_by_field_type"]["text"] == {"differs": 1}
 
@@ -1734,3 +1775,92 @@ def test_a_failing_group_of_reads_is_a_failed_check_not_an_abort(tmp_path):
 
 def stat_mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
+
+
+def test_value_differences_are_named_by_their_visible_form():
+    kind = rehearsal.difference_kind
+    # PocketBase serves the field's zero value for a SQL NULL.
+    for expected in ("", 0.0, 0, False, []):
+        assert kind(expected, None) == "null_for_zero_value", expected
+    assert kind("x", None) == kind(1.5, None) == kind(True, None) == "differs"
+    assert kind(70123456, "70123456") == kind(12.5, "12.5") == "number_as_text"
+    assert kind(12, "13") == kind(12, "twelve") == "differs"
+    assert kind(1, True) == kind(0, False) == "integer_boolean_as_boolean"
+    assert kind(1, False) == kind(2, True) == kind(1.0, True) == "differs"
+    assert kind("b,a,c", "a,b,c") == "concatenation_order"
+    assert kind("a,b", "a,c") == kind("ab", "ba") == "differs"
+    outcomes = {
+        "a": "null_for_zero_value",
+        "b": "number_as_text",
+        "c": "integer_boolean_as_boolean",
+        "d": "concatenation_order",
+        "e": "differs",
+        "f": "equal",
+        "g": "unmodeled",
+    }
+    codes = rehearsal.value_problems(outcomes)
+    assert codes == [
+        "null_served_for_pocketbase_zero_value:a",
+        "number_served_as_text:b",
+        "sqlite_integer_boolean_served_as_boolean:c",
+        "concatenated_items_in_another_order:d",
+        "value_differs:e",
+    ]
+    # Every named form is a divergence a decision may accept; value_differs never is.
+    classified = rehearsal.classify_problems({"served_values:v": codes}, {})
+    assert set(classified["divergences"]) == {
+        "null_served_for_pocketbase_zero_value",
+        "number_served_as_text",
+        "sqlite_integer_boolean_served_as_boolean",
+        "concatenated_items_in_another_order",
+    }
+    assert set(rehearsal.NAMED_DIFFERENCES.values()) <= set(rehearsal.DIVERGENCES)
+    accepted = dict.fromkeys(classified["divergences"], "D-9999")
+    assert rehearsal.classify_problems({"served_values:v": codes}, accepted)["failing"] == {
+        "served_values:v": sorted(codes)
+    }
+    assert rehearsal.classify_problems({"served_values:v": codes[:4]}, accepted)["failing"] == {}
+
+
+def test_served_view_text_null_is_named_in_the_record_comparison():
+    view = {
+        "id": "v3v3v3v3v3v3v3v",
+        "name": "joined_view",
+        "type": "view",
+        "schema": [
+            {"name": "label", "type": "text", "options": {}},
+            {"name": "count", "type": "json", "options": {}},
+            {"name": "paid", "type": "json", "options": {}},
+        ],
+    }
+    raw = {"id": "r1", "label": None, "count": 3, "paid": 1}
+    served = {
+        "id": "r1",
+        "collectionId": view["id"],
+        "collectionName": "joined_view",
+        "label": None,
+        "count": "3",
+        "paid": True,
+    }
+    outcomes = rehearsal.compare_served_record(view, served, raw, email_visible=True)
+    assert rehearsal.value_problems(outcomes) == [
+        "number_served_as_text:count",
+        "null_served_for_pocketbase_zero_value:label",
+        "sqlite_integer_boolean_served_as_boolean:paid",
+    ]
+
+
+def test_no_failure_passes_a_code_keyword():
+    """require(condition, code, **details): a details key named code is a TypeError."""
+    import ast
+
+    tree = ast.parse(Path(rehearsal.__file__).read_text())
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in ("require", "RehearsalFailure")
+    ]
+    assert calls
+    assert [c.lineno for c in calls if any(k.arg == "code" for k in c.keywords)] == []

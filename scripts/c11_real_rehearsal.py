@@ -619,12 +619,14 @@ def schema_vocabulary(definitions: list[dict]) -> set[str]:
 
 
 def code_literals(*paths: Path) -> set[str]:
-    """String constants written in these source files: code, never backup data."""
+    """String constants written in these source files, and their tokens: code,
+    never backup data (a claim's word may equal a real value by chance)."""
     literals = set()
     for path in paths:
         for node in ast.walk(ast.parse(Path(path).read_text())):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 literals.add(node.value)
+                literals.update(candidates(node.value))
     return literals
 
 
@@ -1142,9 +1144,64 @@ def date_keys(collection: dict) -> set[str]:
     return {"created", "updated"} | {f["name"] for f in collection["schema"] if f["type"] == "date"}
 
 
+# Outcomes of a served value that differs from PocketBase's in a named,
+# recognizable form -> the problem code (a DIVERGENCES entry). Any other
+# difference is "differs" (value_differs, never acceptable).
+NAMED_DIFFERENCES = {
+    "json_key_order": "jsonb_key_order_normalized",
+    "empty_date_null": "empty_date_served_as_null",
+    "null_for_zero_value": "null_served_for_pocketbase_zero_value",
+    "number_as_text": "number_served_as_text",
+    "integer_boolean_as_boolean": "sqlite_integer_boolean_served_as_boolean",
+    "concatenation_order": "concatenated_items_in_another_order",
+}
+
+
+def difference_kind(expected, served) -> str:
+    """The visible form of a served value unequal to PocketBase's: a
+    NAMED_DIFFERENCES outcome, or "differs"."""
+    number = isinstance(expected, int | float) and not isinstance(expected, bool)
+    if served is None:
+        # PrepareValue of a SQL NULL (nil): "" (text, email, url, editor and
+        # single select, file, relation), 0, false, [] when multiple.
+        zero = expected == "" or expected == [] or expected is False or (number and expected == 0)
+        return "null_for_zero_value" if zero else "differs"
+    if number and isinstance(served, str) and GO_DECIMAL.fullmatch(served):
+        if math.isfinite(float(served)) and float(served) == float(expected):
+            return "number_as_text"
+    if (
+        isinstance(expected, int)
+        and not isinstance(expected, bool)
+        and expected in (0, 1)
+        and isinstance(served, bool)
+        and int(served) == expected
+    ):
+        return "integer_boolean_as_boolean"
+    if (
+        isinstance(expected, str)
+        and isinstance(served, str)
+        and "," in expected
+        and sorted(expected.split(",")) == sorted(served.split(","))
+    ):
+        return "concatenation_order"
+    return "differs"
+
+
+def outcome_code(outcome: str, key: str) -> str | None:
+    """The problem code of one compared value (None when equal or unmodeled)."""
+    if outcome in ("equal", "unmodeled"):
+        return None
+    if outcome == "differs":
+        return f"value_differs:{key}"
+    if outcome == "unexpected_key":
+        return f"unexpected_key:{key}"
+    return f"{NAMED_DIFFERENCES[outcome]}:{key}"
+
+
 def compare_served_record(collection: dict, served, raw: dict, *, email_visible: bool) -> dict:
-    """Outcome per key: equal, json_key_order (D-0029), empty_date_null (an
-    empty source date served as null), unmodeled or differs."""
+    """Outcome per key: equal, unmodeled, differs, unexpected_key, or a
+    NAMED_DIFFERENCES outcome (json_key_order of D-0029, an empty source date
+    served as null, a SQL NULL served as null, ...)."""
     expected = expected_record(collection, raw, email_visible=email_visible)
     if not isinstance(served, dict):
         return dict.fromkeys(expected, "differs")
@@ -1155,8 +1212,10 @@ def compare_served_record(collection: dict, served, raw: dict, *, email_visible:
             outcomes[key] = "unmodeled"
         elif key in dates and value == "" and key in served and served[key] is None:
             outcomes[key] = "empty_date_null"
-        elif key not in served or not same_json(served[key], value):
+        elif key not in served:
             outcomes[key] = "differs"
+        elif not same_json(served[key], value):
+            outcomes[key] = difference_kind(value, served[key])
         elif not same_key_order(served[key], value):
             outcomes[key] = "json_key_order"
         else:
@@ -1174,8 +1233,7 @@ class ServedValues:
         self.outcomes = Counter()
         self.by_type: dict[str, Counter] = {}
         self.differing: Counter = Counter()
-        self.key_order: Counter = Counter()
-        self.empty_date_null: Counter = Counter()
+        self.named: dict[str, Counter] = {}
         self.unmodeled: Counter = Counter()
 
     def add(self, collection: dict, outcomes: dict) -> None:
@@ -1188,10 +1246,8 @@ class ServedValues:
             name = f"{collection['name']}.{key}"
             if outcome in ("differs", "unexpected_key"):
                 self.differing[name] += 1
-            elif outcome == "json_key_order":
-                self.key_order[name] += 1
-            elif outcome == "empty_date_null":
-                self.empty_date_null[name] += 1
+            elif outcome in NAMED_DIFFERENCES:
+                self.named.setdefault(NAMED_DIFFERENCES[outcome], Counter())[name] += 1
             elif outcome == "unmodeled":
                 self.unmodeled[name] += 1
 
@@ -1203,9 +1259,12 @@ class ServedValues:
                 kind: dict(sorted(counter.items()))
                 for kind, counter in sorted(self.by_type.items())
             },
+            # value_differs and unexpected keys: never an accepted divergence.
             "differing_fields": dict(sorted(self.differing.items())),
-            "json_key_order_fields_d0029": dict(sorted(self.key_order.items())),
-            "empty_date_served_as_null_fields": dict(sorted(self.empty_date_null.items())),
+            # Named forms (DIVERGENCES codes): fail unless a decision accepts them.
+            "named_differences": {
+                code: dict(sorted(fields.items())) for code, fields in sorted(self.named.items())
+            },
             "unmodeled_fields": dict(sorted(self.unmodeled.items())),
         }
 
@@ -2012,9 +2071,10 @@ def view_not_compared(view: dict) -> str | None:
     """Why the served values of a view are not compared at all.
 
     Pages sorted by id pair a served record with a SQLite row only when the
-    IDs are distinct and never null. PocketBase 0.22.34 creates every view
-    as ``SELECT * FROM (SELECT cast(id as text) id, ...)`` (daos/view.go), so
-    a non-text ID would mean a view PocketBase did not create.
+    IDs are distinct and never null. PocketBase 0.22.34 wraps a view whose
+    id is not a text field in ``SELECT cast(id as text) id, ... FROM (...)``
+    (daos/collection.go:404-445), so a non-text ID would mean a view
+    PocketBase did not create.
     """
     if view["rows"] != view["distinct_ids"]:
         return "duplicate_or_null_ids"
@@ -2052,7 +2112,9 @@ def multiset_comparison(expected: list[dict], served: list) -> tuple[list[str], 
 
     ``expected`` holds ``expected_record`` of every SQLite row, ``served``
     every record of every page. Keys unmodeled in any row are left out on
-    both sides. The IDs must be the same set ("1".."N" on both engines).
+    both sides. The IDs must be the same set ("1".."N" on both engines). An
+    unmatched source row equal to an unmatched served row on every key but
+    one is explained by that key and its ``difference_kind``.
     Returns (problem codes, counts, private samples).
     """
     unmodeled = sorted(
@@ -2060,19 +2122,59 @@ def multiset_comparison(expected: list[dict], served: list) -> tuple[list[str], 
     )
     ignored = {"id", "expand", *unmodeled}
 
-    def key(record) -> str:
-        if not isinstance(record, dict):
-            return "<" + type(record).__name__ + ">"
-        kept = {k: canonical_json(v) for k, v in record.items() if k not in ignored}
-        return json.dumps(kept, sort_keys=True, ensure_ascii=True)
+    def kept(record):
+        return (
+            {k: v for k, v in record.items() if k not in ignored}
+            if isinstance(record, dict)
+            else None
+        )
 
-    wanted = Counter(key(record) for record in expected)
-    got = Counter(key(record) for record in served)
+    def key(values) -> str:
+        if values is None:
+            return "<not an object>"
+        canonical = {k: canonical_json(v) for k, v in values.items()}
+        return json.dumps(canonical, sort_keys=True, ensure_ascii=True)
+
+    expected_rows, served_rows = [kept(r) for r in expected], [kept(r) for r in served]
+    wanted = Counter(key(row) for row in expected_rows)
+    got = Counter(key(row) for row in served_rows)
     only_source, only_served = wanted - got, got - wanted
+
+    def unmatched(rows, counter) -> list:
+        remaining, left = Counter(counter), []
+        for row in rows:
+            if remaining[key(row)] > 0:
+                remaining[key(row)] -= 1
+                left.append(row)
+        return left
+
+    source_left, served_left = (
+        unmatched(expected_rows, only_source),
+        unmatched(served_rows, only_served),
+    )
+    names = sorted({k for row in source_left + served_left if row for k in row})
+    index: dict[tuple, list] = {}
+    for position, row in enumerate(served_left):
+        for name in names if row else ():
+            rest = key({k: v for k, v in row.items() if k != name})
+            index.setdefault((name, rest), []).append(position)
+    used, explained, several = set(), Counter(), 0
+    for row in source_left:
+        for name in names if row else ():
+            rest = key({k: v for k, v in row.items() if k != name})
+            free = [p for p in index.get((name, rest), []) if p not in used]
+            if free:
+                used.add(free[0])
+                explained[
+                    (name, difference_kind(row.get(name), served_left[free[0]].get(name)))
+                ] += 1
+                break
+        else:
+            several += 1
     ids = Counter(str(r.get("id")) for r in expected if not isinstance(r.get("id"), Unmodeled))
     served_ids = Counter(str(r.get("id")) for r in served if isinstance(r, dict))
-    problems = []
-    if only_source or only_served:
+    problems = sorted({outcome_code(kind, name) for name, kind in explained})
+    if several:
         problems.append("rows_differ_from_sqlite_ids_aside")
     if ids != served_ids:
         problems.append("ids_differ_from_sqlite")
@@ -2081,6 +2183,16 @@ def multiset_comparison(expected: list[dict], served: list) -> tuple[list[str], 
         "served": len(served),
         "rows_only_in_source": sum(only_source.values()),
         "rows_only_served": sum(only_served.values()),
+        # A row served more often than SQLite holds it, and a source row never
+        # served: paging that numbers the rows again on each request.
+        "rows_served_more_often_than_in_source": sum(
+            n for k, n in only_served.items() if wanted[k]
+        ),
+        "source_rows_never_served": sum(n for k, n in only_source.items() if not got[k]),
+        "rows_explained_by_one_key": {
+            f"{name}:{kind}": rows for (name, kind), rows in sorted(explained.items())
+        },
+        "rows_differing_in_several_keys": several,
         "unmodeled_keys": unmodeled,
     }
     samples = {
@@ -2788,6 +2900,24 @@ DIVERGENCES = {
     "jsonb_key_order_normalized": (
         "v0.22.34 tools/types/json_raw.go:26-32: a json value served with its stored key order"
     ),
+    "null_served_for_pocketbase_zero_value": (
+        "v0.22.34 models/record.go:50-58 (a SQL NULL is read as nil) and "
+        "models/schema/schema_field.go:310-386 (PrepareValue of nil: '' for text, email, url, "
+        "editor and single select, file, relation; 0 for number; false for bool; [] multiple)"
+    ),
+    "number_served_as_text": (
+        "v0.22.34 models/record.go:50-58 and models/schema/schema_field.go:312-343: the text "
+        "of a SQLite integer or real is valid JSON, so a json field serves a JSON number"
+    ),
+    "sqlite_integer_boolean_served_as_boolean": (
+        "SQLite has no boolean storage class: TRUE, FALSE and comparisons are the integers 1 "
+        "and 0 (https://www.sqlite.org/datatype3.html, 2.1); v0.22.34 "
+        "models/schema/schema_field.go:312-343 serves them as the numbers 1 and 0"
+    ),
+    "concatenated_items_in_another_order": (
+        "SQLite group_concat: the order of the concatenated elements is arbitrary "
+        "(https://www.sqlite.org/lang_aggfunc.html#group_concat); PocketBase serves SQLite's"
+    ),
 }
 
 
@@ -2842,17 +2972,8 @@ def items_of(status, body) -> list:
 
 def value_problems(outcomes: dict) -> list[str]:
     """Problem codes of a served-record comparison (unmodeled values are counted, not codes)."""
-    codes = []
-    for key, outcome in sorted(outcomes.items()):
-        if outcome == "differs":
-            codes.append(f"value_differs:{key}")
-        elif outcome == "unexpected_key":
-            codes.append(f"unexpected_key:{key}")
-        elif outcome == "json_key_order":
-            codes.append(f"jsonb_key_order_normalized:{key}")
-        elif outcome == "empty_date_null":
-            codes.append(f"empty_date_served_as_null:{key}")
-    return codes
+    codes = (outcome_code(outcome, key) for key, outcome in sorted(outcomes.items()))
+    return [code for code in codes if code]
 
 
 def records_path(name: str, record_id: str | None = None) -> str:
@@ -3686,7 +3807,7 @@ async def run_pass(ctx, index: int) -> tuple[dict, dict]:
                 "data_changed_by_server_or_reads",
                 tables=outcome["tables_changed_by_server_and_reads"],
             )
-            require(accounts is True, "accounts_changed_by_server_or_reads", code=accounts)
+            require(accounts is True, "accounts_changed_by_server_or_reads", failure=accounts)
             require(outcome["schema_unchanged_by_server"], "schema_changed_by_server")
             measures["database_bytes_after_http"] = await database_size(engine)
         # Last, so that a failed read still leaves the after-reads evidence.
