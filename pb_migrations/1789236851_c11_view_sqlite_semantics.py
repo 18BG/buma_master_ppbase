@@ -16,7 +16,7 @@ sorts and comparisons of two columns on them as before. An aggregate computed
 in SQLite's BINARY order (``COLLATE "C"``) takes the default collation back.
 Only two kinds of columns change: the id of the seven ``ROW_NUMBER()`` views
 (bigint -> text, as PocketBase serves it) and ``uvUser`` of
-``buma_customer_mobile_list_view`` (name -> character varying, below).
+``buma_customer_mobile_list_view`` (name -> text, below).
 
 * ``payedPercent`` (``buma_sale_info``): SQLite divides two integers with an
   integer result truncated toward zero, and in floating point when either

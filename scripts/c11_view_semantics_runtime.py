@@ -4,25 +4,38 @@
 Synthetic data only (no real backup is read). PocketBase 0.22.34 builds the
 source itself: the corrected export imported by a JS migration, then records
 saved in a chosen order (rowid order, created order and id order differ on
-purpose), an admin created by its CLI. Its answers for the ten views are
-recorded over HTTP, then the stopped snapshot is diagnosed and imported by
-``scripts.c11_import.import_snapshot`` into an owned, disposable PostgreSQL 16
-(labelled container, random loopback port, always removed) migrated with every
-BUMA migration, and the same requests are sent to PPBase.
+purpose), an admin created by its CLI. The stopped snapshot is diagnosed and
+imported by ``scripts.c11_import.import_snapshot`` into an owned, disposable
+PostgreSQL 16 (labelled container, random loopback port, always removed)
+migrated with every BUMA migration, and the same requests are sent to PPBase
+with 1789236851 (after), after its down (before) and after its up again.
 
-Checks: every served value of the ten views (each page sorted by id, default
-page, view by id), filters on every changed field (the review forms = "",
-!= "", = true, = false, != true, = 1, = 0, id = 3, and the other operators,
-values and operand orders) and sorts on them, ``payedPercent`` over five data
-phases written in both stores (integer truncation, negative, real, zero
-divisor, no row), the order without the rowid archive (SQL only), the
-1789236851 operators against SQLite's JSON_EXTRACT comparisons (a grid, with
-Python's sqlite3) and what they do outside their domains, then 1789236851 down
-(the previous answers: regressions and new errors are listed and pinned) and up
-again (same answers). The remaining differences are pinned with their
-PocketBase and PPBase statuses (``KNOWN_AFTER``), for a PPBase with or without
-WS-A11 (its json sort and empty/NULL json filters). Reports contain field
-names, counts and synthetic values only.
+Proofs:
+
+1. Before/after matrix (generated): on every column of the thirteen recreated
+   views, filters with the operators = != ?= ?!= ~ < > and the literals "",
+   null, 1, true, false and a value of the data (as a string and as a
+   number), sorts in both directions, and the comparison of two columns.
+   Every answer of PPBase after 1789236851 is the answer it gave before,
+   except: an error that is now answered; rows that follow PocketBase where
+   PPBase did not; rows explained by a corrected value (the same filter or
+   sort evaluated on the values each side serves, by a model of PPBase's SQL);
+   and the new errors of ``NEW_ERROR_RULES`` (a number compared with a text
+   id). Any other difference fails the run.
+2. Paired comparison with PocketBase 0.22.34 (curated): every served value of
+   the fifteen views (the thirteen and the two left unchanged), pages, views
+   by id, filters and sorts; the remaining differences are pinned with their
+   PocketBase and PPBase statuses (``KNOWN_AFTER``); D-0039 forms (a text
+   served for PocketBase's JSON value, true/false for its 1/0) are counted
+   per field, not hidden. ``payedPercent`` and the sums of ``buma_sale_info``
+   are compared over data phases written in both stores (integer truncation,
+   negative, real, zero divisor, no row, compensated sum, large reals).
+3. Pagination of the numbered views: every page size and sort serves every
+   row once.
+4. Column types and collations of every view: only the numbered ids and
+   ``uvUser`` change; down restores them exactly; up again equals the first.
+
+Reports contain field names, counts and synthetic values only.
 """
 
 from __future__ import annotations
@@ -31,6 +44,7 @@ import argparse
 import asyncio
 import json
 import math
+import re
 import secrets
 import shutil
 import sqlite3
@@ -39,6 +53,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections import Counter
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,21 +73,37 @@ MIGRATION = "1789236851_c11_view_sqlite_semantics.py"
 SOURCE_VERSION = "0.22.34"
 ADMIN = ("wsh-admin@example.invalid", "WSH-synthetic-password-1")
 PASSWORD = "WSH-synthetic-password-2"
-VIEWS = (
-    "buma_agent_list_view",
+NUMBERED = (
+    "buma_sale_info",
+    "buma_caisse_transaction_by_categorie_list_view",
+    "buma_caisse_session_info",
+    "test",
+    "buma_article_list_stat_view",
+    "buma_customer_supplier_info_view",
+    "buma_return_info_view",
+)
+CHANGED = (
     "buma_customer_list_view",
     "buma_customer_list_view_with_users",
     "buma_customer_mobile_list_view",
     "buma_return_list_view",
-    "buma_transaction_list_view",
-    "buma_sale_info",
-    "buma_caisse_transaction_by_categorie_list_view",
     "buma_article_with_no_stock_list_view",
     "buma_stockage_no_manager",
+    *NUMBERED,
 )
-# Fields whose served value 1789236851 changes (codes a to e of WS-H).
-TARGET_FIELDS = {
-    "buma_agent_list_view": {"number"},
+# Not recreated by 1789236851 (their values keep the types of D-0039).
+UNCHANGED = ("buma_agent_list_view", "buma_transaction_list_view")
+VIEWS = (*CHANGED, *UNCHANGED)
+MULTI_ROW_NUMBERED = (
+    "buma_caisse_transaction_by_categorie_list_view",
+    "buma_caisse_session_info",
+    "test",
+)
+CUSTOMERS = "buma_customer_list_view"
+MULTIPLE = "72000001,72000002,71000001"  # pdv_sim of client 1 (rowid order)
+# Fields whose served value 1789236851 corrects; a numbered view's id names
+# another row (and is text), so all its fields are compared per id.
+CORRECTED = {
     "buma_customer_list_view": {"pdv_sim", "agent_sim"},
     "buma_customer_list_view_with_users": {"pdv_sim", "agent_sim", "assigned_users"},
     "buma_customer_mobile_list_view": {
@@ -84,121 +115,132 @@ TARGET_FIELDS = {
         "uvUser",
     },
     "buma_return_list_view": {"pdv_sim", "agent_sim"},
-    "buma_transaction_list_view": {"payed", "salePayed"},
-    "buma_sale_info": {"payedPercent"},
-    "buma_caisse_transaction_by_categorie_list_view": {"id", "amount", "created", "label"},
     "buma_article_with_no_stock_list_view": {"stockages"},
     "buma_stockage_no_manager": {"stockage"},
+    "buma_sale_info": {"id", "payedPercent"},
+    **{view: {"id"} for view in NUMBERED if view != "buma_sale_info"},
 }
-# Probes whose answer still differs from PocketBase 0.22.34 after 1789236851:
-# label -> (reason, PocketBase status, PPBase status). Any other difference
-# fails the run, and so does a status other than the one pinned here.
-BY_ID_ROWID_ORDER = "view_by_id_concatenates_in_rowid_order"
-KNOWN_AFTER = {
-    # PocketBase's plan for a view by id reads the stocks without the automatic
-    # covering index (rowid order); its list, which PPBase follows, sorts them.
-    "buma_article_with_no_stock_list_view:by_id": (BY_ID_ROWID_ORDER, 200, 200),
-    "buma_stockage_no_manager:by_id": (BY_ID_ROWID_ORDER, 200, 200),
-    # No sort: PocketBase keeps SQLite's row order, PPBase sorts by the first
-    # column (ORDER BY 1), now the text id ("1", "10", "11", "2"...).
-    "buma_caisse_transaction_by_categorie_list_view:default": (
-        "default_order_is_the_text_id",
-        200,
-        200,
-    ),
-    # A number compared with the text id: PocketBase compares '3' with '3.0'
-    # (TEXT affinity applied to the float64 parameter) and finds nothing;
-    # PostgreSQL has no text = integer. id = "3" works.
-    "buma_caisse_transaction_by_categorie_list_view:filter:id = 3": (
-        "number_compared_with_text_id_is_an_error",
-        200,
-        500,
-    ),
-    # A string compared with a SQLite integer: PocketBase finds nothing
-    # (INTEGER < TEXT); PPBase binds the string as a smallint (an error, as
-    # with the boolean columns before 1789236851).
-    'buma_customer_mobile_list_view:filter:isNafama = "1"': (
-        "string_compared_with_sqlite_integer_is_an_error",
-        200,
-        500,
-    ),
-    # PocketBase filters JSON_EXTRACT of the stored text, where a JSON value
-    # may follow whitespace (' 70000011' is the number 70000011), and serves
-    # PrepareValue, for which that text is a string: PPBase holds the served
-    # value (no such sim number in the real backup).
-    "buma_customer_list_view:filter:pdv_sim < 73000002": (
-        "json_text_with_leading_whitespace_filters_as_its_value",
-        200,
-        200,
-    ),
+# D-0039 (acceptance requested): PocketBase serves the JSON value of a text
+# that is valid JSON and SQLite's integers 1/0; PPBase the text and true/false.
+D0039 = {
+    "number_served_as_text_D-0039",
+    "json_text_served_as_text_D-0039",
+    "integer_boolean_served_as_boolean_D-0039",
 }
-# Only on a PPBase without WS-A11 (detected by its json sort): it sorts a json
-# field by its own column, and json has no ordering operator; it compares
-# x = "" with an untyped parameter, which a smallint cannot take.
-KNOWN_AFTER_BEFORE_WS_A11 = {
-    "buma_customer_list_view:sort:pdv_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
-    "buma_customer_list_view:sort:-pdv_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
-    "buma_customer_list_view:sort:agent_sim,id": ("sort_on_json_domain_is_an_error", 200, 500),
-    "buma_agent_list_view:sort:number,id": ("sort_on_json_domain_is_an_error", 200, 500),
-    # A string compared with a SQLite integer, see isNafama = "1"; WS-A11
-    # rewrites x = "" of a json field as to_jsonb(x) = '""'.
-    'buma_customer_mobile_list_view:filter:isNafama = ""': (
-        "string_compared_with_sqlite_integer_is_an_error",
+NOTATION = {"json_key_order_D-0029", "json_number_notation_D-0029"}
+
+# Curated probes whose answer still differs from PocketBase 0.22.34 after
+# 1789236851: label -> (reason, PocketBase status, PPBase status). Any other
+# difference fails the run, and so does a status other than the one pinned.
+JSON_FILTER = "json_field_filtered_through_json_extract_D-0039"
+INTEGER_FILTER = "sqlite_integer_filtered_as_integer_D-0039"
+IS_NOT = "pocketbase_not_equal_is_is_not_keeping_null_rows"
+JSON_SORT = "json_field_sorted_through_json_extract_D-0039"
+NULL_FIRST = "sqlite_sorts_null_first"
+TEXT_ID_NUMBER = "number_compared_with_a_text_id_is_an_error"
+# Probe -> (reason, PocketBase status, PPBase status); the probes of
+# CHANGED_BY_1789236851 changed with it, every other one is PPBase's answer
+# before it too.
+KNOWN_AFTER: dict[str, tuple[str, int, int]] = {
+    # PocketBase compares JSON_EXTRACT of a view expression column (json
+    # field): a numeric text is a number there ('73000001' = 73000001, not
+    # "73000001"), 'null' is NULL, '"x"' is x, '1e3' is 1000.0; numbers sort
+    # before text. PPBase compares the text, and a number or boolean literal
+    # with a text column is an error (resolvers/record_field_resolve_runner.go
+    # l.465-474, tools/dbutils/json.go l.30-47, tools/search/filter.go
+    # l.226-317 of v0.22.34).
+    **{
+        f"{CUSTOMERS}:filter:pdv_sim {form}": (JSON_FILTER, 200, status)
+        for form, status in (
+            ('= "73000001"', 200),
+            ("= 73000001", 500),
+            ("!= null", 200),
+            ("!= true", 500),
+            ('!~ "7200"', 200),
+            ("< 73000002", 500),
+            ('<= "73000001"', 200),
+            ('= "1e3"', 200),
+            ('= "x"', 200),
+            ("= -5", 500),
+            ("= 0", 500),
+            ("= 1", 500),
+            ("= 1000", 500),
+            ("= 12.5", 500),
+            ("= false", 500),
+            ("= null", 200),
+            ("= true", 500),
+            ('> "7"', 200),
+            (">= 1000", 500),
+            ('?!= "73000001"', 200),
+            ('?= "73000001"', 200),
+        )
+    },
+    f"{CUSTOMERS}:filter:73000001 = pdv_sim": (JSON_FILTER, 200, 500),
+    f"{CUSTOMERS}:filter:true = pdv_sim": (JSON_FILTER, 200, 500),
+    f'{CUSTOMERS}:filter:agent_sim = "79000003"': (JSON_FILTER, 200, 200),
+    f"{CUSTOMERS}:filter:agent_sim = 79000003": (JSON_FILTER, 200, 500),
+    **{
+        f"{view}:filter:{field} {form}": (JSON_FILTER, 200, status)
+        for view in (
+            "buma_customer_list_view_with_users",
+            "buma_customer_mobile_list_view",
+            "buma_return_list_view",
+        )
+        for field, form, status in (
+            ("pdv_sim", '= "73000001"', 200),
+            ("pdv_sim", "= 73000001", 500),
+            ("agent_sim", "= 73000001", 500),
+        )
+    },
+    'buma_agent_list_view:filter:number = "79000003"': (JSON_FILTER, 200, 200),
+    "buma_agent_list_view:filter:number = 79000003": (JSON_FILTER, 200, 500),
+    "buma_agent_list_view:filter:number = true": (JSON_FILTER, 200, 500),
+    # PocketBase compares SQLite's integers 1/0 (JSON_EXTRACT) with a number
+    # or a text; PPBase compares a boolean: a number or a string is an error.
+    **{
+        f"buma_customer_mobile_list_view:filter:isNafama {form}": (INTEGER_FILTER, 200, 500)
+        for form in ('!= ""', '= ""', '= "1"', "= 0", "= 1")
+    },
+    **{
+        f"buma_transaction_list_view:filter:{form}": (INTEGER_FILTER, 200, 500)
+        for form in ("payed != 1", 'payed = ""', "payed = 0", "payed = 1")
+    },
+    "buma_transaction_list_view:filter:salePayed = 0": (INTEGER_FILTER, 200, 500),
+    "buma_transaction_list_view:filter:salePayed = 1": (INTEGER_FILTER, 200, 500),
+    # payed is NULL for a transaction with neither sale nor return.
+    "buma_transaction_list_view:filter:payed != true": (IS_NOT, 200, 200),
+    "buma_transaction_list_view:filter:payed != false": (IS_NOT, 200, 200),
+    f"{CUSTOMERS}:sort:pdv_sim,id": (JSON_SORT, 200, 200),
+    f"{CUSTOMERS}:sort:-pdv_sim,id": (JSON_SORT, 200, 200),
+    f"{CUSTOMERS}:sort:agent_sim,id": (JSON_SORT, 200, 200),
+    "buma_agent_list_view:sort:number,id": (JSON_SORT, 200, 200),
+    "buma_transaction_list_view:sort:payed,id": (NULL_FIRST, 200, 200),
+    # PocketBase compares '3' with 3.0 (TEXT affinity, datatype3.html 4.2)
+    # and finds nothing; PPBase inlines the number for a text column.
+    "buma_customer:filter:id = 3": (TEXT_ID_NUMBER, 200, 500),
+    **{f"{view}:filter:id = 3": (TEXT_ID_NUMBER, 200, 500) for view in MULTI_ROW_NUMBERED},
+    # No sort: PocketBase serves SQLite's order (the numbering, or the ORDER BY
+    # of test), PPBase orders by the first column (ORDER BY 1): the text id.
+    **{
+        f"{view}:default": ("default_order_is_the_text_id", 200, 200) for view in MULTI_ROW_NUMBERED
+    },
+    # SQLite plans a view by id of the stock views without the automatic
+    # covering index and concatenates in rowid order; PPBase serves the list's.
+    "buma_article_with_no_stock_list_view:by_id": (
+        "view_by_id_concatenates_in_rowid_order",
         200,
-        500,
-    ),
-    'buma_transaction_list_view:filter:payed = ""': (
-        "string_compared_with_sqlite_integer_is_an_error",
         200,
-        500,
     ),
-    'buma_customer_mobile_list_view:filter:isNafama != ""': (
-        "string_compared_with_sqlite_integer_is_an_error",
-        200,
-        500,
-    ),
-    # json != value is not NULL-safe there (PocketBase uses IS NOT): the rows
-    # whose payed is NULL are missing; and a NULL sorts last, first in SQLite.
-    "buma_transaction_list_view:filter:payed != 1": ("json_not_equal_skips_null_rows", 200, 200),
-    "buma_transaction_list_view:sort:payed,id": ("null_sorts_last", 200, 200),
+    "buma_stockage_no_manager:by_id": ("view_by_id_concatenates_in_rowid_order", 200, 200),
 }
-# Only on a PPBase with WS-A11, which sorts json fields by
-# NULLIF(to_jsonb(column), 'null'): jsonb order (strings before numbers)
-# against JSON_EXTRACT's (numbers before text).
-KNOWN_AFTER_WITH_WS_A11 = {
-    "buma_customer_list_view:sort:pdv_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
-    "buma_customer_list_view:sort:-pdv_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
-    "buma_customer_list_view:sort:agent_sim,id": ("json_sort_order_is_jsonb_order", 200, 200),
-    "buma_agent_list_view:sort:number,id": ("json_sort_order_is_jsonb_order", 200, 200),
-}
-# Probes equal to PocketBase before 1789236851 that may differ after it: a
-# view by id of the two stock views (PPBase now serves the list's order, the
-# one PocketBase serves for a list; PocketBase serves rowid order by id).
-REGRESSIONS = {
+# Pinned probes whose PPBase answer 1789236851 changes (every other pinned
+# probe must be answered as before it).
+CHANGED_BY_1789236851 = {
+    *(f"{view}:filter:id = 3" for view in MULTI_ROW_NUMBERED),
+    *(f"{view}:default" for view in MULTI_ROW_NUMBERED),
     "buma_article_with_no_stock_list_view:by_id",
     "buma_stockage_no_manager:by_id",
 }
-# Answered 200 before 1789236851 and an error after it.
-REGRESSIONS_BEFORE_WS_A11 = {
-    label
-    for label, (_, _, status) in KNOWN_AFTER_BEFORE_WS_A11.items()
-    if ":sort:" in label and status == 500
-}
-
-
-def ppbase_sorts_json_by_jsonb() -> bool:
-    """PPBase WS-A11 sorts a json field by NULLIF(to_jsonb(column), 'null')."""
-    import inspect
-
-    from ppbase.services import record_service
-
-    return "json_fields" in inspect.signature(record_service._sort_term).parameters
-
-
-def known_after() -> dict:
-    variant = KNOWN_AFTER_WITH_WS_A11 if ppbase_sorts_json_by_jsonb() else KNOWN_AFTER_BEFORE_WS_A11
-    return {**KNOWN_AFTER, **variant}
-
 
 SHAPES = (
     "",
@@ -223,7 +265,23 @@ SALE_PHASES = {
     "real_operand": ((100, 100, 0, True), (200, 40, 160.5, True), (50, 0, 50, False)),
     "zero_divisor": ((0, 0, 0, True), (0, 0, 160, True), (50, 0, 50, False)),
     "no_status_true_row": ((100, 100, 0, False), (200, 40, 160, False), (50, 0, 50, False)),
+    # SQLite adds reals with compensation, PostgreSQL plainly.
+    "compensated_sum": ((0.1, 0.1, 0.1, True), (0.2, 0.2, 0.2, True), (0.3, 0.3, 0.3, True)),
+    # A real of at least 1e6: PocketBase serves Go's shortest 'g' text.
+    "large_real": (
+        (1500000.5, 0, 1500000.5, True),
+        (2000000.25, 0, 0.25, True),
+        (50, 0, 50, False),
+    ),
 }
+SALE_INFO_FIELDS = (
+    "totalAmount",
+    "totalPayed",
+    "totalNotPayed",
+    "totalSale",
+    "totalProfit",
+    "payedPercent",
+)
 
 
 def ident(prefix: str, number: int) -> str:
@@ -231,8 +289,8 @@ def ident(prefix: str, number: int) -> str:
     return f"{prefix}{number:0{15 - len(prefix)}d}"
 
 
-def stamp(day: int, second: int = 0) -> str:
-    return f"2024-03-{day:02d} 10:00:{second:02d}.000Z"
+def stamp(day: int, second: int = 0, month: str = "2024-03") -> str:
+    return f"{month}-{day:02d} 10:00:{second:02d}.000Z"
 
 
 def dataset() -> list[tuple[str, dict]]:
@@ -262,7 +320,8 @@ def dataset() -> list[tuple[str, dict]]:
             lastname="WSH",
             kind="CUSTOMER_SIMPLE",
             agent=agents[0] if i == 1 else agents[1] if i == 2 else "",
-            status=True,
+            solde=(i * 37) % 11 * 10,
+            status=i != 5,
         )
     sim_no = iter(range(1, 1000))
 
@@ -334,10 +393,12 @@ def dataset() -> list[tuple[str, dict]]:
         created=stamp(24),
         updated=stamp(27),
     )
-    # Articles, storages, stocks (stockages ordered by value, one duplicate).
+    # Articles, categories, storages, stocks (stockages ordered by value).
     articles = [ident("wsharticle", i) for i in (1, 2)]
     for i, article in enumerate(articles, 1):
         add("buma_article", id=article, designation=f"Article {i}", status=True)
+    for i in (1, 2):
+        add("buma_article_categorie", id=ident("wshcategorie", i), name=f"Cat {i}", status=True)
     storages = [ident("wshstockage", i) for i in (1, 2, 3)]
     for i, storage in enumerate(storages, 1):
         add("buma_article_stockage", id=storage, name=f"Stockage {i}", status=True)
@@ -352,6 +413,15 @@ def dataset() -> list[tuple[str, dict]]:
         )
     for n, storage in enumerate((storages[1], storages[0]), 1):
         add("buma_stockage_user", id=ident("wshsu", n), user=users[0], stockage=storage)
+    # Suppliers (buma_customer_supplier_info_view).
+    for i, (solde, status) in enumerate(((150, True), (-40, True), (-5, True), (999, False)), 1):
+        add(
+            "buma_supplier",
+            id=ident("wshsupplier", i),
+            firstname=f"Fournisseur{i}",
+            solde=solde,
+            status=status,
+        )
     # Sales (values replaced by each SALE_PHASES phase), returns, transactions.
     sales = [ident("wshsale", i) for i in (1, 2, 3)]
     for sale, (amount, payed, remaining, status) in zip(
@@ -409,9 +479,52 @@ def dataset() -> list[tuple[str, dict]]:
             mobile_transaction_date=stamp(28, n),
             **{"return": retour},
         )
+    # The view test: sales of August 2025 (status false, so buma_sale_info
+    # keeps its three sales) and 12 groups (customer, article), one with a
+    # missing article (a NULL article id, first in SQLite's order).
+    test_sales = [ident("wshtsale", i) for i in range(1, 6)]
+    for i, sale in enumerate(test_sales):
+        add(
+            "buma_sale",
+            id=sale,
+            customer=customers[(5, 2, 4, 3, 6)[i]],
+            amount=100 + i,
+            status=False,
+        )
+    missing_article = "wshmissingart01"
+    for n, (sale, article, quantity, price) in enumerate(
+        (
+            (4, articles[1], 2, 15),
+            (0, articles[0], 1, 10),
+            (2, missing_article, 3, 7),
+            (1, articles[1], 4, 9),
+            (3, articles[0], 5, 11),
+            (0, articles[1], 1, 20),
+            (2, articles[0], 2, 8),
+            (4, articles[0], 6, 3),
+            (1, articles[0], 2, 12),
+            (3, articles[1], 1, 30),
+            (0, missing_article, 2, 5),
+            (2, articles[1], 3, 4),
+            (1, articles[0], 1, 2),
+        ),
+        1,
+    ):
+        add(
+            "buma_transaction",
+            id=ident("wshttx", n),
+            created=stamp(n, n, month="2025-08"),
+            sale=test_sales[sale],
+            article=article,
+            type="SALE",
+            price=price,
+            quantity=quantity,
+            status=True,
+        )
     # Caisse expenses: insertion, created and id orders all differ.
     add("buma_caisse", id=ident("wshcaisse", 1), name="Caisse depenses", type="EXPENSE")
     add("buma_caisse", id=ident("wshcaisse", 2), name="Caisse ventes", type="SALE_BUY")
+    add("buma_caisse", id=ident("wshcaisse", 3), name="Caisse mixte", type="HYBRID")
     add("buma_caisse_expense_type", id=ident("wshexpense", 1), name="Transport")
     add("buma_caisse_expense_type", id=ident("wshexpense", 2), name="Loyer")
     order = (7, 3, 11, 1, 9, 5, 12, 2, 8, 4, 10, 6)
@@ -443,6 +556,31 @@ def dataset() -> list[tuple[str, dict]]:
         }
         values.update(change)
         add("buma_caisse_transactions", **values)
+    # Caisse sessions (buma_caisse_session_info): 12 (caisse, session) groups
+    # inserted out of their order, besides the groups of the empty session
+    # above; ids "1".."15" sort as text "1", "10".."15", "2"...
+    sessions = [ident("wshsession", i) for i in range(1, 13)]
+    kinds = (
+        "DEPOSIT",
+        "WITHDRAWAL",
+        "VERSEMENT",
+        "RETURN",
+        "REVERSAL",
+        "EMPLOYEE_DEBT",
+        "EMPLOYEE_DEBT_REPAYMENT",
+        "DEPOSIT",
+    )
+    for k in range(26):
+        add(
+            "buma_caisse_transactions",
+            id=ident("wshcs", 99 - k),
+            created=stamp(1 + k % 27, k % 60),
+            caisse=ident("wshcaisse", (2, 3, 1)[(k * 7) % 3]),
+            session=sessions[(k * 5) % 12],
+            amount=10 * k + 5,
+            type="BUY" if k == 24 else kinds[k % 8],
+            status=k != 25,
+        )
     return rows
 
 
@@ -498,6 +636,12 @@ def source_facts(data: Path) -> dict:
             "SELECT group_concat(typeof(amount) || '/' || typeof(remaining)) FROM buma_sale"
         ).fetchone()[0]
         pdvs = db.execute("SELECT id, created FROM buma_pdv ORDER BY rowid").fetchall()
+        numbered = {
+            view: db.execute(
+                f"SELECT count(*), sum(typeof(id) = 'text') FROM \"{view}\""  # noqa: S608
+            ).fetchone()
+            for view in NUMBERED
+        }
     return {
         "python_sqlite_version_reading_fixture": version,
         "caisse_rowid_order_equals_created_order": [r[1] for r in caisse]
@@ -506,6 +650,7 @@ def source_facts(data: Path) -> dict:
         == sorted(r[0] for r in caisse),
         "pdv_rowid_order_equals_created_order": [r[1] for r in pdvs] == sorted(r[1] for r in pdvs),
         "sale_storage_classes": sale,
+        "numbered_views_rows_and_text_ids": {k: list(v) for k, v in numbered.items()},
     }
 
 
@@ -536,11 +681,8 @@ async def write_sale_phase_postgres(engine, phase: str) -> None:
             )
 
 
-CUSTOMERS = "buma_customer_list_view"
-MULTIPLE = "72000001,72000002,71000001"  # pdv_sim of client 1 (rowid order)
-# Filters on every changed field: the forms of the WS-H review (= "", != "",
-# = true, = false, != true, = 1, = 0, id = 3) and the other operators, values
-# and operand orders a PocketBase filter can send.
+# Curated filters: the forms of the WS-H reviews on the fields whose value or
+# type the corrections concern, and the id forms of the numbered views.
 FILTERS = (
     *(
         (CUSTOMERS, f"pdv_sim {form}")
@@ -570,11 +712,16 @@ FILTERS = (
             "= 12.5",
             '= "070000009"',
             "= -5",
+            f'?= "{MULTIPLE}"',
+            '?= "73000001"',
+            '?!= "73000001"',
         )
     ),
     (CUSTOMERS, '"" = pdv_sim'),
     (CUSTOMERS, "73000001 = pdv_sim"),
     (CUSTOMERS, "true = pdv_sim"),
+    (CUSTOMERS, "pdv_sim = agent_sim"),
+    (CUSTOMERS, "pdv_sim != agent_sim"),
     *(
         (CUSTOMERS, f"agent_sim {form}")
         for form in (
@@ -594,7 +741,7 @@ FILTERS = (
             "buma_return_list_view",
         )
         for field in ("pdv_sim", "agent_sim")
-        for form in ('= ""', '!= ""', "= 73000001", '= "73000001"')
+        for form in ('= ""', '!= ""', "= 73000001", '= "73000001"', f'= "{MULTIPLE}"')
     ),
     *(
         ("buma_agent_list_view", f"number {form}")
@@ -623,6 +770,8 @@ FILTERS = (
             '= "1"',
         )
     ),
+    ("buma_customer_mobile_list_view", 'pdv_sim_network = "TELECEL,MOOV_MONEY,RS"'),
+    ("buma_customer_list_view_with_users", f'assigned_users ~ "{ident("wshuser", 2)}"'),
     *(
         ("buma_transaction_list_view", f"payed {form}")
         for form in (
@@ -648,9 +797,22 @@ FILTERS = (
             "= 0",
         )
     ),
-    ("buma_caisse_transaction_by_categorie_list_view", "id = 3"),
-    ("buma_caisse_transaction_by_categorie_list_view", 'id = "3"'),
+    *(
+        (view, f"id {form}")
+        for view in MULTI_ROW_NUMBERED
+        for form in ("= 3", '= "3"', '> "3"', '~ "1"', '!= ""', "= null")
+    ),
+    ("buma_caisse_session_info", f'caisse = "{ident("wshcaisse", 3)}"'),
+    ("buma_caisse_session_info", "total_deposit > 100"),
+    ("test", f'articleId = "{ident("wsharticle", 1)}"'),
+    ("test", "articleId = null"),
+    ("buma_article_with_no_stock_list_view", f'stockages ~ "{ident("wshstockage", 3)}"'),
     ("buma_sale_info", "payedPercent > 50"),
+    ("buma_sale_info", 'id = "1"'),
+    ("buma_return_info_view", 'id = "1"'),
+    # A base collection: PPBase answers a number compared with its text id so.
+    ("buma_customer", "id = 3"),
+    ("buma_customer", f'id = "{ident("wshcust", 3)}"'),
 )
 SORTS = (
     (CUSTOMERS, "pdv_sim,id"),
@@ -659,27 +821,39 @@ SORTS = (
     ("buma_agent_list_view", "number,id"),
     ("buma_customer_mobile_list_view", "-isNafama,id"),
     ("buma_customer_mobile_list_view", "isNafama,id"),
+    ("buma_customer_mobile_list_view", "pdv_sim_network,id"),
     ("buma_transaction_list_view", "payed,id"),
     ("buma_transaction_list_view", "-salePayed,id"),
+    ("buma_caisse_session_info", "caisse,session"),
+    ("buma_caisse_session_info", "-total_deposit,id"),
+    ("test", "-totalRevenue,id"),
+    ("buma_caisse_transaction_by_categorie_list_view", "-amount,id"),
 )
 
 
 def probes() -> list[tuple[str, str, dict]]:
-    """(label, path, params): identical requests for both servers."""
+    """(label, path, params): identical curated requests for every server."""
     items: list[tuple[str, str, dict]] = []
     for view in VIEWS:
         path = f"/api/collections/{view}/records"
-        if view == "buma_caisse_transaction_by_categorie_list_view":
+        items.append((f"{view}:all", path, {"perPage": 500, "sort": "id"}))
+        if view in MULTI_ROW_NUMBERED:
             for page in (1, 2, 3):
                 items.append(
                     (f"{view}:page{page}", path, {"page": page, "perPage": 5, "sort": "id"})
                 )
             items.append((f"{view}:desc", path, {"perPage": 5, "sort": "-id"}))
             items.append((f"{view}:default", path, {"perPage": 5}))
-            items.append((f"{view}:label", path, {"filter": 'label = "Transport"', "sort": "id"}))
             items.append((f"{view}:by_id", path + "/3", {}))
-        else:
-            items.append((f"{view}:all", path, {"perPage": 500, "sort": "id"}))
+        elif view in NUMBERED:
+            items.append((f"{view}:by_id", path + "/1", {}))
+    items.append(
+        (
+            "buma_caisse_transaction_by_categorie_list_view:label",
+            "/api/collections/buma_caisse_transaction_by_categorie_list_view/records",
+            {"filter": 'label = "Transport"', "sort": "id"},
+        )
+    )
     for view, expression in FILTERS:
         items.append(
             (
@@ -702,24 +876,121 @@ def probes() -> list[tuple[str, str, dict]]:
         ("buma_return_list_view", ident("wshreturn", 1)),
         ("buma_stockage_no_manager", ident("wshuser", 1)),
         ("buma_agent_list_view", ident("wshagent", 2)),
-        ("buma_sale_info", "1"),
+        ("buma_customer_list_view", ident("wshcust", 1)),
+        ("buma_article_with_no_stock_list_view", ident("wsharticle", 1)),
+        ("buma_transaction_list_view", ident("wshtx", 1)),
     ):
         items.append((f"{view}:by_id", f"/api/collections/{view}/records/{record}", {}))
-    items.append(
-        (
-            "buma_customer_list_view:by_id",
-            f"/api/collections/buma_customer_list_view/records/{ident('wshcust', 1)}",
-            {},
-        )
-    )
-    items.append(
-        (
-            "buma_article_with_no_stock_list_view:by_id",
-            "/api/collections/buma_article_with_no_stock_list_view/records/"
-            + ident("wsharticle", 1),
-            {},
-        )
-    )
+    return items
+
+
+# --- Before/after matrix -------------------------------------------------
+
+MATRIX_OPERATORS = ("=", "!=", "?=", "?!=", "~", "<", ">")
+COMPARE_OPERATORS = ("=", "!=", "<", ">")
+SKIP_KEYS = {"collectionId", "collectionName", "expand"}
+
+
+def filter_literal(value) -> str | None:
+    """The PocketBase filter literal of a served JSON scalar, or None."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value) if math.isfinite(value) else None
+    if isinstance(value, str) and not any(c in value for c in "\"'\\\n"):
+        return f'"{value}"'
+    return None
+
+
+def number_of(value) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"-?\d{1,15}(\.\d{1,6})?", value):
+        return float(value) if "." in value else int(value)
+    return None
+
+
+def matrix(reference_all: dict[str, list]) -> list[tuple[str, str, dict, dict]]:
+    """(label, path, params, meta) of every generated probe (from PocketBase's rows)."""
+    items = []
+    for view in CHANGED:
+        rows = reference_all[view]
+        columns = [key for key in rows[0] if key not in SKIP_KEYS]
+        path = f"/api/collections/{view}/records"
+        for position, column in enumerate(columns):
+            literals = ['""', "null", "1", "true", "false"]
+            sample = next(
+                (
+                    row.get(column)
+                    for row in rows
+                    if row.get(column) not in (None, "", True, False)
+                    and not isinstance(row.get(column), list | dict)
+                ),
+                None,
+            )
+            if sample is not None:
+                as_text = sample if isinstance(sample, str) else json.dumps(sample)
+                for value in (as_text, number_of(sample)):
+                    literal = filter_literal(value) if value is not None else None
+                    if literal:
+                        literals.append(literal)
+            for operator in MATRIX_OPERATORS:
+                for literal in dict.fromkeys(literals):
+                    expression = f"{column} {operator} {literal}"
+                    items.append(
+                        (
+                            f"{view}|filter|{expression}",
+                            path,
+                            {"filter": expression, "sort": "id", "perPage": 500},
+                            {
+                                "view": view,
+                                "kind": "filter",
+                                "columns": [column],
+                                "operator": operator,
+                                "literal": literal,
+                            },
+                        )
+                    )
+            directions = (
+                (("id", "ASC"), ("-id", "DESC"))
+                if column == "id"
+                else (
+                    (f"{column},id", "ASC"),
+                    (f"-{column},-id", "DESC"),
+                )
+            )
+            for sort, direction in directions:
+                items.append(
+                    (
+                        f"{view}|sort|{sort}",
+                        path,
+                        {"sort": sort, "perPage": 500},
+                        {"view": view, "kind": "sort", "columns": [column], "direction": direction},
+                    )
+                )
+            other = columns[(position + 1) % len(columns)]
+            if other != column:
+                for operator in COMPARE_OPERATORS:
+                    expression = f"{column} {operator} {other}"
+                    items.append(
+                        (
+                            f"{view}|compare|{expression}",
+                            path,
+                            {"filter": expression, "sort": "id", "perPage": 500},
+                            {
+                                "view": view,
+                                "kind": "compare",
+                                "columns": [column, other],
+                                "operator": operator,
+                            },
+                        )
+                    )
     return items
 
 
@@ -731,31 +1002,38 @@ async def admin_token(client: httpx.AsyncClient) -> str:
     return response.json()["token"]
 
 
-async def answers(base: str, items) -> dict:
+async def answers(base: str, items, *, raw: bool = False, concurrency: int = 6) -> dict:
     out = {}
     # No keep-alive: a server error that closes its connection cannot make
     # the next probe fail with a transport error.
-    limits = httpx.Limits(max_keepalive_connections=0)
-    async with httpx.AsyncClient(base_url=base, timeout=60, limits=limits) as client:
+    limits = httpx.Limits(max_keepalive_connections=0, max_connections=concurrency)
+    async with httpx.AsyncClient(base_url=base, timeout=120, limits=limits) as client:
         token = await admin_token(client)
-        for label, path, params in items:
-            started = time.monotonic()
-            try:
-                response = await client.get(path, params=params, headers={"Authorization": token})
-            except httpx.TransportError as exc:
-                # The server dropped the connection (an unhandled error).
-                out[label] = {"status": f"transport_error:{type(exc).__name__}", "body": None}
-                out[label]["seconds"] = round(time.monotonic() - started, 3)
-                continue
-            try:
-                body = response.json()
-            except ValueError:
-                body = None
-            out[label] = {
-                "status": response.status_code,
-                "body": body,
-                "seconds": round(time.monotonic() - started, 3),
-            }
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def one(label, path, params):
+            async with semaphore:
+                started = time.monotonic()
+                try:
+                    response = await client.get(
+                        path, params=params, headers={"Authorization": token}
+                    )
+                except httpx.TransportError as exc:
+                    out[label] = {"status": f"transport_error:{type(exc).__name__}", "body": None}
+                    return
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = None
+                out[label] = {
+                    "status": response.status_code,
+                    "body": body,
+                    "seconds": round(time.monotonic() - started, 3),
+                }
+                if raw:
+                    out[label]["raw"] = response.text
+
+        await asyncio.gather(*(one(*item[:3]) for item in items))
     return out
 
 
@@ -784,7 +1062,11 @@ def same(left, right) -> bool:
     return type(left) is type(right) and left == right
 
 
+_MISSING = object()
+
+
 def kind(left, right) -> str:
+    """How PPBase's value (right) differs from PocketBase's (left)."""
     if isinstance(left, dict) and isinstance(right, dict) and list(left) != list(right):
         return "json_key_order_D-0029" if same(left, right) else "differs"
     if (
@@ -796,14 +1078,41 @@ def kind(left, right) -> str:
         and same(left, right)
     ):
         return "json_number_notation_D-0029"
-    return "equal" if same(left, right) else "differs"
+    if same(left, right):
+        return "equal"
+    if isinstance(right, str) and right != left:
+        try:
+            parsed = json.loads(right)
+        except ValueError:
+            parsed = _MISSING
+        if parsed is not _MISSING and same(parsed, left):
+            number = isinstance(left, int | float) and not isinstance(left, bool)
+            return "number_served_as_text_D-0039" if number else "json_text_served_as_text_D-0039"
+    if (
+        isinstance(left, int)
+        and not isinstance(left, bool)
+        and left in (0, 1)
+        and isinstance(right, bool)
+        and int(right) == left
+    ):
+        return "integer_boolean_served_as_boolean_D-0039"
+    return "differs"
+
+
+def targets_of(view: str, reference_items: list) -> set[str]:
+    """The fields compared with PocketBase: the corrected ones, every field of a numbered view."""
+    if view in NUMBERED:
+        return {key for item in reference_items for key in item} - SKIP_KEYS
+    return CORRECTED.get(view, set())
 
 
 def compare(view: str, reference: dict, mine: dict) -> dict:
     """Outcome of one probe: status, ids in order, then every field of every item."""
     result = {"status": [reference["status"], mine["status"]]}
     left, right = records(reference["body"]), records(mine["body"])
-    result["ids_in_order_equal"] = [r.get("id") for r in left] == [r.get("id") for r in right]
+    result["ids_in_order_equal"] = [str(r.get("id")) for r in left] == [
+        str(r.get("id")) for r in right
+    ]
     pairs = list(zip(left, right, strict=False))
     result["id_types"] = sorted(
         {f"{type(a.get('id')).__name__}/{type(b.get('id')).__name__}" for a, b in pairs}
@@ -812,66 +1121,74 @@ def compare(view: str, reference: dict, mine: dict) -> dict:
         if isinstance(reference["body"], dict) and key in reference["body"]:
             result[key] = [reference["body"].get(key), (mine["body"] or {}).get(key)]
     fields: dict[str, dict] = {}
-    multiset = sorted(json.dumps(r, sort_keys=True) for r in left) == sorted(
-        json.dumps(r, sort_keys=True) for r in right
-    )
     for a, b in pairs:
         for key in sorted(set(a) | set(b)):
-            if key in ("id",) and view != "buma_caisse_transaction_by_categorie_list_view":
-                continue
             outcome = kind(a.get(key), b.get(key)) if key in a and key in b else "missing_key"
             counter = fields.setdefault(key, {})
             counter[outcome] = counter.get(outcome, 0) + 1
     result["fields"] = fields
     result["items"] = [len(left), len(right)]
-    result["same_multiset_of_items"] = multiset
-    targets = TARGET_FIELDS.get(view, set())
+    targets = targets_of(view, left)
+    accepted = {"equal"} | NOTATION | D0039
     ids = [r.get("id") for r in left]
     if len(set(map(str, ids))) < len(ids):
         # Duplicated ids (a view row per joined row): compare the target fields
         # of the rows as multisets, the order of equal ids being unspecified.
-        def rows_of(items):
+        def rows_of(items, loose):
             return sorted(
-                json.dumps([r.get("id"), *[r.get(f) for f in sorted(targets)]], sort_keys=True)
+                json.dumps(
+                    [str(r.get("id")), *[loose(r.get(f)) for f in sorted(targets)]],
+                    sort_keys=True,
+                )
                 for r in items
             )
 
         result["duplicate_ids"] = True
-        result["target_fields_equal"] = rows_of(left) == rows_of(right)
+        result["target_fields_equal"] = rows_of(left, loosen) == rows_of(right, loosen)
         result["other_fields_differing"] = []
         return result
-    result["target_fields_equal"] = all(
-        set(fields.get(f, {"equal": 1}))
-        <= {"equal", "json_key_order_D-0029", "json_number_notation_D-0029"}
-        for f in targets
+    result["target_fields_equal"] = len(left) == len(right) and all(
+        set(fields.get(f, {"equal": 1})) <= accepted for f in targets
     )
-    result["other_fields_differing"] = sorted(
-        f for f, c in fields.items() if f not in targets and set(c) - {"equal"}
+    # Other fields compared position by position: only when the ids align.
+    result["other_fields_differing"] = (
+        sorted(f for f, c in fields.items() if f not in targets and set(c) - accepted)
+        if result["ids_in_order_equal"]
+        else []
     )
     return result
 
 
 def compare_all(reference: dict, mine: dict) -> dict:
-    out = {}
-    for label in reference:
-        view = label.split(":", 1)[0]
-        out[label] = compare(view, reference[label], mine[label])
-    return out
+    return {
+        label: compare(label.split(":", 1)[0], reference[label], mine[label]) for label in reference
+    }
+
+
+def not_equal(comparison: dict) -> list[str]:
+    return sorted(
+        label
+        for label, c in comparison.items()
+        if c["status"][0] != c["status"][1]
+        or not c["ids_in_order_equal"]
+        or not c["target_fields_equal"]
+    )
 
 
 def summary(comparison: dict) -> dict:
+    kinds: dict[str, Counter] = {}
+    for label, c in comparison.items():
+        view = label.split(":", 1)[0]
+        for field, outcomes in c["fields"].items():
+            for outcome, count in outcomes.items():
+                if outcome in D0039 | NOTATION:
+                    kinds.setdefault(outcome, Counter())[f"{view}.{field}"] += count
     return {
         "probes": len(comparison),
         "status_equal": sum(1 for c in comparison.values() if c["status"][0] == c["status"][1]),
         "ids_in_order_equal": sum(1 for c in comparison.values() if c["ids_in_order_equal"]),
         "target_fields_equal": sum(1 for c in comparison.values() if c["target_fields_equal"]),
-        "not_equal": sorted(
-            label
-            for label, c in comparison.items()
-            if c["status"][0] != c["status"][1]
-            or not c["ids_in_order_equal"]
-            or not c["target_fields_equal"]
-        ),
+        "not_equal": not_equal(comparison),
         "other_fields_differing": sorted(
             {
                 f"{label.split(':', 1)[0]}.{f}"
@@ -879,7 +1196,314 @@ def summary(comparison: dict) -> dict:
                 for f in c["other_fields_differing"]
             }
         ),
+        "documented_value_forms": {k: dict(sorted(v.items())) for k, v in sorted(kinds.items())},
     }
+
+
+# --- Matrix verdicts -------------------------------------------------------
+
+
+def loosen(value):
+    """A served value with D-0039's forms folded (1/0 and true/false, JSON text)."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return value
+        return loosen(parsed) if not isinstance(parsed, str) else value
+    if isinstance(value, list):
+        return [loosen(v) for v in value]
+    if isinstance(value, dict):
+        return {k: loosen(v) for k, v in sorted(value.items())}
+    return value
+
+
+def content(record: dict, *, drop: set) -> str:
+    kept = {k: loosen(v) for k, v in record.items() if k not in SKIP_KEYS | drop}
+    return json.dumps(kept, sort_keys=True)
+
+
+def signature(meta: dict, answer: dict):
+    """What a probe served: ids in order, or (numbered views) the rows, their
+    corrected fields (the id included) aside."""
+    items = records(answer["body"])
+    if meta["view"] not in NUMBERED:
+        return [str(item.get("id")) for item in items]
+    drop = CORRECTED[meta["view"]]
+    rows = sorted(content(item, drop=drop) for item in items)
+    if meta["kind"] == "sort" and meta["columns"][0] == "id":
+        return [content(item, drop=drop) for item in items]
+    if meta["kind"] == "sort":
+        column = meta["columns"][0]
+        return [json.dumps(loosen(item.get(column))) for item in items], rows
+    return rows
+
+
+class Unmodeled(Exception):
+    pass
+
+
+def pg_text(value):
+    """The text PostgreSQL gives a served value (``column::text``)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, int | float):
+        return repr(value)
+    if isinstance(value, str):
+        return value
+    raise Unmodeled("json value")
+
+
+def parse_literal(literal: str):
+    if literal == "null":
+        return None
+    if literal in ("true", "false"):
+        return literal == "true"
+    if literal.startswith('"'):
+        return literal[1:-1]
+    return float(literal) if "." in literal else int(literal)
+
+
+def ilike(value: str, pattern: str) -> bool:
+    """PostgreSQL ILIKE (PPBase renders ~ as ILIKE '%value%')."""
+    regex = "".join(".*" if c == "%" else "." if c == "_" else re.escape(c) for c in pattern)
+    return re.fullmatch(regex, value, re.S | re.I) is not None
+
+
+def literal_text(value) -> str | None:
+    """``literal::text``: PPBase inlines TRUE/FALSE and numbers, binds strings."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def ordered(left, right) -> int:
+    """PostgreSQL's comparison of two non-NULL values of the same SQL type."""
+    for kind_ in (str, bool):
+        if isinstance(left, kind_) and isinstance(right, kind_):
+            return (left > right) - (left < right)
+    numbers = (int, float)
+    if (
+        isinstance(left, numbers)
+        and isinstance(right, numbers)
+        and not isinstance(left, bool)
+        and not isinstance(right, bool)
+    ):
+        return (left > right) - (left < right)
+    raise Unmodeled("types")
+
+
+def holds(operator: str, left, right, *, literal: bool) -> bool:
+    """PPBase's SQL for ``column <operator> right`` on one row (NULL is false)."""
+    if literal and right is None and operator in ("=", "!="):
+        return (left is None) == (operator == "=")
+    if operator in ("=", "!=", "<", ">"):
+        if left is None or right is None:
+            return False
+        sign = ordered(left, right)
+        return {"=": sign == 0, "!=": sign != 0, "<": sign < 0, ">": sign > 0}[operator]
+    if operator == "~":
+        if right is None or left is None:
+            return False
+        return ilike(pg_text(left), f"%{right}%")  # Python's str of the literal
+    if operator in ("?=", "?!="):
+        # CASE ... ELSE literal::text <op> column::text END (a scalar column).
+        if left is None or right is None:
+            return False
+        equal = pg_text(left) == literal_text(right)
+        return equal if operator == "?=" else not equal
+    raise Unmodeled(operator)
+
+
+def sort_key(value):
+    """PostgreSQL's default order: NULL after every value (ASC), first when reversed."""
+    if value is None:
+        return (1, 0)
+    if isinstance(value, bool | int | float | str):
+        return (0, value)
+    raise Unmodeled("sort type")
+
+
+def sorted_rows(rows: list, key, *, reverse: bool = False) -> list:
+    try:
+        return sorted(rows, key=key, reverse=reverse)
+    except TypeError as exc:  # values of several SQL types in one column
+        raise Unmodeled("mixed types") from exc
+
+
+def predicted(meta: dict, side_all: list):
+    """The signature PPBase's SQL gives on ``side_all`` (the rows that side serves)."""
+    kind_, columns = meta["kind"], meta["columns"]
+    if kind_ == "sort":
+        column = columns[0]
+        reverse = meta["direction"] == "DESC"
+        if column == "id":
+            chosen = sorted_rows(side_all, lambda r: sort_key(r.get("id")), reverse=reverse)
+        else:
+            chosen = sorted_rows(
+                side_all,
+                lambda r: (sort_key(r.get(column)), sort_key(r.get("id"))),
+                reverse=reverse,
+            )
+        return signature(meta, {"body": {"items": chosen}})
+    if kind_ == "filter":
+        right = parse_literal(meta["literal"])
+        chosen = [
+            r for r in side_all if holds(meta["operator"], r.get(columns[0]), right, literal=True)
+        ]
+    else:
+        chosen = [
+            r
+            for r in side_all
+            if holds(meta["operator"], r.get(columns[0]), r.get(columns[1]), literal=False)
+        ]
+    chosen = sorted_rows(chosen, lambda r: sort_key(r.get("id")))
+    return signature(meta, {"body": {"items": chosen}})
+
+
+def new_error_rule(meta: dict, after_all: list) -> str | None:
+    """A new error that is the documented consequence of a text id."""
+    if meta["view"] not in NUMBERED or "id" not in meta["columns"]:
+        return None
+    if meta["kind"] == "filter" and not meta["literal"].startswith('"'):
+        if meta["literal"] != "null" and meta["operator"] != "~":
+            return "number_or_boolean_compared_with_text_id"
+    if meta["kind"] == "compare":
+        other = meta["columns"][1] if meta["columns"][0] == "id" else meta["columns"][0]
+        values = [r.get(other) for r in after_all]
+        if all(v is None or isinstance(v, int | float | bool) for v in values):
+            return "text_id_compared_with_a_number_or_boolean_column"
+    return None
+
+
+def verdicts(items, reference, before, after, alls) -> dict:
+    """Verdict of every matrix probe (see the module docstring, proof 1)."""
+    out, counts, failures = {}, Counter(), []
+    for label, _, _, meta in items:
+        view = meta["view"]
+        b, a, p = before[label], after[label], reference[label]
+        statuses = [p["status"], b["status"], a["status"]]
+        if b["status"] != 200 and a["status"] != 200:
+            verdict = "error_unchanged" if b["status"] == a["status"] else "error_changed"
+        elif b["status"] != 200:
+            verdict = "error_now_answered"
+        elif a["status"] != 200:
+            rule = new_error_rule(meta, alls["after"][view])
+            verdict = f"new_error:{rule}" if rule else "NEW_ERROR"
+        elif signature(meta, b) == signature(meta, a):
+            verdict = "unchanged"
+        elif set(meta["columns"]) & CORRECTED.get(view, set()):
+            try:
+                explained = predicted(meta, alls["before"][view]) == signature(
+                    meta, b
+                ) and predicted(meta, alls["after"][view]) == signature(meta, a)
+                verdict = "explained_by_corrected_values" if explained else "UNEXPLAINED"
+            except Unmodeled as exc:
+                verdict = f"UNMODELED:{exc}"
+        elif p["status"] == 200 and signature(meta, p) == signature(meta, a):
+            verdict = "now_equal_to_pocketbase"
+        else:
+            verdict = "UNEXPLAINED"
+        bucket = verdict.split(":", 1)[0] if verdict.startswith("new_error") else verdict
+        counts[bucket if not bucket.startswith("UNMODELED") else "UNMODELED"] += 1
+        record = {"verdict": verdict, "statuses_pocketbase_before_after": statuses}
+        record["after_equal_to_pocketbase"] = p["status"] == a["status"] and (
+            a["status"] != 200 or signature(meta, p) == signature(meta, a)
+        )
+        if verdict.startswith(("UNMODELED", "NEW_ERROR", "UNEXPLAINED", "error_changed")):
+            failures.append(label)
+            record["items_pocketbase_before_after"] = [
+                [str(item.get("id")) for item in records(answer["body"])][:20]
+                for answer in (p, b, a)
+            ]
+        out[label] = record
+    return {"verdicts": dict(sorted(counts.items())), "failures": failures, "probes": out}
+
+
+def matrix_summary(result: dict, items) -> dict:
+    """Aggregates of the matrix: new errors by rule, answers equal to PocketBase."""
+    rules = Counter()
+    after_vs_pocketbase = Counter()
+    for label, _, _, meta in items:
+        record = result["probes"][label]
+        if record["verdict"].startswith("new_error:"):
+            rules[f"{meta['view']}:{record['verdict'].split(':', 1)[1]}"] += 1
+        key = "equal" if record["after_equal_to_pocketbase"] else "differs"
+        after_vs_pocketbase[f"{meta['view']}.{meta['columns'][0]}:{key}"] += 1
+    differing = {k: v for k, v in after_vs_pocketbase.items() if k.endswith(":differs")}
+    return {
+        "probes": len(items),
+        "verdicts": result["verdicts"],
+        "failures": result["failures"],
+        "new_errors_by_view_and_rule": dict(sorted(rules.items())),
+        "after_differs_from_pocketbase_by_column": dict(sorted(differing.items())),
+        "after_equal_to_pocketbase": sum(
+            1 for r in result["probes"].values() if r["after_equal_to_pocketbase"]
+        ),
+    }
+
+
+# --- Pagination ------------------------------------------------------------
+
+
+def pagination_probes(reference_all: dict) -> list[tuple[str, str, dict, dict]]:
+    """Every page of the numbered views with several rows, several sizes and sorts."""
+    items = []
+    for view in MULTI_ROW_NUMBERED:
+        rows = reference_all[view]
+        total = len(rows)
+        columns = [k for k in rows[0] if k not in SKIP_KEYS | {"id"}]
+        sorts = (None, "id", "-id", f"{columns[0]},id", f"-{columns[-1]},-id")
+        for sort in sorts:
+            for per_page in (1, 2, 3, 7):
+                for page in range(1, math.ceil(total / per_page) + 1):
+                    params = {"page": page, "perPage": per_page}
+                    if sort:
+                        params["sort"] = sort
+                    label = f"{view}|pages|{sort}|{per_page}|{page}"
+                    meta = {"view": view, "sort": sort, "per_page": per_page, "page": page}
+                    items.append((label, f"/api/collections/{view}/records", params, meta))
+    return items
+
+
+def pagination_check(items, answer: dict, side_all: dict) -> dict:
+    groups: dict[tuple, list] = {}
+    for label, _, _, meta in items:
+        groups.setdefault((meta["view"], meta["sort"], meta["per_page"]), []).append(label)
+    out, failures = {}, []
+    for (view, sort, per_page), labels in groups.items():
+        served = [item for label in labels for item in records(answer[label]["body"])]
+        statuses = {answer[label]["status"] for label in labels}
+        ids = Counter(str(item.get("id")) for item in served)
+        expected = Counter(str(item.get("id")) for item in side_all[view])
+        rows = Counter(content(item, drop=set()) for item in served)
+        expected_rows = Counter(content(item, drop=set()) for item in side_all[view])
+        key = f"{view}|{sort}|{per_page}"
+        out[key] = {
+            "pages": len(labels),
+            "statuses": sorted(statuses),
+            "served": len(served),
+            "rows": sum(expected.values()),
+            "ids_served_twice": sum(1 for n in ids.values() if n > 1),
+            "ids_never_served": sum(1 for i in expected if i not in ids),
+            "rows_equal_to_the_full_listing": rows == expected_rows,
+        }
+        if statuses != {200} or ids != expected or rows != expected_rows:
+            failures.append(key)
+    return {"groups": len(out), "failures": failures, "by_view_sort_size": out}
+
+
+# --- Servers ---------------------------------------------------------------
 
 
 class PocketBase:
@@ -968,6 +1592,38 @@ class PPBase:
         self.log.close()
 
 
+COLUMN_TYPES = """
+SELECT c.relname, a.attnum, a.attname, format_type(a.atttypid, a.atttypmod),
+       CASE WHEN a.attcollation = 0 THEN NULL
+            ELSE (SELECT collname FROM pg_collation WHERE oid = a.attcollation) END
+FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v'
+  AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY 1, 2
+"""
+# The type changes 1789236851 makes (view.column -> (before, after)).
+EXPECTED_TYPE_CHANGES = {
+    **{f"{view}.id": (["bigint", None], ["text", "C"]) for view in NUMBERED},
+    "buma_customer_mobile_list_view.uvUser": (["name", "C"], ["text", "default"]),
+}
+
+
+async def column_types(engine) -> dict:
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(COLUMN_TYPES))).all()
+    return {f"{r[0]}.{r[2]}": [r[3], r[4]] for r in rows}
+
+
+async def text_order_is_byte_order(engine) -> bool:
+    """The text comparison the model assumes (musl: every locale compares bytes)."""
+    async with engine.connect() as conn:
+        return (
+            await conn.execute(
+                text("SELECT 'B' < 'a' AND 'Z_' < 'Za' AND '1,2' < '12' AND 'a b' < 'a-b'")
+            )
+        ).scalar_one()
+
+
 async def without_archive(engine) -> dict:
     """Orders served when _buma_c11_rowids is absent (rolled back afterwards)."""
     async with engine.connect() as conn:
@@ -1014,164 +1670,22 @@ async def without_archive(engine) -> dict:
     }
 
 
-GRID_TEXTS = (
-    None,
-    "",
-    "73000001",
-    MULTIPLE,
-    "070000009",
-    "1e3",
-    "12.50",
-    "-5",
-    "null",
-    "true",
-    "false",
-    "[1,2]",
-    '"x"',
-    '{"b":1,"a":2}',
-    "abc",
-    "Abc",
-    "7",
-)
-GRID_VALUES = (
-    "",
-    "73000001",
-    MULTIPLE,
-    "7",
-    "abc",
-    "x",
-    "1000",
-    73000001,
-    1000,
-    12.5,
-    -5,
-    0,
-    1,
-    7,
-    True,
-    False,
-)
-GRID_OPERATORS = ("=", "!=", "<", "<=", ">", ">=")
-GRID_INTEGERS = (None, 0, 1)
+def all_rows(answer: dict) -> dict:
+    return {view: records(answer[f"{view}:all"]["body"]) for view in VIEWS}
 
 
-def sqlite_filter(value, operator: str, other, *, json_field: bool) -> bool | None:
-    """PocketBase's SQL for ``field <operator> other`` evaluated by SQLite."""
-    with closing(sqlite3.connect(":memory:")) as db:
-        left = (
-            "(CASE WHEN json_valid(:v) THEN JSON_EXTRACT(:v, '$') "
-            "ELSE JSON_EXTRACT(json_object('pb', :v), '$.pb') END)"
-            if json_field
-            else ":v"
-        )
-        sql_operator = {"=": "IS", "!=": "IS NOT"}.get(operator, operator)
-        if isinstance(other, bool):
-            right, params = ("1" if other else "0"), {"v": value}
-        else:
-            number = isinstance(other, int | float)
-            right, params = ":o", {"v": value, "o": float(other) if number else other}
-        row = db.execute(f"SELECT {left} {sql_operator} {right}", params).fetchone()
-    return None if row[0] is None else bool(row[0])
-
-
-def ppbase_operand(other) -> tuple[str, dict]:
-    """The operand as PPBase renders it: TRUE/FALSE, a literal, an untyped parameter."""
-    if isinstance(other, bool):
-        return ("TRUE" if other else "FALSE"), {}
-    if isinstance(other, int | float):
-        return str(other), {}
-    return ":o", {"o": other}
-
-
-async def operator_grid(engine) -> dict:
-    """The 1789236851 operators against SQLite, both operand orders (rolled back)."""
-    mismatches, checked = [], 0
-    async with engine.connect() as conn:
-        transaction = await conn.begin()
-        try:
-            await conn.execute(text("CREATE TEMP TABLE wsh_grid (k int, v text, i int)"))
-            for k, value in enumerate(GRID_TEXTS):
-                await conn.execute(
-                    text("INSERT INTO wsh_grid VALUES (:k, :v, :i)"),
-                    {"k": k, "v": value, "i": GRID_INTEGERS[k % 3]},
-                )
-            await conn.execute(
-                text(
-                    "CREATE TEMP VIEW wsh_grid_view AS SELECT k, buma_pb_json_text(v) AS j, "
-                    "CAST(i AS buma_sqlite_integer) AS i FROM wsh_grid"
-                )
-            )
-            for k, value in enumerate(GRID_TEXTS):
-                for operator in GRID_OPERATORS:
-                    flipped = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}.get(operator, operator)
-                    for other in GRID_VALUES:
-                        expected = sqlite_filter(value, operator, other, json_field=True)
-                        operand, params = ppbase_operand(other)
-                        for sql in (
-                            f"SELECT j {operator} {operand} FROM wsh_grid_view WHERE k = {k}",
-                            f"SELECT {operand} {flipped} j FROM wsh_grid_view WHERE k = {k}",
-                        ):
-                            served = (await conn.execute(text(sql), params)).scalar_one()
-                            checked += 1
-                            if served != expected:
-                                mismatches.append([value, sql.split(" FROM")[0], other])
-                    for other in (True, False):
-                        integer = GRID_INTEGERS[k % 3]
-                        expected = sqlite_filter(integer, operator, other, json_field=False)
-                        operand, _ = ppbase_operand(other)
-                        for sql in (
-                            f"SELECT i {operator} {operand} FROM wsh_grid_view WHERE k = {k}",
-                            f"SELECT {operand} {flipped} i FROM wsh_grid_view WHERE k = {k}",
-                        ):
-                            served = (await conn.execute(text(sql))).scalar_one()
-                            checked += 1
-                            if served != expected:
-                                mismatches.append([integer, sql.split(" FROM")[0], other])
-        finally:
-            await transaction.rollback()
-    return {
-        "sqlite_version": sqlite3.sqlite_version,
-        "stored_texts": len(GRID_TEXTS),
-        "compared_values": len(GRID_VALUES),
-        "checked": checked,
-        "mismatches": mismatches,
+def sale_phase_record(answer: dict) -> dict:
+    item = (records(answer["buma_sale_info"]["body"]) or [{}])[0]
+    out = {
+        "status": answer["buma_sale_info"]["status"],
+        **{field: item.get(field) for field in SALE_INFO_FIELDS},
     }
-
-
-async def operator_scope(engine) -> dict:
-    """What the operators do outside the two domains (each probe rolled back)."""
-    probes = {
-        "integer_equals_boolean": ("SELECT 1::integer = TRUE", {}),
-        "text_equals_integer": ("SELECT 'a'::text = 3", {}),
-        "text_equals_boolean": ("SELECT 'a'::text = TRUE", {}),
-        "jsonb_equals_empty_parameter": ("SELECT '1'::jsonb = :p", {"p": ""}),
-        "jsonb_equals_parameter": ("SELECT '1'::jsonb = :p", {"p": "1"}),
-        "text_equals_parameter": ("SELECT 'a'::text = :p", {"p": "a"}),
-        "smallint_equals_boolean": ("SELECT 1::smallint = TRUE", {}),
-        "json_equals_parameter": ("SELECT '1'::json = :p", {"p": "1"}),
-        "domain_equals_domain": ("SELECT buma_pb_json_text('1') = buma_pb_json_text('1')", {}),
+    raw = answer["buma_sale_info"].get("raw") or ""
+    out["raw_numbers"] = {
+        field: match.group(1)
+        for field in ("totalAmount", "totalNotPayed", "payedPercent")
+        if (match := re.search(rf'"{field}":([^,}}]*)', raw))
     }
-    out = {}
-    for label, (sql, params) in probes.items():
-        async with engine.connect() as conn:
-            try:
-                out[label] = {"value": (await conn.execute(text(sql), params)).scalar_one()}
-            except Exception as exc:  # noqa: BLE001 - the error itself is the result
-                message = str(getattr(exc, "orig", exc)).splitlines()[0]
-                out[label] = {"error": message.split(": ", 1)[-1][:120]}
-    expected_errors = {
-        "integer_equals_boolean",
-        "text_equals_integer",
-        "text_equals_boolean",
-        "jsonb_equals_empty_parameter",
-        "domain_equals_domain",
-    }
-    assert {k for k, v in out.items() if "error" in v} == expected_errors, out
-    assert out["jsonb_equals_parameter"]["value"] is True
-    assert out["text_equals_parameter"]["value"] is True
-    # Documented: an implicit cast lets the operators reach smallint and json.
-    assert out["smallint_equals_boolean"]["value"] is True
-    assert out["json_equals_parameter"]["value"] is False  # a number is not the text '1'
     return out
 
 
@@ -1179,17 +1693,25 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
     data = build_fixture(root, binary, schema)
     report["fixture"] = source_facts(data)
     items = probes()
-    sale_phases = {}
+    sale_phases: dict[str, dict] = {}
     async with PocketBase(binary, data, root) as pocketbase:
         reference = await answers(pocketbase.base, items)
+        generated = matrix(all_rows(reference))
+        pages = pagination_probes(all_rows(reference))
+        reference_matrix = await answers(pocketbase.base, generated)
     for phase in SALE_PHASES:
         write_sale_phase_sqlite(data, phase)
         async with PocketBase(binary, data, root) as pocketbase:
-            sale_phases[phase] = {"pocketbase": await answers(pocketbase.base, sale_info_probe())}
+            sale_phases[phase] = {
+                "pocketbase": sale_phase_record(
+                    await answers(pocketbase.base, sale_info_probe(), raw=True)
+                )
+            }
     write_sale_phase_sqlite(data, "integer_truncation")
     report["pocketbase_answers"] = {
-        "probes": len(reference),
-        "statuses": sorted({a["status"] for a in reference.values()}),
+        "curated_probes": len(reference),
+        "matrix_probes": len(generated),
+        "statuses": sorted({str(a["status"]) for a in reference.values()}),
     }
 
     definitions = load_schema(schema)
@@ -1225,72 +1747,113 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
         rows = await import_snapshot(
             engine, data, published, diagnostic, definitions, report=evidence
         )
-        report["import"] = {"rows": rows, "archive_rows": None}
+        report["import"] = {"rows": rows}
         async with engine.connect() as conn:
             report["import"]["archive_rows"] = (
                 await conn.execute(text("SELECT count(*) FROM _buma_c11_rowids"))
             ).scalar_one()
+        report["text_order_is_byte_order"] = await text_order_is_byte_order(engine)
+        assert report["text_order_is_byte_order"], "the matrix model assumes byte order"
+        types_after = await column_types(engine)
 
         async with PPBase(url, published, root, "after") as server:
             after = await answers(server.base, items)
+            after_matrix = await answers(server.base, generated)
+            after_pages = await answers(server.base, pages)
             for phase in SALE_PHASES:
                 await write_sale_phase_postgres(engine, phase)
-                sale_phases[phase]["after"] = await answers(server.base, sale_info_probe())
+                sale_phases[phase]["after"] = sale_phase_record(
+                    await answers(server.base, sale_info_probe(), raw=True)
+                )
             await write_sale_phase_postgres(engine, "integer_truncation")
         comparison = compare_all(reference, after)
         report["after_1789236851"] = {"summary": summary(comparison), "probes": comparison}
-        known = known_after()
-        report["ppbase_sorts_json_by_jsonb"] = ppbase_sorts_json_by_jsonb()
         remaining = report["after_1789236851"]["summary"]["not_equal"]
         report["after_1789236851"]["known_differences"] = {
             label: (
                 dict(
-                    zip(("reason", "pocketbase_status", "ppbase_status"), known[label], strict=True)
+                    zip(
+                        ("reason", "pocketbase_status", "ppbase_status"),
+                        KNOWN_AFTER[label],
+                        strict=True,
+                    )
                 )
-                if label in known
-                else "UNEXPECTED"
+                if label in KNOWN_AFTER
+                else {
+                    "reason": "UNEXPECTED",
+                    "statuses": [reference[label]["status"], after[label]["status"]],
+                }
             )
             for label in remaining
         }
-        assert set(remaining) == set(known), sorted(set(remaining) ^ set(known))
-        for label, (_, pocketbase_status, ppbase_status) in known.items():
-            statuses = [reference[label]["status"], after[label]["status"]]
-            assert statuses == [pocketbase_status, ppbase_status], (label, statuses)
+        report["pagination_after"] = pagination_check(pages, after_pages, all_rows(after))
         report["without_archive"] = await without_archive(engine)
-        report["operator_grid"] = await operator_grid(engine)
-        assert report["operator_grid"]["mismatches"] == [], report["operator_grid"]
-        report["operator_scope"] = await operator_scope(engine)
 
         down = await run_migrations_down(engine, MIGRATIONS, count=1)
         assert down == [MIGRATION], down
+        types_before = await column_types(engine)
         async with PPBase(url, published, root, "before") as server:
             before = await answers(server.base, items)
+            before_matrix = await answers(server.base, generated)
+            before_pages = await answers(server.base, pages)
             for phase in SALE_PHASES:
                 await write_sale_phase_postgres(engine, phase)
-                sale_phases[phase]["before"] = await answers(server.base, sale_info_probe())
+                sale_phases[phase]["before"] = sale_phase_record(
+                    await answers(server.base, sale_info_probe(), raw=True)
+                )
             await write_sale_phase_postgres(engine, "integer_truncation")
-        comparison = compare_all(reference, before)
+        comparison_before = compare_all(reference, before)
+        not_equal_before = set(not_equal(comparison_before))
         report["before_1789236851_after_down"] = {
-            "summary": summary(comparison),
-            "probes": comparison,
+            "summary": summary(comparison_before),
         }
-        not_equal_before = set(report["before_1789236851_after_down"]["summary"]["not_equal"])
-        regressions = sorted(set(remaining) - not_equal_before)
-        new_errors = sorted(
-            label
-            for label in reference
-            if before[label]["status"] == 200 and after[label]["status"] != 200
-        )
-        expected_errors = {"buma_caisse_transaction_by_categorie_list_view:filter:id = 3"}
-        if not report["ppbase_sorts_json_by_jsonb"]:
-            expected_errors |= REGRESSIONS_BEFORE_WS_A11
-        report["regressions"] = {
-            "equal_to_pocketbase_before_and_not_after": regressions,
-            "status_200_before_and_not_after": new_errors,
+        report["curated_regressions"] = {
+            "equal_to_pocketbase_before_and_not_after": sorted(set(remaining) - not_equal_before),
+            "status_200_before_and_not_after": sorted(
+                label
+                for label in reference
+                if before[label]["status"] == 200 and after[label]["status"] != 200
+            ),
             "fixed_by_1789236851": sorted(not_equal_before - set(remaining)),
         }
-        assert set(new_errors) == expected_errors, new_errors
-        assert set(regressions) <= expected_errors | REGRESSIONS, regressions
+        report["pagination_before"] = pagination_check(pages, before_pages, all_rows(before))
+        alls = {"before": all_rows(before), "after": all_rows(after)}
+        result = verdicts(generated, reference_matrix, before_matrix, after_matrix, alls)
+        report["matrix"] = matrix_summary(result, generated)
+        report["matrix_probes"] = result["probes"]
+
+        changed = {
+            k: [types_before.get(k), types_after.get(k)]
+            for k in sorted(set(types_before) | set(types_after))
+            if types_before.get(k) != types_after.get(k)
+        }
+        up = await run_migrations_up(engine, MIGRATIONS)
+        assert up == [MIGRATION], up
+        types_replay = await column_types(engine)
+        report["column_types"] = {
+            "view_columns": len(types_after),
+            "changed_by_1789236851": changed,
+            "only_the_expected_changes": changed
+            == {k: list(v) for k, v in EXPECTED_TYPE_CHANGES.items()},
+            "up_again_equals_first_up": types_replay == types_after,
+        }
+        async with PPBase(url, published, root, "replay") as server:
+            replay = await answers(server.base, items)
+        report["replay_after_up_equal_to_first_after"] = all(
+            replay[k]["status"] == after[k]["status"] and replay[k]["body"] == after[k]["body"]
+            for k in after
+        )
+        report["sale_info_phases"] = sale_phases
+        report["sale_info_after_equal_to_pocketbase"] = {
+            phase: {
+                field: same(sides["pocketbase"][field], sides["after"][field])
+                for field in SALE_INFO_FIELDS
+            }
+            for phase, sides in sale_phases.items()
+        }
+        report["timings_seconds_after"] = {
+            k.split(":", 1)[0]: v.get("seconds") for k, v in after.items() if k.endswith(":all")
+        }
         report["filters_and_sorts"] = {
             label: {
                 side: {
@@ -1307,56 +1870,66 @@ async def exercise(root: Path, binary: Path, schema: Path, report: dict, start_p
                 )
             }
             for label in reference
-            if ":filter:" in label or ":sort:" in label or ":by_id" in label
+            if ":filter:" in label or ":sort:" in label or ":by_id" in label or ":default" in label
         }
-        up = await run_migrations_up(engine, MIGRATIONS)
-        assert up == [MIGRATION], up
-        async with PPBase(url, published, root, "replay") as server:
-            replay = await answers(server.base, items)
-        report["replay_after_up_equal_to_first_after"] = all(
-            replay[k]["status"] == after[k]["status"] and replay[k]["body"] == after[k]["body"]
-            for k in after
-        )
-        report["sale_info_phases"] = {
-            phase: {
-                side: {
-                    "status": answer["buma_sale_info"]["status"],
-                    "payedPercent": [
-                        r.get("payedPercent") for r in records(answer["buma_sale_info"]["body"])
-                    ],
-                }
-                for side, answer in sides.items()
-            }
-            for phase, sides in sale_phases.items()
-        }
-        report["sale_info_after_equal_to_pocketbase"] = all(
-            sides["after"]["buma_sale_info"]["status"]
-            == sides["pocketbase"]["buma_sale_info"]["status"]
-            and same(
-                [r.get("payedPercent") for r in records(sides["after"]["buma_sale_info"]["body"])],
-                [
-                    r.get("payedPercent")
-                    for r in records(sides["pocketbase"]["buma_sale_info"]["body"])
-                ],
+        for sides in report["filters_and_sorts"].values():
+            # The same rows in the same order (their corrected values aside).
+            sides["same_answer_before"] = (
+                sides["before"]["status"] == sides["after"]["status"]
+                and sides["before"]["ids"] == sides["after"]["ids"]
             )
-            for sides in sale_phases.values()
-        )
-        report["timings_seconds_after"] = {
-            k.split(":", 1)[0]: v["seconds"] for k, v in after.items() if k.endswith(":all")
-        }
         report["served_examples"] = examples(reference, after, before)
     finally:
         await engine.dispose()
+    check(report)
+
+
+def check(report: dict) -> None:
+    """The assertions of the proof, after the report is complete."""
+    known = report["after_1789236851"]["known_differences"]
+    unexpected = sorted(k for k, v in known.items() if v["reason"] == "UNEXPECTED")
+    report["unexpected_differences"] = unexpected
+    pinned = set(KNOWN_AFTER)
+    report["pins_not_reached"] = sorted(pinned - set(known))
+    assert not unexpected, unexpected
+    assert not report["pins_not_reached"], report["pins_not_reached"]
+    probes_ = report["after_1789236851"]["probes"]
+    for label, (_, pocketbase_status, ppbase_status) in KNOWN_AFTER.items():
+        assert probes_[label]["status"] == [pocketbase_status, ppbase_status], label
+    changed = sorted(
+        label
+        for label in KNOWN_AFTER
+        if not report["filters_and_sorts"].get(label, {}).get("same_answer_before", False)
+    )
+    report["pins_answered_otherwise_before"] = changed
+    assert set(changed) <= CHANGED_BY_1789236851, sorted(set(changed) - CHANGED_BY_1789236851)
+    assert not report["after_1789236851"]["summary"]["other_fields_differing"], report[
+        "after_1789236851"
+    ]["summary"]["other_fields_differing"]
+    regressions = report["curated_regressions"]
+    # Only the documented changes: the stock views by id, a number compared
+    # with a text id.
+    assert set(regressions["equal_to_pocketbase_before_and_not_after"]) <= CHANGED_BY_1789236851
+    assert set(regressions["status_200_before_and_not_after"]) == {
+        f"{view}:filter:id = 3" for view in MULTI_ROW_NUMBERED
+    }, regressions["status_200_before_and_not_after"]
+    assert not report["matrix"]["failures"], report["matrix"]["failures"][:20]
+    assert not report["pagination_after"]["failures"], report["pagination_after"]["failures"]
+    assert report["column_types"]["only_the_expected_changes"], report["column_types"]
+    assert report["column_types"]["up_again_equals_first_up"]
+    assert report["replay_after_up_equal_to_first_after"]
+    for phase, fields in report["sale_info_after_equal_to_pocketbase"].items():
+        assert fields["payedPercent"], phase
 
 
 def examples(reference: dict, after: dict, before: dict) -> dict:
-    """Synthetic served values of the target fields on the three servers."""
+    """Synthetic served values of the corrected fields on the three servers."""
     out = {}
     for label in reference:
         view = label.split(":", 1)[0]
-        if not label.endswith(":all") and ":page" not in label and ":by_id" not in label:
+        if not label.endswith(":all") or view not in CORRECTED:
             continue
-        fields = TARGET_FIELDS.get(view, set())
+        fields = CORRECTED[view] | ({"id"} if view in NUMBERED else set())
         rows = []
         for a, b, c in zip(
             records(reference[label]["body"]),
@@ -1370,9 +1943,8 @@ def examples(reference: dict, after: dict, before: dict) -> dict:
                     for f in sorted(fields)
                     if f in a or f in b
                 }
-                | {"id": [a.get("id"), b.get("id"), c.get("id")]}
             )
-        out[label] = rows
+        out[label] = rows[:20]
     return out
 
 
@@ -1391,6 +1963,7 @@ def main() -> int:
         parser.error(f"This proof requires PocketBase {SOURCE_VERSION}")
     name = "buma-c11-ws-h-" + uuid.uuid4().hex[:12]
     password = secrets.token_hex(16)
+    ppbase_root = Path(__import__("ppbase").__file__).resolve().parents[1]
     report: dict = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "scope": "c11_ws_h_view_sqlite_semantics_synthetic_paired_comparison",
@@ -1399,15 +1972,9 @@ def main() -> int:
         "pocketbase": {"version": SOURCE_VERSION, "binary_sha256": digest(args.pocketbase)},
         "migration": MIGRATION,
         "ppbase": {
-            "package": str(Path(__import__("ppbase").__file__).resolve().parent),
+            "package": str(ppbase_root / "ppbase"),
             "commit": subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(Path(__import__("ppbase").__file__).resolve().parents[1]),
-                    "rev-parse",
-                    "HEAD",
-                ],
+                ["git", "-C", str(ppbase_root), "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
             ).stdout.strip(),
@@ -1427,6 +1994,8 @@ def main() -> int:
             name,
             "--label",
             "buma.scope=c11-ws-h-view-semantics",
+            "--label",
+            "buma-c11=ws-h",
             "--publish",
             "127.0.0.1::5432",
             "--env",
@@ -1448,6 +2017,7 @@ def main() -> int:
         report["postgres"] = {"image": "postgres:16-alpine", "container_label": "c11-ws-h"}
         return f"postgresql+asyncpg://c11:{password}@127.0.0.1:{port}/buma_c11_rehearsal"
 
+    started = time.monotonic()
     try:
         with tempfile.TemporaryDirectory(prefix="buma-c11-ws-h-") as folder:
             try:
@@ -1469,7 +2039,7 @@ def main() -> int:
                         (args.private_logs / log.name).chmod(0o600)
     except BaseException as exc:
         report["failure_type"] = type(exc).__name__
-        report["failure"] = str(exc)[:2000]
+        report["failure"] = str(exc)[:4000]
         raise
     finally:
         if created:
@@ -1480,6 +2050,7 @@ def main() -> int:
                 ).returncode
                 != 0
             )
+        report["seconds"] = round(time.monotonic() - started, 1)
         write_json_new(args.report, report)
         print(json.dumps({"status": report["status"], "report": str(args.report)}))
     return 0
