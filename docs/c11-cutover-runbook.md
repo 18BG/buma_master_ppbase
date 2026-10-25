@@ -933,7 +933,11 @@ Dans les deux cas :
 
 Commandes en lecture seule, sur l'extraction (mode complet : `storage/` est
 lu et haché ; aucun octet n'est copié). Chaque rapport doit être un chemin
-neuf.
+neuf. L'option `--manifest <manifeste privé>` de `scripts.c11_import` et de
+`scripts.c11_snapshot_audit` remplace `storage/` par le manifeste
+d'extraction (mode manifeste : références et tailles contrôlées, aucun octet
+lu, `file_bytes_verified` faux) ; elle sert aux répétitions sur le paquet
+base de données, jamais à la bascule, où C-07 exige le mode complet.
 
 ```sh
 .venv/bin/python -m scripts.c11_import \
@@ -1550,8 +1554,8 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | Porte | Critère | Seuil |
 | --- | --- | --- |
 | G0 | autorisations (2.1) et informations I1 à I25 | 100 % fournies |
-| G0 | code de release et PPBase exigé (2.2, C-45) | commits du rapport final, arbres propres, `ppbase.models.field_multiplicity` présent |
-| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques, divergences acceptées seulement par décision |
+| G0 | code de release et PPBase exigé (2.2, C-45) | commits du rapport final, fichiers suivis inchangés, `ppbase.models.field_multiplicity` et `ppbase.middleware.error_compat` présents |
+| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques, divergences acceptées seulement par décision ; durées de 5.1 et ressources de 5.2 reportées |
 | G0 | porte de release (annexe A) | 0 échec ; 100 % des échecs PPBase antérieurs analysés |
 | G0 | outils de 10.2 nécessaires aux portes G1 à G4, dont l'import de production | écrits, relus, testés, autorisés |
 | G0 | version de la production (2.2, C-02) | binaire 0.22.34, empreinte officielle |
