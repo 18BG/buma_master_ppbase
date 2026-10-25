@@ -1,6 +1,6 @@
 # Runbook C11 — bascule et retour arrière
 
-**Version finale WS-F2 du 2026-10-24, non exécutée.** Ce document décrit la
+**Version finale WS-F2 du 2026-10-25, non exécutée.** Ce document décrit la
 bascule des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers PPBase et
 PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
 production et la bascule exigent une autorisation distincte de l'utilisateur,
@@ -12,20 +12,24 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
 État à la rédaction :
 
 - les commandes citées sont celles des outils intégrés à `c11/integration`
-  (`0bb0b93`) et, pour `scripts/c11_real_rehearsal.py`, celles de la branche
-  `c11/ws-g` (`d792a50`, en relecture : ses options peuvent encore changer) ;
-  options et codes de sortie relevés par `--help` et dans le code ;
-- les durées et les ressources mesurées viennent d'un passage d'**aperçu** de
-  la répétition réelle et ne figurent qu'aux tableaux 5.1 et 5.2 ; le rapport
-  final `docs/c11-real-rehearsal-report.json` n'existe pas encore :
+  (`0bb0b93` ; outils inchangés à `54d3d57`, qui complète D-0027) et, pour
+  `scripts/c11_real_rehearsal.py`, celles de la branche `c11/ws-g`
+  (`456dbae`, en correction : ses options, identiques dans son arbre de
+  travail, peuvent encore changer) ; options et codes de sortie relevés par
+  `--help` et dans le code ;
+- les durées et les ressources mesurées viennent de deux passages d'**aperçu**
+  de la répétition réelle et ne figurent qu'aux tableaux 5.1 et 5.2 ; le
+  rapport final `docs/c11-real-rehearsal-report.json` n'existe pas encore :
   l'orchestrateur y reportera ses valeurs ;
 - **aucune commande d'import de production n'existe** : le point d'entrée
   `import_snapshot` refuse toute base autre que la base jetable
   `buma_c11_rehearsal` (6.6). Tant que l'outil décrit en 10.2 n'est pas écrit,
   relu, testé et autorisé, la porte G0 est un NO-GO ;
 - PPBase exigé : branche `fix/d0019-relation-maxselect` (`237b403` à la
-  rédaction), complétée par WS-A6 et WS-A7 (10.1), à la révision que relève le
-  rapport final (clé `code.ppbase.commit`), contrôlée par C-45.
+  rédaction), complétée par WS-A8 (fusion de WS-A6 et comptage de
+  `totalItems`) et WS-A7 (10.1), à la révision que relève le rapport final
+  (clé `code.ppbase.commit`), contrôlée par C-45 ; BUMA y ajoute le
+  raccordement de `c11/hookup` (`d0a6dc8`, mode d'erreur PocketBase 0.22).
 
 ## Conventions
 
@@ -33,8 +37,8 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
   du tableau des ressources (5.2). Ces deux tableaux sont les seuls endroits
   du runbook où figurent des durées et des ressources mesurées ; ailleurs, le
   texte renvoie à leurs lignes.
-- **[aperçu]** : valeur du passage d'aperçu de la répétition réelle (5.1), à
-  remplacer par celle du rapport final.
+- **[aperçu]** : valeur des passages d'aperçu AP1 et AP2 de la répétition
+  réelle (5.1), à remplacer par celle du rapport final.
 - **[durée non mesurée]** : étape propre à la production, ou qui manipule les
   octets des fichiers, jamais chronométrée ; à mesurer au diagnostic à blanc
   (6.1), lors d'un essai autorisé par l'utilisateur ou le jour J.
@@ -258,17 +262,18 @@ tableau 5.2. Elles ne couvrent que le mode sans octets de fichiers.
 | réserve exigée par l'extraction | 1 073 741 824 | `scripts/c11_extract.py:68`, `:697-704` |
 | staging de l'import en mode complet (`data.db` et `storage/`) | 5 215 356 960 | septembre ; `stage_snapshot`, `scripts/c11_import.py:2066-2077` |
 | `storage/` de PPBase (6.8) | 4 890 458 144 | septembre |
-| PostgreSQL (données, index, WAL) | 1 865 055 973 | R3 |
+| sous-total des postes de septembre | 21 261 871 339 | somme des lignes ci-dessus |
+| PostgreSQL (données, index, WAL) | R3 | tableau 5.2, plus grande valeur mesurée |
 | sauvegarde de PPBase en retour arrière (8.3) | non mesurée | — |
-| total, hors sauvegarde de 8.3 | 23 126 927 312 | somme |
 
-Marge de sécurité proposée : ×2 sur ce total (croissance depuis septembre,
+Marge de sécurité proposée : ×2 sur le total (croissance depuis septembre,
 WAL et fichiers temporaires d'une autre configuration PostgreSQL, journaux),
-soit au moins 47 Go libres au début de la fenêtre pour un backup de la taille
-de septembre, recalculés sur les tailles du backup frais (C-05) et du
-diagnostic à blanc. Si PostgreSQL est sur un autre hôte (I6), son poste y
-est compté. Si le staging de l'import sert de source à `storage/` de PPBase
-(6.8), l'un des deux postes de `storage/` peut tomber, sur décision.
+soit au moins 2 × (21 261 871 339 octets + R3) libres au début de la fenêtre
+pour un backup de la taille de septembre ; R3 pèse moins de 10 % de ce total.
+Le calcul est refait sur les tailles du backup frais (C-05) et du diagnostic à
+blanc. Si PostgreSQL est sur un autre hôte (I6), son poste y est compté. Si le
+staging de l'import sert de source à `storage/` de PPBase (6.8), l'un des deux
+postes de `storage/` peut tomber, sur décision.
 
 ### 2.4 Gel du schéma de production et règle `buma_sql_table`
 
@@ -471,52 +476,79 @@ Préparation hors fenêtre :
 
 ### 5.1 Durées mesurées et durées à planifier
 
+Ce tableau est le seul du runbook à contenir des durées mesurées ; les autres
+sections renvoient à ses lignes (L1 à L19).
+
 Sources :
 
-- **AP** : `/tmp/buma-c11-session/orch-real-preview-1.json`, rapport agrégé
-  d'**aperçu** produit par `scripts/c11_real_rehearsal.py`, non versionné
-  (conservé par l'orchestrateur). Un passage, le 2026-10-24 de 19:02 à 19:12
-  heure du serveur (`timestamp_utc` : 17:01:48 UTC), BUMA `2c7a17e` et PPBase
-  `22929a0`, deux aperçus (`code.buma.commit`, `code.ppbase.commit`), sur le
-  backup réel de septembre en mode manifeste : 1 188 247 records
+- **AP1** : `/tmp/buma-c11-session/previews/real-preview-1-orch.json`,
+  rapport agrégé d'**aperçu** produit par `scripts/c11_real_rehearsal.py`
+  (passage de l'orchestrateur), copie en lecture seule, non versionnée,
+  gardée par l'orchestrateur. `timestamp_utc` 2026-10-24T17:01:48 UTC (19:02
+  à 19:12 heure du serveur), un passage (`passes[0]`) ; aucun autre conteneur
+  au départ (`environment.other_running_containers`) ; charge de l'hôte sur
+  une minute jusqu'à 2,66 pendant l'import
+  (`passes[0].measures.container_memory_by_phase.import.max_host_loadavg_1min`).
+- **AP2** : `/tmp/buma-c11-session/previews/real-preview-2-review.json`, même
+  outil, même code et mêmes données (passage du relecteur WS-G), copie en
+  lecture seule, non versionnée. `timestamp_utc` 2026-10-24T21:23:52 UTC, un
+  passage ; serveur partagé chargé : 3 autres conteneurs au départ, charge de
+  départ 1,85 (`environment.loadavg_at_start`), jusqu'à 6,09 pendant l'import
+  (même clé que pour AP1).
+- Conditions communes à AP1 et AP2 : BUMA `2c7a17e` et PPBase `22929a0`
+  (`code.buma.commit`, `code.ppbase.commit`), deux aperçus antérieurs à
+  WS-A6, WS-A7, WS-A8 et au raccordement BUMA (10.1) ; backup réel de
+  septembre en mode manifeste, 1 188 247 records
   (`passes[0].checks.diagnosis.rows`), aucun octet de fichier
-  (`real_backup.file_bytes_available` faux). Serveur de session de 4 CPU et
-  8 Gio (`environment.cpu_count`, `environment.memory_total_kib`), aucun autre
-  conteneur au départ (`environment.other_running_containers`), charge de
-  l'hôte jusqu'à 2,66 pendant l'import
-  (`passes[0].measures.container_memory_by_phase.import.max_host_loadavg_1min`) ;
+  (`real_backup.file_bytes_available` faux) ; serveur de session de 4 CPU et
+  8 Gio (`environment.cpu_count`, `environment.memory_total_kib`) ;
   PostgreSQL 16.15 jetable (`postgres:16-alpine`) limité à 2 CPU et 2 Gio
-  (`passes[0].container`), réglages par défaut (R10). Statut `failed` à
-  cause des seuls 9 écarts HTTP d'enveloppe d'erreur (`passes[0].failure`,
-  `passes[0].checks.http.divergences`) : toutes les phases de données ont
-  réussi, les durées sont valides comme mesures.
+  (`passes[0].container.nano_cpus`, `passes[0].container.memory_limit_bytes`),
+  réglages par défaut (R10). Statut `failed` dans les deux rapports, à cause
+  des seuls 9 contrôles HTTP en écart d'enveloppe d'erreur
+  (`passes[0].failure.code` `http_checks_failed`,
+  `passes[0].failure.details.checks`) : toutes les phases de données ont
+  réussi ; les durées sont valides comme mesures, étiquetées [aperçu].
 - **VB** : `docs/c11-volume-benchmark-report.json` (D-0026), banc synthétique
-  du 2026-10-24 (`timestamp_utc` : 11:42:14 UTC), 1 182 406 records, BUMA
-  `bf00a14`, PPBase `c6821aa` (`environment`), PostgreSQL limité à 2 CPU et
-  2 Go (`container`), un autre conteneur actif au départ
+  du 2026-10-24 (`timestamp_utc` 11:42:14 UTC), 1 182 406 records
+  (`dataset.records`), BUMA `bf00a14` et PPBase `c6821aa`
+  (`environment.buma_commit`, `environment.ppbase_commit`), PostgreSQL limité
+  à 2 CPU et 2 Go (`container`), un autre conteneur actif au départ
   (`environment.concurrent_load_at_start`).
 - **D-0028** : `docs/decisions-and-divergences.md`, D-0028, paragraphe
-  « Durées constatées » (archives synthétiques seulement).
+  « Durées constatées » (archives synthétiques seulement, une mesure).
 
-Avec le rapport final, l'orchestrateur remplace « AP » par
-`docs/c11-real-rehearsal-report.json` (mêmes clés, `passes[i]` pour chaque
-passage ; `runbook_durations_seconds.<phase>.max` donne le maximum des
-passages réussis pour chaque clé de `phase_seconds`), puis recalcule la
-dernière colonne.
+Variabilité mesurée. Entre AP1 et AP2 (même code, mêmes données, charge
+différente), l'écart par étape va de −7 % (lectures HTTP) à +22 %
+(diagnostic) ; la somme des phases passe de 581,5 s à 650,7 s (+12 %). Les
+autres mesures répétées d'une même étape donnent des écarts du même ordre
+(D-0026, point 7) : import synthétique de 243 à 321 s (+32 %), diagnostic
+réel de 110 à 128 s, audit réel de 30 à 38 s ; avec AP1 et AP2, le
+diagnostic réel va de 110 à 139,67 s (+27 %).
 
 Marges de sécurité :
 
-- **M1 = ×2**, pour les phases mesurées sur le backup réel : un seul passage
-  d'aperçu ; variabilité du même import sur l'hôte partagé (243 à 321 s,
-  D-0026 §7) ; backup frais plus volumineux ; machine de bascule inconnue.
-  Valable seulement si le backup frais compte au plus 1,5 fois les records de
-  septembre (C-11), si la machine de bascule est au moins équivalente au
-  serveur de session (I5) et si PostgreSQL dispose d'au moins 2 CPU et
-  2 Gio ; sinon, nouvelle mesure avant de fixer la fenêtre (6.1).
-- **M2 = ×3**, pour les mesures synthétiques : cache disque froid,
-  compressibilité réelle, autre disque ; nouvelle mesure obligatoire au
-  diagnostic à blanc sur le vrai ZIP récent (6.1).
-- Les durées à planifier sont arrondies à la minute supérieure.
+- **M1 = ×2**, appliquée à la plus grande valeur de AP1 et AP2 : 1,5
+  (croissance admise du backup frais, au plus 1,5 fois les records de
+  septembre selon C-11, la durée étant supposée proportionnelle au volume)
+  × 1,33 (plus grand écart relatif mesuré entre deux mesures d'une même
+  étape, +32 %) ≈ 2,0. Valable seulement si la machine de bascule est au
+  moins équivalente au serveur de session (I5) et si PostgreSQL dispose d'au
+  moins 2 CPU et 2 Gio ; sinon, nouvelle mesure avant de fixer la fenêtre
+  (6.1, étape 7).
+- **M2 = ×3**, forfaitaire, pour l'extraction : une seule mesure, sur des
+  archives synthétiques, sans variabilité mesurée ; le ZIP réel n'a jamais
+  été extrait sur le serveur. La mesure du diagnostic à blanc la remplace
+  obligatoirement.
+- Les durées à planifier sont arrondies à la minute supérieure ; la durée
+  avant arrondi est donnée entre parenthèses.
+
+Mise à jour avec le rapport final : l'orchestrateur remplace AP1 et AP2 par
+les passages de `docs/c11-real-rehearsal-report.json` (mêmes clés sous
+`passes[i]` ; `runbook_durations_seconds.<phase>` regroupe par phase les
+valeurs retenues par l'outil et leur maximum), garde M1 tant que l'écart
+entre deux mesures d'une même étape reste sous +33 %, la recalcule sinon,
+puis refait la dernière colonne et la somme qui suit le tableau.
 
 | Ligne | Étape (section) | Durée mesurée | Source exacte (rapport et clé JSON) | Conditions | Marge de sécurité | Durée à planifier |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -524,24 +556,24 @@ Marges de sécurité :
 | L2 | Capture A ou B, arrêt de PocketBase, `H_stop` (6.3) | non mesurée | — | sauvegarde native : écritures bloquées pendant sa création (`core/base_backup.go:35-37`) ; taille du `pb_data` de production | — | [durée non mesurée] |
 | L3 | Transfert de la capture, C-04 (6.4) | non mesurée | — | réseau entre l'hôte PocketBase et la machine de bascule (I5) | — | [durée non mesurée] |
 | L4 | Inventaire `scripts.c11_import --archive`, C-05 (6.4) | non mesurée séparément | — | le même inventaire est refait au début de L5 | — | comprise dans L5 |
-| L5 | Extraction vérifiée `scripts.c11_extract`, C-06 (6.4) | environ 103 s | D-0028 | archives synthétiques au format PocketBase, 1 290 membres, 8,85 Go décompressés, serveur de session ; le ZIP réel n'a jamais été extrait sur le serveur | M2 (×3) | 6 min, à remplacer par la mesure du diagnostic à blanc |
-| L6 | Diagnostic `scripts.c11_import --data`, C-07 à C-12 (6.5) | 114,59 s [aperçu] | AP `passes[0].measures.diagnosis_step_seconds.diagnosis` | mode manifeste, aucun fichier haché ; avec les types cibles | M1 (×2) | 4 min, plus le hachage de `storage/` [durée non mesurée] |
-| L7 | Audit `scripts.c11_snapshot_audit`, C-09, C-12, C-13 (6.5) | 31,019 s [aperçu] | AP `passes[0].measures.diagnosis_step_seconds.independent_audit` | même processus que L6 (phase `passes[0].measures.phase_seconds.diagnosis` : 149,18 s pour L6 et L7) | M1 (×2) | 2 min, plus le hachage de `storage/` [durée non mesurée] |
-| L8 | Contrôle d'idempotence `scripts.c11_idempotency_source_check`, C-08 a (6.5) | non mesurée | aperçu lancé sans `--source-migrations` ; clé attendue du rapport final : `passes[i].measures.diagnosis_step_seconds.idempotency_source_check` | — | — | [durée non mesurée] |
-| L9 | Diagnostic des comptes `scripts.c11_auth_import --data`, C-13 (6.5) | non mesurée séparément | `import_snapshot` refait ces contrôles : AP `passes[0].measures.importer_timings_seconds.readiness_check` (0,189 s) | — | — | [durée non mesurée] |
-| L10 | Base neuve : migrations, schéma, colonnes relationnelles, 42 vues, graines C5 (6.6, étapes 2 à 4) | 13,832 s [aperçu] | AP `passes[0].measures.phase_seconds.migrations_schema_and_target_description` | base vide, 11 migrations, outillage du banc | M1 (×2) | 1 min |
-| L11 | Import des records, des comptes et des paramètres en une transaction (6.6, étape 5) | 280,907 s [aperçu] | AP `passes[0].measures.phase_seconds.import` ; dont importeur `passes[0].measures.importer_timings_seconds.total` (273,857 s : `copy_and_readback` 184,99, `final_check` 69,852, `conservation` 17,191, `auth_import` 2,54) | COPY par lots de 5 000 ; mode manifeste : seul `data.db` est copié au staging | M1 (×2) | 10 min, plus la copie de `storage/` au staging en mode complet [durée non mesurée] |
-| L12 | Échec de l'import et annulation complète (6.6, étape 7) | 128,015 s pour un échec injecté après la moitié des records | VB `failure_injection.seconds_until_rollback_complete` (`failure_injection.fail_after_rows` : 591 203) | synthétique ; durée totale du processus, chargement de la moitié compris, pas de l'annulation seule ; D-0026 §7 relève 91 à 128 s | — | un échec peut survenir jusqu'à la fin de L11 : réserver L11 planifiée avant la décision de NO-GO |
-| L13 | Contrôles de conservation après commit, C-17 à C-29 (6.7) | 89,304 s [aperçu] | AP `passes[0].measures.phase_seconds.post_commit_checks` (dont `passes[0].measures.post_commit_check_seconds.fingerprints` 62,022 et `anomalies` 14,836) | contrôles du banc, dans de nouvelles sessions | M1 (×2) | 3 min |
+| L5 | Extraction vérifiée `scripts.c11_extract`, C-06 (6.4) | environ 103 s | D-0028 | archives synthétiques au format PocketBase, 1 290 membres, 8,85 Go décompressés, serveur de session ; ZIP réel jamais extrait sur le serveur | M2 (×3) | 6 min (309 s), à remplacer par la mesure du diagnostic à blanc |
+| L6 | Diagnostic `scripts.c11_import --data`, C-07 à C-12 (6.5) | AP1 114,59 s ; AP2 139,67 s [aperçu] | AP1 et AP2, `passes[0].measures.diagnosis_step_seconds.diagnosis` | mode manifeste, aucun fichier haché ; types cibles contrôlés | M1 (×2) sur 139,67 s | 5 min (279 s), plus le hachage de `storage/` [durée non mesurée] |
+| L7 | Audit `scripts.c11_snapshot_audit`, C-09, C-12, C-13 (6.5) | AP1 31,019 s ; AP2 35,63 s [aperçu] | AP1 et AP2, `passes[0].measures.diagnosis_step_seconds.independent_audit` | même processus enfant que L6 ; phase entière L6 et L7, `passes[0].measures.phase_seconds.diagnosis` : AP1 149,18 s, AP2 178,885 s | M1 (×2) sur 35,63 s | 2 min (71 s), plus le hachage de `storage/` [durée non mesurée] |
+| L8 | Contrôle d'idempotence `scripts.c11_idempotency_source_check`, C-08 a (6.5) | non mesurée | aperçus lancés sans `--source-migrations` ; clé attendue du rapport final : `passes[i].measures.diagnosis_step_seconds.idempotency_source_check` | — | — | [durée non mesurée] |
+| L9 | Diagnostic des comptes `scripts.c11_auth_import --data`, C-13 (6.5) | non mesurée séparément | `import_snapshot` refait ces contrôles : AP1 0,189 s, AP2 0,24 s (`passes[0].measures.importer_timings_seconds.readiness_check`) | — | — | [durée non mesurée] |
+| L10 | Base neuve : migrations, schéma, colonnes relationnelles, 42 vues, graines C5 (6.6, étapes 2 à 4) | AP1 13,832 s ; AP2 15,423 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.migrations_schema_and_target_description` | base vide, 11 migrations ; retrait des graines par le harnais du banc | M1 (×2) sur 15,423 s | 1 min (31 s) |
+| L11 | Import des records, des comptes et des paramètres en une transaction (6.6, étape 5) | AP1 280,907 s ; AP2 319,755 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.import` ; dont importeur `passes[0].measures.importer_timings_seconds.total` (AP1 273,857 s, AP2 311,676 s ; pour AP2, `copy_and_readback` 210,562, `final_check` 80,231, `conservation` 18,66, `auth_import` 2,361) | COPY par lots de 5 000 ; mode manifeste : seul `data.db` est copié au staging | M1 (×2) sur 319,755 s | 11 min (640 s), plus la copie de `storage/` au staging en mode complet [durée non mesurée] |
+| L12 | Échec de l'import et annulation complète (6.6, étape 7) | 128,015 s pour un échec injecté après 591 203 lignes | VB, `failure_injection.seconds_until_rollback_complete` et `failure_injection.fail_after_rows` | synthétique ; durée totale du processus, chargement de la moitié compris, pas de l'annulation seule ; D-0026, point 7 : 91 à 128 s | — | un échec peut survenir jusqu'à la fin de L11 : réserver la durée planifiée de L11 avant de constater le NO-GO |
+| L13 | Contrôles de conservation après commit, C-17 à C-29 (6.7) | AP1 89,304 s ; AP2 88,775 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.post_commit_checks` (dont `passes[0].measures.post_commit_check_seconds.fingerprints` : AP1 62,022, AP2 60,149) | contrôles du banc, dans de nouvelles sessions | M1 (×2) sur 89,304 s | 3 min (179 s) |
 | L14 | Copie et contrôle de `storage/`, C-30 (6.8) | non mesurée | aucun octet de fichier sur le serveur (`real_backup.file_bytes_available`) | — | — | [durée non mesurée], à mesurer avec le ZIP complet |
-| L15 | Démarrage de PPBase (6.9) | 4,959 s [aperçu] | AP `passes[0].measures.phase_seconds.server_start` (serveur prêt : `passes[0].server.startup_seconds`, 2,71 s) | serveur isolé, boucle locale, jobs désactivés | M1 (×2) | 1 min |
-| L16 | Lectures HTTP automatiques, part de C-31 à C-38 (6.9) | 35,201 s [aperçu] | AP `passes[0].measures.phase_seconds.http_reads` (256 contrôles, `passes[0].checks.http.checks_run`) | lectures anonymes et superuser synthétique, sans fichiers | M1 (×2) | 2 min ; contrôles manuels, SDK et desktop [durée non mesurée] |
-| L17 | Contrôle des écritures après les lectures, C-41 (6.9) | 4,687 s [aperçu] | AP `passes[0].measures.phase_seconds.after_http_checks` | — | M1 (×2) | 1 min |
+| L15 | Démarrage de PPBase (6.9) | AP1 4,959 s ; AP2 5,922 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.server_start` (serveur prêt : `passes[0].server.startup_seconds`, AP1 2,71 s, AP2 3,509 s) | serveur isolé, boucle locale, jobs désactivés ; la phase comprend la création du superuser synthétique du banc | M1 (×2) sur 5,922 s | 1 min (12 s) |
+| L16 | Lectures HTTP automatiques du banc (6.9) | AP1 35,201 s ; AP2 32,724 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.http_reads` (256 contrôles, `passes[0].checks.http.checks_run`) | lectures anonymes et superuser synthétique, sans fichiers ; ne remplacent pas les contrôles de 6.9 | M1 (×2) sur 35,201 s | 2 min (71 s) ; contrôles de 6.9, manuels, SDK et desktop [durée non mesurée] |
+| L17 | Contrôle des écritures après les lectures, C-41 (6.9) | AP1 4,687 s ; AP2 4,581 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.after_http_checks` | arrêt du serveur, empreintes stockées de chaque table et signature du schéma comparées à celles d'après l'import | M1 (×2) sur 4,687 s | 1 min (10 s) |
 | L18 | Bascule d'URL, C-42, ouverture, C-43 (6.10) | non mesurée | — | proxy et DNS (I7) | — | [durée non mesurée] |
 | L19 | Retour arrière avant ouverture (8.2) | non mesurée | — | redémarrage de PocketBase et de son bootstrap, proxy | — | [durée non mesurée], réservée avant la fin de la fenêtre |
 
 Somme des durées à planifier des lignes mesurées (L5, L6, L7, L10, L11, L13,
-L15, L16, L17) : 30 min. Ce n'est **pas** la fenêtre : elle n'inclut ni les
+L15, L16, L17) : 32 min. Ce n'est **pas** la fenêtre : elle n'inclut ni les
 lignes non mesurées (L1 à L3, L8, L9, L14, L18, L19), ni le hachage et la
 copie des 4,9 Go de `storage/` en mode complet, ni les contrôles manuels,
 SDK et desktop, ni les relectures du vérificateur aux portes G1 à G5. Aucune
@@ -550,18 +582,21 @@ fichiers n'ont jamais été mesurés.
 
 ### 5.2 Ressources mesurées
 
+Seul tableau des ressources mesurées, avec les sources et conditions de 5.1 ;
+une valeur égale dans AP1 et AP2 n'est donnée qu'une fois.
+
 | Ligne | Ressource | Mesure | Source exacte (rapport et clé JSON) | Conditions |
 | --- | --- | --- | --- | --- |
-| R1 | Base PostgreSQL après les migrations | 15 752 215 octets [aperçu] | AP `passes[0].measures.database_bytes_after_migrations` | base vide |
-| R2 | Base PostgreSQL après l'import (`pg_database_size`) | 784 366 615 octets [aperçu] | AP `passes[0].measures.database_bytes_after_import` | 1 188 247 records |
-| R3 | Répertoire de données PostgreSQL après l'import (données, index, WAL) | 1 865 055 973 octets [aperçu] | AP `passes[0].measures.postgresql_data_directory_bytes_after_import` | `max_wal_size` 1GB (R10) |
-| R4 | Disque consommé au plus pendant le passage | 2 352 029 696 octets [aperçu] | AP `passes[0].measures.disk_free_before.private_dir` moins `passes[0].measures.disk_free_minimum_during_pass.private_dir` | dossier privé, `/tmp` et Docker sur le même système de fichiers ; sans octets de fichiers |
-| R5 | Staging de l'import (copie privée de `data.db`) | 325 212 482 octets [aperçu] | AP `passes[0].measures.staging_bytes` | mode manifeste, sans `storage/` |
-| R6 | Pic RSS de l'importeur | 143 196 Kio [aperçu] | AP `passes[0].measures.import_child.peak_rss_kib` | — |
-| R7 | Pic RSS du diagnostic et de l'audit | 233 028 Kio [aperçu] | AP `passes[0].measures.diagnosis_child.peak_rss_kib` | — |
-| R8 | Pic RSS du serveur PPBase | 109 924 Kio [aperçu] | AP `passes[0].server.peak_rss_kib` | lectures de L16 |
-| R9 | Mémoire PostgreSQL non récupérable (anon + shmem, maximum échantillonné) | 311 136 256 octets [aperçu] | AP `passes[0].measures.container_memory.sampled_max_anon_plus_shmem_bytes` | limite de 2 Gio atteinte par le cache de pages, 0 OOM (`passes[0].measures.container_memory.events`) |
-| R10 | Configuration PostgreSQL de la répétition | 16.15 ; `shared_buffers` 128MB ; `work_mem` 4MB ; `maintenance_work_mem` 64MB ; `max_wal_size` 1GB ; `synchronous_commit` on | AP `passes[0].measures.database` | réglages par défaut de l'image |
+| R1 | Base PostgreSQL après les migrations | 15 752 215 octets, AP1 et AP2 [aperçu] | `passes[0].measures.database_bytes_after_migrations` | base vide |
+| R2 | Base PostgreSQL après l'import (`pg_database_size`) | 784 366 615 octets, AP1 et AP2 [aperçu] | `passes[0].measures.database_bytes_after_import` | 1 188 247 records |
+| R3 | Répertoire de données PostgreSQL après l'import (données, index, WAL) | AP1 1 865 055 973 octets ; AP2 1 848 286 949 octets [aperçu] | `passes[0].measures.postgresql_data_directory_bytes_after_import` | `max_wal_size` 1GB (R10) |
+| R4 | Disque consommé au plus pendant le passage | AP1 2 352 029 696 octets ; AP2 2 094 116 864 octets [aperçu] | `passes[0].measures.disk_free_before.private_dir` moins `passes[0].measures.disk_free_minimum_during_pass.private_dir` | dossier privé, `/tmp` et Docker sur le même système de fichiers, partagé avec d'autres agents : indication seulement ; sans octets de fichiers |
+| R5 | Staging de l'import (copie privée de `data.db`) | 325 212 482 octets, AP1 et AP2 [aperçu] | `passes[0].measures.staging_bytes` | mode manifeste, sans `storage/` |
+| R6 | Pic RSS de l'importeur | AP1 143 196 Kio ; AP2 143 728 Kio [aperçu] | `passes[0].measures.import_child.peak_rss_kib` | — |
+| R7 | Pic RSS du diagnostic et de l'audit | AP1 233 028 Kio ; AP2 233 080 Kio [aperçu] | `passes[0].measures.diagnosis_child.peak_rss_kib` | — |
+| R8 | Pic RSS du serveur PPBase | AP1 109 924 Kio ; AP2 109 836 Kio [aperçu] | `passes[0].server.peak_rss_kib` | lectures de L16 |
+| R9 | Mémoire PostgreSQL non récupérable (anon + shmem, maximum échantillonné) | AP1 311 136 256 octets ; AP2 312 598 528 octets [aperçu] | `passes[0].measures.container_memory.sampled_max_anon_plus_shmem_bytes` | limite de 2 Gio atteinte par le cache de pages ; 0 OOM (`oom` et `oom_kill` de `passes[0].measures.container_memory.events`) |
+| R10 | Configuration PostgreSQL de la répétition | 16.15 ; `shared_buffers` 128MB ; `work_mem` 4MB ; `maintenance_work_mem` 64MB ; `max_wal_size` 1GB ; `synchronous_commit` on ; AP1 et AP2 | `passes[0].measures.database` | réglages par défaut de l'image |
 | R11 | Pic RSS de l'extraction | 27 Mo | D-0028 | archives synthétiques |
 
 ### 5.3 Fenêtre de maintenance
