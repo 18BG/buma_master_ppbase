@@ -1,8 +1,8 @@
 # Runbook C11 — bascule et retour arrière
 
-**Version finale WS-F2 du 2026-10-25, non exécutée.** Ce document décrit la
-bascule des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers PPBase et
-PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
+**Version finale intégrée (WS-F3) du 2026-10-25, non exécutée.** Ce document
+décrit la bascule des clients BUMA Master de PocketBase 0.22.34 (SQLite) vers
+PPBase et PostgreSQL, puis le retour arrière. Il n'autorise rien : l'import de
 production et la bascule exigent une autorisation distincte de l'utilisateur,
 un backup frais et une fenêtre de maintenance (`docs/server-session-plan.md`,
 sections 1 et 8). `AGENTS.md` prime sur ce runbook. Aucune de ses étapes n'a
@@ -12,44 +12,47 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
 État à la rédaction :
 
 - les commandes citées sont celles des outils intégrés à `c11/integration`
-  (`0bb0b93` ; outils inchangés à `54d3d57`, qui complète D-0027) et, pour
-  `scripts/c11_real_rehearsal.py`, celles de la branche `c11/ws-g`
-  (`456dbae`, en correction : ses options, identiques dans son arbre de
-  travail, peuvent encore changer) ; options et codes de sortie relevés par
-  `--help` et dans le code ;
-- les durées et les ressources mesurées viennent de deux passages d'**aperçu**
-  de la répétition réelle et ne figurent qu'aux tableaux 5.1 et 5.2 ; le
-  rapport final `docs/c11-real-rehearsal-report.json` n'existe pas encore :
-  l'orchestrateur y reportera ses valeurs ;
+  (`a99a2a4`), répétition réelle comprise (`scripts/c11_real_rehearsal.py`,
+  fusionné en `1edfed1`) ; options et codes de sortie relevés par `--help` et
+  dans le code à `a99a2a4` ;
+- les durées et les ressources mesurées viennent du rapport final de la
+  répétition réelle, `docs/c11-real-rehearsal-report.json` (2026-10-25, deux
+  passages passés et identiques, BUMA `b7427fe`, PPBase `069e0bb`), et ne
+  figurent qu'aux tableaux 5.1 et 5.2 ; deux aperçus et une passe
+  intermédiaire y restent comme mesures de variabilité ;
 - **aucune commande d'import de production n'existe** : le point d'entrée
   `import_snapshot` refuse toute base autre que la base jetable
   `buma_c11_rehearsal` (6.6). Tant que l'outil décrit en 10.2 n'est pas écrit,
   relu, testé et autorisé, la porte G0 est un NO-GO ;
-- PPBase exigé : branche `fix/d0019-relation-maxselect` (`237b403` à la
-  rédaction), complétée par WS-A8 (fusion de WS-A6 et comptage de
-  `totalItems`) et WS-A7 (10.1), à la révision que relève le rapport final
-  (clé `code.ppbase.commit`), contrôlée par C-45 ; BUMA y ajoute le
-  raccordement de `c11/hookup` (`d0a6dc8`, mode d'erreur PocketBase 0.22).
+- PPBase exigé : branche `fix/d0019-relation-maxselect`, à la révision que
+  relève le rapport final, `069e0bb` (`code.ppbase.commit`), contrôlée par
+  C-45 ; elle contient les corrections intégrées depuis WS-F2 (D-0033 à
+  D-0038, D-0042). BUMA contient le raccordement de `c11/hookup` (fusionné en
+  `c333e14`) et la migration `1789236851` des vues (D-0039) ;
+- décisions : D-0024 à D-0039 publiées dans
+  `docs/decisions-and-divergences.md`, D-0040 à D-0042 publiées par
+  l'orchestrateur avec cette version ; quatre acceptations de l'utilisateur
+  restent exigées avant G0 (D-0029, D-0036, D-0039, D-0042 ; 2.1).
 
 ## Conventions
 
-- **L1 à L19** : lignes du tableau des durées (5.1) ; **R1 à R11** : lignes
-  du tableau des ressources (5.2). Ces deux tableaux sont les seuls endroits
-  du runbook où figurent des durées et des ressources mesurées ; ailleurs, le
-  texte renvoie à leurs lignes.
-- **[aperçu]** : valeur des passages d'aperçu AP1 et AP2 de la répétition
-  réelle (5.1), à remplacer par celle du rapport final.
+- **L1 à L20** : lignes du tableau des durées (5.1) ; **R1 à R12** : lignes
+  du tableau des ressources (5.2). Ces deux tableaux, avec le texte de 5.1 qui
+  explique leurs sources et leurs marges, sont les seuls endroits du runbook
+  où figurent des durées et des ressources mesurées ; ailleurs, le texte
+  renvoie à leurs lignes.
+- **P1, P2** : les deux passages du rapport final de la répétition réelle ;
+  **AP1, AP2, AP3** : les deux aperçus et la passe intermédiaire, gardés
+  comme mesures de variabilité (5.1).
 - **[durée non mesurée]** : étape propre à la production, ou qui manipule les
   octets des fichiers, jamais chronométrée ; à mesurer au diagnostic à blanc
   (6.1), lors d'un essai autorisé par l'utilisateur ou le jour J.
 - **[outil non attribué]** : contrôle ou action nécessaire pour lequel aucun
   outil n'existe ; l'intention est décrite ; l'outil est à écrire, relire et
   tester avant G0 (10.2).
-- **[à confirmer à l'intégration]** : comportement attendu d'un chantier qui
-  n'est pas encore intégré (10.1), à ne pas tenir pour acquis.
 - `<…>` : valeur fournie le jour J. `I1` à `I25` renvoient aux informations
-  de la section 3, `G0` à `G6` aux portes de la section 7, `C-01` à `C-46` aux
-  contrôles de la section 6 ; C-44 à C-46, ajoutés à la version finale,
+  de la section 3, `G0` à `G6` aux portes de la section 7, `C-01` à `C-47` aux
+  contrôles de la section 6 ; C-44 à C-47, ajoutés aux versions finales,
   figurent là où ils s'appliquent.
 - `<privé>` : dossier privé de la bascule (dossiers 0700, fichiers 0600), hors
   de tout dépôt Git ou dans `backups/` (ignoré par Git). Les rapports publics
@@ -70,7 +73,8 @@ ont tourné, sur le serveur de session, dans des PostgreSQL jetables.
   données sont passés en arguments. Le serveur PPBase se lance depuis un
   dossier vide (6.1, étape 4).
 - Heures en UTC partout (journal, `T_gel`, `T_ouverture`) : un changement
-  d'heure locale peut tomber dans la fenêtre.
+  d'heure locale peut tomber dans la fenêtre (le serveur de session est passé
+  de CEST à CET pendant la session, le 2026-10-25).
 
 ## 1. Principes
 
@@ -134,7 +138,28 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - les seuils d'arrêt de la section 7 et les marges de durée de 5.1 ;
 - le sort de chaque écart et de chaque constat de la section 10 : correction,
   ou divergence acceptée avec son impact client et son test de régression
-  (`AGENTS.md`) ; D-0029 attend explicitement l'acceptation de l'utilisateur ;
+  (`AGENTS.md`) ;
+- **quatre acceptations explicites de l'utilisateur**, exigées avant G0, ou à
+  défaut la correction intégrée et revérifiée par les répétitions (annexe A).
+  Chacune s'inscrit dans sa section de `docs/decisions-and-divergences.md` par
+  une ligne qui commence par
+  `Statut : acceptée par l'utilisateur le AAAA-MM-JJ`, la convention que lit
+  la répétition réelle (`divergence_decision_convention` du rapport final) ;
+  une telle ligne accepte tous les codes de sa section, une acceptation
+  partielle exige une section propre :
+  - D-0029 : ordre des clés des objets JSON (`jsonb`) et filtres `= null` sur
+    les SQL NULL des champs json (7 objets et 100 valeurs réels) ;
+  - D-0036 : filtres et tris sur les colonnes NULL des vues (LEFT JOIN sans
+    correspondance), PPBase gardant la sémantique NULL de PostgreSQL ; le
+    chantier PPBase WS-A11, qui les corrigeait, n'est pas intégré (10.1) ;
+  - D-0039 : nombres servis en chaîne (`agent_sim`, `pdv_sim` de quatre vues
+    clients et retours, `number` de `buma_agent_list_view`), entiers 1/0
+    servis `true`/`false` (`isNafama`, `payed`, `salePayed`) et autres écarts
+    restants des vues, coût de la vue des dépenses compris (L20) ;
+  - D-0042 : validation partielle des mises à jour (PPBase ne valide que les
+    champs modifiés, PocketBase tous les champs du record) ;
+- la politique de sauvegarde de la base après la bascule (I18) : par
+  `pg_dump`, la sauvegarde native de PPBase refusant cette base (C-47) ;
 - la politique des machines pendant la fenêtre (C-46), proposée par
   l'infrastructure et approuvée par le décideur ;
 - les personnes de chaque rôle (section 4).
@@ -142,29 +167,52 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 ### 2.2 Prérequis techniques acquis avant le jour J
 
 - **Code de release figé.** BUMA : un commit de `features/auth` qui contient
-  C11 intégré, dont la migration
-  `pb_migrations/1789236850_c11_relation_multiple_columns.py` (D-0025),
-  `scripts/c11_real_rehearsal.py` (WS-G) et le raccordement de `c11/hookup`
-  (`d0a6dc8`) : `pb.set_error_compat("0.22")`, première instruction de
-  `register(pb)` dans `app/hooks/register.py` (mode d'erreur PocketBase 0.22,
-  D-0034), contexte de rôle des réponses d'auth (`app/hooks/auth.py`) et
-  contexte de requête de l'expand de la connexion par username
-  (`app/auth/login.py`, D-0033) [à confirmer à l'intégration]. PPBase :
-  branche `fix/d0019-relation-maxselect` (`237b403` à la rédaction :
-  correction D-0019, WS-A5 et WS-A2), complétée par WS-A8 (fusion de WS-A6 :
-  expand filtré par la viewRule de la cible, emails des comptes et mode
-  d'erreur 0.22 ; `totalItems` compté comme PocketBase, D-0035) et par WS-A7
-  (service des fichiers) ; la révision exigée est celle que relève le rapport
-  final, `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`
-  (C-45). La version du paquet PPBase ne peut pas l'exprimer (0.3.2 avant et
-  après la correction, D-0025).
+  C11 intégré, dont les douze migrations de `pb_migrations/`, de
+  `1789236840` à `1789236851` (C-15), avec
+  `pb_migrations/1789236850_c11_relation_multiple_columns.py` (D-0025) et
+  `pb_migrations/1789236851_c11_view_sqlite_semantics.py` (D-0039),
+  `scripts/c11_real_rehearsal.py` (WS-G, D-0041) et le raccordement de
+  `c11/hookup` (fusionné en `c333e14`) : `pb.set_error_compat("0.22")`,
+  première instruction de `register(pb)` (`app/hooks/register.py:51`, mode
+  d'erreur PocketBase 0.22, D-0034),
+  `pb.set_auth_record_rule_context(load_auth_record_context)`
+  (`app/hooks/auth.py:39`, contexte de rôle des réponses d'auth, D-0033) et
+  `request_context=auth_response_rule_context(…)` dans l'expand de la
+  connexion par username (`app/auth/login.py:133-147`, D-0033). Ce commit est
+  `code.buma.commit` du rapport final (`b7427fe`) ou un descendant dont la
+  différence avec lui ne touche que `docs/` (C-45) ; sinon la répétition réelle
+  est rejouée au commit de release. PPBase : branche
+  `fix/d0019-relation-maxselect` à la révision que relève le rapport final,
+  `code.ppbase.commit` de `docs/c11-real-rehearsal-report.json`, soit
+  `069e0bb` (C-45) : correction D-0019 (D-0025), WS-A5 et WS-A2 (D-0027,
+  D-0030 à D-0032), WS-A6 et WS-A8 (expand filtré par la viewRule de la cible
+  et emails des comptes, D-0033 ; mode d'erreur 0.22 dans
+  `ppbase.middleware.error_compat`, D-0034 ; `totalItems`, D-0035), WS-A9
+  (valeurs zéro, D-0036), WS-A7 (service des fichiers, D-0037), WS-A10 (noms
+  de fichiers des écritures, D-0038) et WS-A12 (booléens écrits, D-0042). La
+  version du paquet PPBase ne peut pas l'exprimer (0.3.2 avant et après la
+  correction, D-0025).
 - **Répétition réelle finale passante** : `docs/c11-real-rehearsal-report.json`
   avec `status` `passed`, deux passages aux agrégats identiques
-  (`repeatability.identical`), `accepted_divergences` limité à des écarts
-  décidés, commits égaux aux commits de release (`code.buma.commit`,
-  `code.ppbase.commit`) et arbres propres (`code.buma.tracked_files_clean`,
-  `code.ppbase.tracked_files_clean`). Commande : annexe A. Ses valeurs
-  remplacent celles des aperçus AP1 et AP2 dans les tableaux 5.1 et 5.2.
+  (`repeatability.identical`), commits égaux aux commits de release
+  (`code.buma.commit` selon la règle ci-dessus, `code.ppbase.commit`) et
+  arbres propres (`code.buma.tracked_files_clean`,
+  `code.ppbase.tracked_files_clean`). Le rapport du 2026-10-25 remplit ces
+  critères (D-0041) ; ses trois divergences documentées
+  (`acceptance_still_requested` : `jsonb_key_order_normalized`, D-0029 ;
+  `number_served_as_text` et `sqlite_integer_boolean_served_as_boolean`,
+  D-0039) ne sont admises qu'après l'acceptation de l'utilisateur (2.1) :
+  rejouée ensuite, la répétition les range dans `accepted_divergences` et
+  `acceptance_still_requested` est vide. Commande : annexe A. Ses durées et
+  ses ressources sont aux tableaux 5.1 et 5.2.
+- **Tableau de bord PPBase construit.** `/_/` est servi depuis
+  `ppbase/admin/dist/`, construit depuis `admin-ui/` du checkout PPBase de
+  release (`npm ci` puis `npm run build`, `admin-ui/package.json`,
+  `admin-ui/vite.config.ts:13-16`) et ignoré par Git (`.gitignore` de
+  PPBase) ; sans lui, `/_/` répond 404 (`ppbase/app.py:460-490`, mesuré par
+  WS-F3 sur un checkout `069e0bb` non construit) et C-35 échoue. Les
+  répétitions n'ouvrent pas le tableau de bord : construction et écrans
+  restent à vérifier sur staging (6.9) [non exécuté par WS-F3].
 - **Porte de release** (annexe A) passante sur ces commits, analyse des
   échecs PPBase comprise.
 - **Outils de 10.2** nécessaires aux portes G1 à G4, dont l'import de
@@ -221,7 +269,23 @@ dans la capture, jamais importé) et compatibilité SQLite de `POST /sql`
 - PostgreSQL de production en version 16, celle des répétitions (R10) ; une
   autre version majeure impose une répétition supplémentaire. PPBase se
   connecte à PostgreSQL sans TLS (`ppbase/db/engine.py:50`) : PostgreSQL sur
-  le même hôte ou sur un réseau privé de confiance (I6).
+  le même hôte ou sur un réseau privé de confiance (I6). Les répétitions ont
+  joint un PostgreSQL local par la boucle locale : sur un réseau privé, les
+  durées de L11 et L13 au moins changent [durée non mesurée] (5.1).
+- **Ordre des textes de la base de production.** PocketBase trie le texte
+  dans SQLite, octet par octet (collation BINARY). La cible des répétitions,
+  image `postgres:16-alpine` (musl), trie aussi par octets malgré sa
+  collation `en_US.utf8` (`passes[i].checks.http.sort.target_collation` du
+  rapport final) ; d'après le modèle glibc de l'hôte (glibc 2.39,
+  `en_US.utf8`, calcul du banc et non base PostgreSQL glibc), une base glibc
+  changerait 2 905 des 5 826 positions des clients triés par `name,id`
+  (`passes[i].checks.http.sort.glibc_comparison`) ; une base ICU n'est pas
+  mesurée (D-0041). La base de production est donc
+  créée avec un ordre des octets (collation `C`, ou une image musl comme les
+  répétitions), ou l'écart est décidé avant G0 avec son impact client (ordre
+  des listes triées sur un texte) ; dans les deux cas, la collation retenue
+  est consignée (I6) et vérifiée sur staging [non répété avec la collation
+  `C` ni sur la machine de production].
 - Horloges synchronisées (NTP) sur l'hôte PocketBase, l'hôte PPBase et le
   serveur PostgreSQL (contrôles C-10 et C-28).
 - **Aucun redémarrage automatique possible pendant la fenêtre (C-46).** Le
@@ -365,21 +429,25 @@ Infrastructure de production :
   `pb_data/.autocert_cache`, `apis/serve.go:137-140`) ou par un proxy ? Le ZIP
   de septembre ne contenait aucun membre `.autocert_cache/` : c'est un indice,
   pas une preuve.
-- **I5** — Hôte PPBase et machine de bascule : système, Python 3.11 ou plus,
-  CPU, mémoire, disque, réseau vers l'hôte PocketBase, utilisateur système et
-  gestionnaire de service de PPBase, horloge (NTP) ; mises à jour
-  automatiques (I25). Les durées de 5.1 ne valent que pour une machine au
-  moins équivalente au serveur de session.
+- **I5** — Hôte PPBase et machine de bascule : système, Python 3.11 ou plus
+  (`requires-python` des deux `pyproject.toml` ; répétitions en 3.12.3,
+  `environment.python` du rapport final), CPU, mémoire, disque, réseau vers
+  l'hôte PocketBase, utilisateur système et gestionnaire de service de PPBase,
+  horloge (NTP) ; Node et npm pour construire le tableau de bord (2.2) ; mises
+  à jour automatiques (I25). Les durées de 5.1 ne valent que pour une machine
+  au moins équivalente au serveur de session (M1).
 - **I6** — PostgreSQL de production : hébergement, version, base neuve
   dédiée, rôle propriétaire, accès réseau restreint ; PPBase s'y connecte
   sans TLS (`ppbase/db/engine.py:50`) et ouvre jusqu'à 10 + 20 connexions par
   processus (`ppbase/config.py:29-30`) ; configuration (`shared_buffers`,
-  `max_wal_size`…) comparée à celle des répétitions (R10) ; mises à jour
-  automatiques (I25).
+  `max_wal_size`…) comparée à celle des répétitions (R10) ; collation de la
+  base (2.2) ; même hôte que PPBase ou réseau privé (validité de M1, 5.1) ;
+  mises à jour automatiques (I25).
 - **I7** — Proxy, DNS et certificats : logiciel et configuration actuelle
   (taille maximale des corps, alors que `buma_ressources.file` accepte des
-  fichiers jusqu'à 120 242 880 octets ; délais ; en-têtes ; SSE), TTL DNS,
-  moyen de changer l'amont.
+  fichiers jusqu'à 120 242 880 octets ; délais ; en-têtes, dont ceux de
+  sécurité qu'il ajoute ou retire, 6.9 ; SSE), TTL DNS, moyen de changer
+  l'amont.
 
 Clients :
 
@@ -420,12 +488,12 @@ Accès et comptes :
 - **I16** — SMTP. PocketBase 0.22.34 envoie ses emails par le SMTP de ses
   paramètres s'il est actif, sinon par `sendmail` (`core/base.go:495-509`).
   PPBase envoie ses emails d'authentification par son seul environnement
-  (`PPBASE_SMTP_*`, `ppbase/config.py:86-92`,
+  (`PPBASE_SMTP_*`, `ppbase/config.py:90-96`,
   `ppbase/services/mail_service.py:49-72`), **sauf** l'email de test
   `POST /api/settings/test/email`, envoyé avec le `_params.settings.smtp`
   importé, donc avec les identifiants SMTP de production
-  (`ppbase/api/settings.py:482-534`, `_smtp_config_from_settings` aux lignes
-  `:151-180` ; D-0027 ; contrat `docs/contracts/c11-auth-import.md` §3 et §9).
+  (`ppbase/api/settings.py:487-592`, `_smtp_config_from_settings` aux lignes
+  `:151-183` ; D-0027 ; contrat `docs/contracts/c11-auth-import.md` §3 et §9).
   Cet appel est interdit tant que `smtp` vient de la production : répétitions,
   staging et contrôles avant ouverture (6.9). Sans `PPBASE_SMTP_HOST`, aucun
   email d'authentification n'est envoyé et seul un avertissement sans
@@ -435,11 +503,15 @@ Accès et comptes :
   le seul `meta.appURL` importé, ou sur `http://localhost:8090` s'il manque ou
   n'est pas une URL absolue (`ppbase/services/app_url.py:29`, `:32-51`, comme
   `mails/admin.go:22-26` et `mails/record.go:175-184` de 0.22.34, défaut
-  `models/settings/settings.go:77`) : C-26 le contrôle. À fournir :
+  `models/settings/settings.go:77`) : C-26 le contrôle. PPBase n'envoie pas
+  ces emails comme PocketBase (10.4) : textes intégrés en anglais au lieu des
+  modèles importés, expéditeur `PPBASE_SMTP_FROM`, STARTTLS imposé hors du
+  port 25 et aucun TLS implicite, alors que `smtp.tls` vrai signifie TLS
+  implicite pour PocketBase (`tools/mailer/smtp.go:73-81`). À fournir :
   paramètres SMTP de PPBase en production (en pratique ceux du SMTP de
-  PocketBase), ou décision de ne pas en avoir (aucun email de vérification,
-  de réinitialisation ni de changement d'email), et politique d'accès aux
-  journaux.
+  PocketBase, si son port et son mode TLS conviennent à PPBase), ou décision
+  de ne pas en avoir (aucun email de vérification, de réinitialisation ni de
+  changement d'email), et politique d'accès aux journaux.
 
 Sauvegardes, rétention et décisions :
 
@@ -449,7 +521,9 @@ Sauvegardes, rétention et décisions :
 - **I18** — Sauvegarde PostgreSQL et du dossier de données PPBase après la
   bascule : outil, fréquence, essai de restauration ; valeur de
   `backups.cron` dans les paramètres de PPBase (C-26) ; conservation de la
-  table `_requests` (6.11).
+  table `_requests` (6.11). La sauvegarde native de PPBase refuse cette base
+  (C-47) : l'outil proposé est `pg_dump` de la base entière, qui garde les
+  archives de l'import et les fonctions dont dépendent rowids et vues.
 - **I19** — Personnes et suppléants : décideur, opérateur, vérificateur,
   infrastructure, référents métier (desktop, mobile, caisse), communication ;
   canal d'astreinte.
@@ -494,38 +568,56 @@ Préparation hors fenêtre :
 ### 5.1 Durées mesurées et durées à planifier
 
 Ce tableau est le seul du runbook à contenir des durées mesurées ; les autres
-sections renvoient à ses lignes (L1 à L19).
+sections renvoient à ses lignes (L1 à L20).
 
 Sources :
 
-- **AP1** : `/tmp/buma-c11-session/previews/real-preview-1-orch.json`,
-  rapport agrégé d'**aperçu** produit par `scripts/c11_real_rehearsal.py`
-  (passage de l'orchestrateur), copie en lecture seule, non versionnée,
-  gardée par l'orchestrateur. `timestamp_utc` 2026-10-24T17:01:48 UTC (19:02
-  à 19:12 heure du serveur), un passage (`passes[0]`) ; aucun autre conteneur
-  au départ (`environment.other_running_containers`) ; charge de l'hôte sur
-  une minute jusqu'à 2,66 pendant l'import
-  (`passes[0].measures.container_memory_by_phase.import.max_host_loadavg_1min`).
-- **AP2** : `/tmp/buma-c11-session/previews/real-preview-2-review.json`, même
-  outil, même code et mêmes données (passage du relecteur WS-G), copie en
-  lecture seule, non versionnée. `timestamp_utc` 2026-10-24T21:23:52 UTC, un
-  passage ; serveur partagé chargé : 3 autres conteneurs au départ, charge de
-  départ 1,85 (`environment.loadavg_at_start`), jusqu'à 6,09 pendant l'import
-  (même clé que pour AP1).
-- Conditions communes à AP1 et AP2 : BUMA `2c7a17e` et PPBase `22929a0`
-  (`code.buma.commit`, `code.ppbase.commit`), deux aperçus antérieurs à
-  WS-A6, WS-A7, WS-A8 et au raccordement BUMA (10.1) ; backup réel de
-  septembre en mode manifeste, 1 188 247 records
-  (`passes[0].checks.diagnosis.rows`), aucun octet de fichier
-  (`real_backup.file_bytes_available` faux) ; serveur de session de 4 CPU et
-  8 Gio (`environment.cpu_count`, `environment.memory_total_kib`) ;
-  PostgreSQL 16.15 jetable (`postgres:16-alpine`) limité à 2 CPU et 2 Gio
-  (`passes[0].container.nano_cpus`, `passes[0].container.memory_limit_bytes`),
-  réglages par défaut (R10). Statut `failed` dans les deux rapports, à cause
-  des seuls 9 contrôles HTTP en écart d'enveloppe d'erreur
-  (`passes[0].failure.code` `http_checks_failed`,
-  `passes[0].failure.details.checks`) : toutes les phases de données ont
-  réussi ; les durées sont valides comme mesures, étiquetées [aperçu].
+- **Rapport final** : `docs/c11-real-rehearsal-report.json`, produit par
+  `scripts/c11_real_rehearsal.py` (D-0041), `timestamp_utc`
+  2026-10-25T12:46:26 UTC, `status` `passed`, deux passages **P1** et **P2**
+  (`passes[0]` et `passes[1]`) passés et identiques
+  (`repeatability.identical`), BUMA `b7427fe` et PPBase `069e0bb`
+  (`code.buma.commit`, `code.ppbase.commit`), arbres propres.
+  `runbook_durations_seconds.<phase>` donne les secondes de chaque passage
+  (`seconds`) et leur maximum (`max`), égales à
+  `passes[i].measures.phase_seconds.<phase>` ; les étapes d'une phase
+  viennent des autres clés de `passes[i].measures`, citées ligne par ligne.
+- Conditions du rapport final : serveur de session de 4 CPU et 8 131 776 Kio
+  de mémoire, environ 8,3 Go (`environment.cpu_count`,
+  `environment.memory_total_kib`) ; aucun autre conteneur au départ
+  (`environment.other_running_containers`), charge sur une minute de 0,87 au
+  départ (`environment.loadavg_at_start`) et d'au plus 1,86 pendant l'import
+  (`passes[i].measures.container_memory_by_phase.import.max_host_loadavg_1min`) ;
+  PostgreSQL 16.15 local (`postgres:16-alpine`, image musl), joint par la
+  boucle locale (port publié sur `127.0.0.1`), limité à 2 CPU et 2 Gio
+  (`passes[i].container.nano_cpus`, `passes[i].container.memory_limit_bytes`),
+  réglages par défaut (R10) ; serveur PPBase isolé en boucle locale ; backup
+  réel de septembre en mode manifeste, 1 188 247 records
+  (`passes[i].checks.diagnosis.rows`), **aucun octet de fichier**
+  (`real_backup.file_bytes_available` faux) ; contrôle d'idempotence de
+  D-0022 compris (`--source-migrations`, L8).
+- **Mesures de variabilité** : même outil, mêmes données et mêmes conditions
+  de conteneur, un passage chacune (`passes[0]`), copies en lecture seule,
+  non versionnées, gardées par l'orchestrateur :
+  - **AP1** : `/tmp/buma-c11-session/previews/real-preview-1-orch.json`,
+    aperçu du 2026-10-24 (`timestamp_utc` 17:01:48 UTC) ; aucun autre
+    conteneur, charge de 0,82 au départ, jusqu'à 2,66 pendant l'import ;
+  - **AP2** : `/tmp/buma-c11-session/previews/real-preview-2-review.json`,
+    aperçu du 2026-10-24 (21:23:52 UTC) ; serveur chargé : 3 autres
+    conteneurs, charge de 1,85 au départ, jusqu'à 6,09 pendant l'import ;
+  - **AP3** : `/tmp/buma-c11-session/int2-real-20261025T064807Z.json`, passe
+    intermédiaire du 2026-10-25 (06:48:09 UTC) ; aucun autre conteneur,
+    charge de 1,02 au départ, jusqu'à 4,35 pendant l'import.
+
+  AP1 et AP2 : BUMA `2c7a17e`, PPBase `22929a0`, 11 migrations, 256 contrôles
+  HTTP, sans `--source-migrations` ; AP3 : BUMA `c333e14`, PPBase `67bbc4f`,
+  11 migrations, 414 contrôles HTTP (`code.buma.commit`,
+  `code.ppbase.commit`, `passes[0].checks.target_before_import.migrations_applied`,
+  `passes[0].checks.http.checks_run`). Statut `failed` dans les trois, à cause
+  des seuls écarts HTTP corrigés ou documentés depuis
+  (`passes[0].failure.code` `http_checks_failed`) : toutes leurs phases de
+  données ont réussi. Leurs durées valent comme mesures de variabilité, pas
+  comme durées de la release.
 - **VB** : `docs/c11-volume-benchmark-report.json` (D-0026), banc synthétique
   du 2026-10-24 (`timestamp_utc` 11:42:14 UTC), 1 182 406 records
   (`dataset.records`), BUMA `bf00a14` et PPBase `c6821aa`
@@ -534,26 +626,48 @@ Sources :
   (`environment.concurrent_load_at_start`).
 - **D-0028** : `docs/decisions-and-divergences.md`, D-0028, paragraphe
   « Durées constatées » (archives synthétiques seulement, une mesure).
+- **D-0039** : `docs/decisions-and-divergences.md`, D-0039, point « coût » :
+  mesures de WS-H sur une base réelle jetable du serveur de session, avant et
+  après `1789236851`, médianes de cinq passages alternés de
+  `EXPLAIN ANALYZE` des requêtes de PPBase.
 
-Variabilité mesurée. Entre AP1 et AP2 (même code, mêmes données, charge
-différente), l'écart par étape va de −7 % (lectures HTTP) à +22 %
-(diagnostic) ; la somme des phases (`passes[0].measures.phase_seconds`, huit
-clés) passe de 581,5 s pour AP1 à 650,7 s pour AP2 (+12 %). Les
-autres mesures répétées d'une même étape donnent des écarts du même ordre
-(D-0026, point 7) : import synthétique de 243 à 321 s (+32 %), diagnostic
-réel de 110 à 128 s, audit réel de 30 à 38 s ; avec AP1 et AP2, le
-diagnostic réel va de 110 à 139,67 s (+27 %).
+Variabilité mesurée. La colonne « Variabilité » donne, pour chaque ligne,
+les mesures AP1 à AP3 de la même clé JSON et le rapport entre la plus grande
+et la plus petite des cinq mesures AP1, AP2, AP3, P1 et P2. Entre P1 et P2
+(même code, serveur calme), l'écart d'une ligne mesurée reste d'au plus
++8,1 % (L17) ; avec AP1 à AP3 (code antérieur, autre charge), il atteint
+×1,68 sur L10 (AP2 15,423 s, AP3 9,191 s), ×1,48 sur le démarrage du serveur
+compris dans L15, ×1,42 sur L15 et ×1,37 sur L11 (AP2 319,755 s, AP3
+233,469 s). D-0026 (point 7) a mesuré de son côté +32 % sur l'import
+synthétique (243 à 321 s) et +41 % sur l'annulation (91 à 128 s). Ne sont
+pas comparées : les lectures HTTP de AP1 et AP2, faites sur 256 contrôles
+contre 414, et le contrôle préalable des comptes de L9, de moins de 0,25 s,
+qui ne sert à planifier aucune ligne.
 
 Marges de sécurité :
 
-- **M1 = ×2**, appliquée à la plus grande valeur de AP1 et AP2 : 1,5
-  (croissance admise du backup frais, au plus 1,5 fois les records de
-  septembre selon C-11, la durée étant supposée proportionnelle au volume)
-  × 1,33 (plus grand écart relatif mesuré entre deux mesures d'une même
-  étape, +32 %) ≈ 2,0. Valable seulement si la machine de bascule est au
-  moins équivalente au serveur de session (I5) et si PostgreSQL dispose d'au
-  moins 2 CPU et 2 Gio ; sinon, nouvelle mesure avant de fixer la fenêtre
-  (6.1, étape 7).
+- **M1 = ×2,6**, appliquée à la plus grande valeur de P1 et P2 de chaque
+  ligne mesurée : 1,5 (croissance admise du backup frais, au plus 1,5 fois
+  les records de septembre selon C-11, la durée étant supposée
+  proportionnelle au volume) × 1,68 (plus grande variabilité mesurée entre
+  deux mesures d'une même étape, sur L10 ; elle couvre les +41 % de D-0026)
+  ≈ 2,52, arrondi au dixième supérieur. Comme chaque ligne varie d'au plus
+  ×1,68, la durée planifiée vaut au moins 1,5 fois la plus lente de ses cinq
+  mesures. M1 remplace la marge ×2 de la version WS-F2, calculée sur +32 %
+  alors que D-0026 avait déjà mesuré +41 %. **Conditions de validité**, toutes
+  requises ; sinon, nouvelle mesure avant de fixer la fenêtre (6.1, étape 7) :
+  - machine de bascule au moins équivalente au serveur de session (I5) ;
+  - PostgreSQL 16 doté d'au moins 2 CPU et 2 Gio, réglages au moins égaux à
+    R10, **local et joint par la boucle locale** comme dans les répétitions.
+    Sur un réseau privé (I6), latence et débit changent au moins L11 (COPY et
+    relecture de chaque lot) et L13 (relecture complète des tables), et dans
+    une moindre mesure L10 et L15 à L17 : non mesuré ;
+  - backup frais d'au plus 1,5 fois les records de septembre (C-11) ;
+  - pas d'autre charge lourde sur ces hôtes pendant la fenêtre : AP2, mesuré
+    sur un serveur chargé, est la mesure la plus lente de L6, L7, L10, L11
+    et L15 ;
+  - mode sans octets de fichiers : hachage et copie de `storage/` (L6, L7,
+    L11, L14) hors marge, à mesurer au diagnostic à blanc.
 - **M2 = ×3**, forfaitaire, pour l'extraction : une seule mesure, sur des
   archives synthétiques, sans variabilité mesurée ; le ZIP réel n'a jamais
   été extrait sur le serveur. La mesure du diagnostic à blanc la remplace
@@ -561,61 +675,62 @@ Marges de sécurité :
 - Les durées à planifier sont arrondies à la minute supérieure ; la durée
   avant arrondi est donnée entre parenthèses.
 
-Mise à jour avec le rapport final : l'orchestrateur remplace AP1 et AP2 par
-les passages de `docs/c11-real-rehearsal-report.json` (mêmes clés sous
-`passes[i]` ; `runbook_durations_seconds.<phase>` regroupe par phase les
-valeurs retenues par l'outil et leur maximum), garde M1 tant que l'écart
-entre deux mesures d'une même étape reste sous +33 %, la recalcule sinon,
-puis refait la dernière colonne et la somme qui suit le tableau.
+Une nouvelle répétition (commit de release, diagnostic à blanc sur la
+machine de bascule) remplace P1 et P2 par ses passages, mêmes clés ; M1 est
+recalculée si une ligne varie de plus de ×1,68, puis la dernière colonne et
+la somme qui suit le tableau sont refaites.
 
-| Ligne | Étape (section) | Durée mesurée | Source exacte (rapport et clé JSON) | Conditions | Marge de sécurité | Durée à planifier |
-| --- | --- | --- | --- | --- | --- | --- |
-| L1 | Gel des écritures, C-01 (6.2) | non mesurée | — | propre à la production | — | [durée non mesurée] |
-| L2 | Capture A ou B, arrêt de PocketBase, `H_stop` (6.3) | non mesurée | — | sauvegarde native : écritures bloquées pendant sa création (`core/base_backup.go:35-37`) ; taille du `pb_data` de production | — | [durée non mesurée] |
-| L3 | Transfert de la capture, C-04 (6.4) | non mesurée | — | réseau entre l'hôte PocketBase et la machine de bascule (I5) | — | [durée non mesurée] |
-| L4 | Inventaire `scripts.c11_import --archive`, C-05 (6.4) | non mesurée séparément | — | le même inventaire est refait au début de L5 | — | comprise dans L5 |
-| L5 | Extraction vérifiée `scripts.c11_extract`, C-06 (6.4) | environ 103 s | D-0028 | archives synthétiques au format PocketBase, 1 290 membres, 8,85 Go décompressés, serveur de session ; ZIP réel jamais extrait sur le serveur | M2 (×3) | 6 min (309 s), à remplacer par la mesure du diagnostic à blanc |
-| L6 | Diagnostic `scripts.c11_import --data`, C-07 à C-12 (6.5) | AP1 114,59 s ; AP2 139,67 s [aperçu] | AP1 et AP2, `passes[0].measures.diagnosis_step_seconds.diagnosis` | mode manifeste, aucun fichier haché ; types cibles contrôlés | M1 (×2) sur 139,67 s | 5 min (279 s), plus le hachage de `storage/` [durée non mesurée] |
-| L7 | Audit `scripts.c11_snapshot_audit`, C-09, C-12, C-13 (6.5) | AP1 31,019 s ; AP2 35,63 s [aperçu] | AP1 et AP2, `passes[0].measures.diagnosis_step_seconds.independent_audit` | même processus enfant que L6 ; phase entière L6 et L7, `passes[0].measures.phase_seconds.diagnosis` : AP1 149,18 s, AP2 178,885 s | M1 (×2) sur 35,63 s | 2 min (71 s), plus le hachage de `storage/` [durée non mesurée] |
-| L8 | Contrôle d'idempotence `scripts.c11_idempotency_source_check`, C-08 a (6.5) | non mesurée | aperçus lancés sans `--source-migrations` ; clé attendue du rapport final : `passes[i].measures.diagnosis_step_seconds.idempotency_source_check` | — | — | [durée non mesurée] |
-| L9 | Diagnostic des comptes `scripts.c11_auth_import --data`, C-13 (6.5) | non mesurée séparément | `import_snapshot` refait ces contrôles : AP1 0,189 s, AP2 0,24 s (`passes[0].measures.importer_timings_seconds.readiness_check`) | — | — | [durée non mesurée] |
-| L10 | Base neuve : migrations, schéma, colonnes relationnelles, 42 vues, graines C5 (6.6, étapes 2 à 4) | AP1 13,832 s ; AP2 15,423 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.migrations_schema_and_target_description` | base vide, 11 migrations ; retrait des graines par le harnais du banc | M1 (×2) sur 15,423 s | 1 min (31 s) |
-| L11 | Import des records, des comptes et des paramètres en une transaction (6.6, étape 5) | AP1 280,907 s ; AP2 319,755 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.import` ; dont importeur `passes[0].measures.importer_timings_seconds.total` (AP1 273,857 s, AP2 311,676 s ; pour AP2, `copy_and_readback` 210,562, `final_check` 80,231, `conservation` 18,66, `auth_import` 2,361) | COPY par lots de 5 000 ; mode manifeste : seul `data.db` est copié au staging | M1 (×2) sur 319,755 s | 11 min (640 s), plus la copie de `storage/` au staging en mode complet [durée non mesurée] |
-| L12 | Échec de l'import et annulation complète (6.6, étape 7) | 128,015 s pour un échec injecté après 591 203 lignes | VB, `failure_injection.seconds_until_rollback_complete` et `failure_injection.fail_after_rows` | synthétique ; durée totale du processus, chargement de la moitié compris, pas de l'annulation seule ; D-0026, point 7 : 91 à 128 s | — | un échec peut survenir jusqu'à la fin de L11 : réserver la durée planifiée de L11 avant de constater le NO-GO |
-| L13 | Contrôles de conservation après commit, C-17 à C-29 (6.7) | AP1 89,304 s ; AP2 88,775 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.post_commit_checks` (dont `passes[0].measures.post_commit_check_seconds.fingerprints` : AP1 62,022, AP2 60,149) | contrôles du banc, dans de nouvelles sessions | M1 (×2) sur 89,304 s | 3 min (179 s) |
-| L14 | Copie et contrôle de `storage/`, C-30 (6.8) | non mesurée | aucun octet de fichier sur le serveur (`real_backup.file_bytes_available`) | — | — | [durée non mesurée], à mesurer avec le ZIP complet |
-| L15 | Démarrage de PPBase (6.9) | AP1 4,959 s ; AP2 5,922 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.server_start` (serveur prêt : `passes[0].server.startup_seconds`, AP1 2,71 s, AP2 3,509 s) | serveur isolé, boucle locale, jobs désactivés ; la phase comprend la création du superuser synthétique du banc | M1 (×2) sur 5,922 s | 1 min (12 s) |
-| L16 | Lectures HTTP automatiques du banc (6.9) | AP1 35,201 s ; AP2 32,724 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.http_reads` (256 contrôles, `passes[0].checks.http.checks_run`) | lectures anonymes et superuser synthétique, sans fichiers ; ne remplacent pas les contrôles de 6.9 | M1 (×2) sur 35,201 s | 2 min (71 s) ; contrôles de 6.9, manuels, SDK et desktop [durée non mesurée] |
-| L17 | Contrôle des écritures après les lectures, C-41 (6.9) | AP1 4,687 s ; AP2 4,581 s [aperçu] | AP1 et AP2, `passes[0].measures.phase_seconds.after_http_checks` | arrêt du serveur, empreintes stockées de chaque table et signature du schéma comparées à celles d'après l'import | M1 (×2) sur 4,687 s | 1 min (10 s) |
-| L18 | Bascule d'URL, C-42, ouverture, C-43 (6.10) | non mesurée | — | proxy et DNS (I7) | — | [durée non mesurée] |
-| L19 | Retour arrière avant ouverture (8.2) | non mesurée | — | redémarrage de PocketBase et de son bootstrap, proxy | — | [durée non mesurée], réservée avant la fin de la fenêtre |
+| Ligne | Étape (section) | Durée mesurée (P1 ; P2) | Source exacte (rapport et clé JSON) | Variabilité (AP1 ; AP2 ; AP3 ; max/min des cinq) | Conditions | Marge de sécurité | Durée à planifier |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L1 | Gel des écritures, C-01 (6.2) | non mesurée | — | — | propre à la production | — | [durée non mesurée] |
+| L2 | Capture A ou B, arrêt de PocketBase, `H_stop` (6.3) | non mesurée | — | — | sauvegarde native : écritures bloquées pendant sa création (`core/base_backup.go:35-37`) ; taille du `pb_data` de production | — | [durée non mesurée] |
+| L3 | Transfert de la capture, C-04 (6.4) | non mesurée | — | — | réseau entre l'hôte PocketBase et la machine de bascule (I5) | — | [durée non mesurée] |
+| L4 | Inventaire `scripts.c11_import --archive`, C-05 (6.4) | non mesurée séparément | — | — | le même inventaire est refait au début de L5 | — | comprise dans L5 |
+| L5 | Extraction vérifiée `scripts.c11_extract`, C-06 (6.4) | environ 103 s | D-0028 | une mesure | archives synthétiques au format PocketBase, 1 290 membres, 8,85 Go décompressés, serveur de session ; ZIP réel jamais extrait sur le serveur | M2 (×3) | 6 min (309 s), à remplacer par la mesure du diagnostic à blanc |
+| L6 | Diagnostic `scripts.c11_import --data`, C-07 à C-12 (6.5) | 106,17 s ; 108,77 s | `passes[i].measures.diagnosis_step_seconds.diagnosis` | 114,59 ; 139,67 ; 114,98 ; ×1,32 | mode manifeste, aucun fichier haché ; types cibles contrôlés | M1 (×2,6) sur 108,77 s | 5 min (282,8 s), plus le hachage de `storage/` [durée non mesurée] |
+| L7 | Audit `scripts.c11_snapshot_audit`, C-09, C-12, C-13 (6.5) | 29,109 s ; 29,739 s | `passes[i].measures.diagnosis_step_seconds.independent_audit` | 31,019 ; 35,63 ; 32,009 ; ×1,22 | même processus enfant que L6 et L8 ; phase entière L6 à L8, `runbook_durations_seconds.diagnosis` : 143,541 s ; 146,283 s (AP1 149,18 ; AP2 178,885 ; AP3 155,949 ; ×1,25) | M1 (×2,6) sur 29,739 s | 2 min (77,3 s), plus le hachage de `storage/` [durée non mesurée] |
+| L8 | Contrôle d'idempotence `scripts.c11_idempotency_source_check`, C-08 a (6.5) | 5,343 s ; 4,945 s | `passes[i].measures.diagnosis_step_seconds.idempotency_source_check` | AP1 et AP2 sans cette étape ; 5,352 ; ×1,08 | lecture de `_migrations` et des groupes de doublons mobiles de la capture | M1 (×2,6) sur 5,343 s | 1 min (13,9 s) |
+| L9 | Diagnostic des comptes `scripts.c11_auth_import --data`, C-13 (6.5) | non mesurée séparément | `import_snapshot` refait ces contrôles : 0,109 s ; 0,134 s (`passes[i].measures.importer_timings_seconds.readiness_check`) | 0,189 ; 0,24 ; 0,103 ; non comparée (moins de 0,25 s) | — | — | [durée non mesurée] |
+| L10 | Base neuve : migrations, schéma, colonnes relationnelles, 42 vues, graines C5 (6.6, étapes 2 à 4) | 11,667 s ; 12,499 s | `runbook_durations_seconds.migrations_schema_and_target_description` | 13,832 ; 15,423 ; 9,191 (11 migrations) ; ×1,68 | base vide, 12 migrations (`passes[i].checks.target_before_import.migrations_applied`) ; retrait des 24 graines par le harnais du banc (`passes[i].checks.target_before_import.seed_rows_removed`) | M1 (×2,6) sur 12,499 s | 1 min (32,5 s) |
+| L11 | Import des records, des comptes et des paramètres en une transaction (6.6, étape 5) | 248,664 s ; 247,845 s | `runbook_durations_seconds.import` ; dont importeur `passes[i].measures.importer_timings_seconds.total` (242,317 s ; 241,369 s ; pour P1, `copy_and_readback` 165,764, `final_check` 59,19, `conservation` 15,497, `auth_import` 2,357) | 280,907 ; 319,755 ; 233,469 ; ×1,37 | COPY par lots de 5 000 (`--batch-size` par défaut, `scripts/c11_import.py:55`) ; mode manifeste : seul `data.db` est copié au staging ; PostgreSQL local | M1 (×2,6) sur 248,664 s | 11 min (646,5 s), plus la copie de `storage/` au staging en mode complet [durée non mesurée] |
+| L12 | Échec de l'import et annulation complète (6.6, étape 7) | 128,015 s pour un échec injecté après 591 203 lignes | VB, `failure_injection.seconds_until_rollback_complete` et `failure_injection.fail_after_rows` | D-0026, point 7 : 91 à 128 s ; ×1,41 | synthétique ; durée totale du processus, chargement de la moitié compris, pas de l'annulation seule | — | un échec peut survenir jusqu'à la fin de L11 : réserver la durée planifiée de L11 avant de constater le NO-GO |
+| L13 | Contrôles de conservation après commit, C-17 à C-29 (6.7) | 77,556 s ; 77,241 s | `runbook_durations_seconds.post_commit_checks` (dont `passes[i].measures.post_commit_check_seconds.fingerprints` : 50,271 s ; 49,641 s) | 89,304 ; 88,775 ; 79,565 ; ×1,16 | contrôles du banc, dans de nouvelles sessions ; PostgreSQL local | M1 (×2,6) sur 77,556 s | 4 min (201,6 s) |
+| L14 | Copie et contrôle de `storage/`, C-30 (6.8) | non mesurée | aucun octet de fichier sur le serveur (`real_backup.file_bytes_available`) | — | — | — | [durée non mesurée], à mesurer avec le ZIP complet |
+| L15 | Démarrage de PPBase (6.9) | 4,159 s ; 4,315 s | `runbook_durations_seconds.server_start` (serveur prêt : `passes[i].server.startup_seconds`, 2,373 s ; 2,452 s) | 4,959 ; 5,922 ; 4,228 ; ×1,42 (serveur prêt : 2,71 ; 3,509 ; 2,412 ; ×1,48) | serveur isolé, boucle locale, jobs désactivés ; la phase comprend la création du superuser synthétique du banc | M1 (×2,6) sur 4,315 s | 1 min (11,2 s) |
+| L16 | Lectures HTTP automatiques du banc (6.9) | 105,286 s ; 107,435 s | `runbook_durations_seconds.http_reads` (414 contrôles, `passes[i].checks.http.checks_run` ; dont `passes[i].measures.http_seconds.served_values` : 65,862 s ; 66,2 s) | AP1 et AP2 non comparées (256 contrôles : 35,201 et 32,724) ; 84,996 ; ×1,26 | lectures anonymes et du superuser synthétique, sans fichiers, comparaison des valeurs servies comprise ; ne remplacent pas les contrôles de 6.9 | M1 (×2,6) sur 107,435 s | 5 min (279,3 s) ; contrôles de 6.9, manuels, SDK et desktop [durée non mesurée] |
+| L17 | Contrôle des écritures après les lectures, C-41 (6.9) | 4,718 s ; 4,365 s | `runbook_durations_seconds.after_http_checks` | 4,687 ; 4,581 ; 4,299 ; ×1,10 | arrêt du serveur ; empreintes stockées des 72 tables, des archives de l'import, de `_collections`, `_params` et `_superusers`, comptes et signature du schéma comparés à ceux d'après l'import | M1 (×2,6) sur 4,718 s | 1 min (12,3 s) |
+| L18 | Bascule d'URL, C-42, ouverture, C-43 (6.10) | non mesurée | — | — | proxy et DNS (I7) | — | [durée non mesurée] |
+| L19 | Retour arrière avant ouverture (8.2) | non mesurée | — | — | redémarrage de PocketBase et de son bootstrap, proxy | — | [durée non mesurée], réservée avant la fin de la fenêtre |
+| L20 | Lecture de la vue des dépenses `buma_caisse_transaction_by_categorie_list_view`, avant et après `1789236851` (surveillance, 6.11) | count 111 → 383 ms ; première page 122 → 301 ms ; getFullList 4,3 → 11,2 s | D-0039, point « coût » ; comptage SQL du banc après la migration : 0,377 s ; 0,449 s (`passes[i].measures.view_count_seconds.buma_caisse_transaction_by_categorie_list_view`) | médianes de cinq passages (D-0039) | base réelle jetable, requêtes de PPBase ; `buma_return_list_view` inchangée | — | référence de surveillance (6.11), pas une étape de la fenêtre |
 
-Somme des durées à planifier des lignes mesurées (L5, L6, L7, L10, L11, L13,
-L15, L16, L17) : 32 min. Ce n'est **pas** la fenêtre : elle n'inclut ni les
-lignes non mesurées (L1 à L3, L8, L9, L14, L18, L19), ni le hachage et la
-copie des 4,9 Go de `storage/` en mode complet, ni les contrôles manuels,
-SDK et desktop, ni les relectures du vérificateur aux portes G1 à G5. Aucune
-durée de production n'est connue : gel, capture, transfert et octets de
-fichiers n'ont jamais été mesurés.
+Somme des durées à planifier des lignes mesurées (L5 à L8, L10, L11, L13 et
+L15 à L17) : 37 min. Ce n'est **pas** la fenêtre : elle n'inclut ni les
+lignes non mesurées (L1 à L3, L9, L14, L18, L19), ni le hachage et la copie
+des 4,9 Go de `storage/` en mode complet, ni les contrôles manuels, SDK et
+desktop, ni les relectures du vérificateur aux portes G1 à G5. Aucune durée
+de production n'est connue : gel, capture, transfert et octets de fichiers
+n'ont jamais été mesurés.
 
 ### 5.2 Ressources mesurées
 
 Seul tableau des ressources mesurées, avec les sources et conditions de 5.1 ;
-une valeur égale dans AP1 et AP2 n'est donnée qu'une fois.
+une valeur égale dans P1 et P2 n'est donnée qu'une fois, et AP1 à AP3 sont
+cités pour la variabilité.
 
-| Ligne | Ressource | Mesure | Source exacte (rapport et clé JSON) | Conditions |
+| Ligne | Ressource | Mesure (P1 ; P2) | Source exacte (rapport et clé JSON) | Conditions et variabilité (AP1 ; AP2 ; AP3) |
 | --- | --- | --- | --- | --- |
-| R1 | Base PostgreSQL après les migrations | 15 752 215 octets, AP1 et AP2 [aperçu] | `passes[0].measures.database_bytes_after_migrations` | base vide |
-| R2 | Base PostgreSQL après l'import (`pg_database_size`) | 784 366 615 octets, AP1 et AP2 [aperçu] | `passes[0].measures.database_bytes_after_import` | 1 188 247 records |
-| R3 | Répertoire de données PostgreSQL après l'import (données, index, WAL) | AP1 1 865 055 973 octets ; AP2 1 848 286 949 octets [aperçu] | `passes[0].measures.postgresql_data_directory_bytes_after_import` | `max_wal_size` 1GB (R10) |
-| R4 | Disque consommé au plus pendant le passage | AP1 2 352 029 696 octets ; AP2 2 094 116 864 octets [aperçu] | `passes[0].measures.disk_free_before.private_dir` moins `passes[0].measures.disk_free_minimum_during_pass.private_dir` | dossier privé, `/tmp` et Docker sur le même système de fichiers, partagé avec d'autres agents : indication seulement ; sans octets de fichiers |
-| R5 | Staging de l'import (copie privée de `data.db`) | 325 212 482 octets, AP1 et AP2 [aperçu] | `passes[0].measures.staging_bytes` | mode manifeste, sans `storage/` |
-| R6 | Pic RSS de l'importeur | AP1 143 196 Kio ; AP2 143 728 Kio [aperçu] | `passes[0].measures.import_child.peak_rss_kib` | — |
-| R7 | Pic RSS du diagnostic et de l'audit | AP1 233 028 Kio ; AP2 233 080 Kio [aperçu] | `passes[0].measures.diagnosis_child.peak_rss_kib` | — |
-| R8 | Pic RSS du serveur PPBase | AP1 109 924 Kio ; AP2 109 836 Kio [aperçu] | `passes[0].server.peak_rss_kib` | lectures de L16 |
-| R9 | Mémoire PostgreSQL non récupérable (anon + shmem, maximum échantillonné) | AP1 311 136 256 octets ; AP2 312 598 528 octets [aperçu] | `passes[0].measures.container_memory.sampled_max_anon_plus_shmem_bytes` | limite de 2 Gio atteinte par le cache de pages ; 0 OOM (`oom` et `oom_kill` de `passes[0].measures.container_memory.events`) |
-| R10 | Configuration PostgreSQL de la répétition | 16.15 ; `shared_buffers` 128MB ; `work_mem` 4MB ; `maintenance_work_mem` 64MB ; `max_wal_size` 1GB ; `synchronous_commit` on ; AP1 et AP2 | `passes[0].measures.database` | réglages par défaut de l'image |
+| R1 | Base PostgreSQL après les migrations | 15 957 015 octets | `passes[i].measures.database_bytes_after_migrations` | base vide, 12 migrations ; 15 752 215 octets pour AP1 à AP3, 11 migrations |
+| R2 | Base PostgreSQL après l'import (`pg_database_size`) | 784 530 455 octets | `passes[i].measures.database_bytes_after_import` | 1 188 247 records ; 784 366 615 octets pour AP1 à AP3 |
+| R3 | Répertoire de données PostgreSQL après l'import (données, index, WAL) | 1 865 277 157 octets | `passes[i].measures.postgresql_data_directory_bytes_after_import` | `max_wal_size` 1GB (R10) ; 1 865 055 973 ; 1 848 286 949 ; 1 865 113 317 |
+| R4 | Disque consommé au plus pendant le passage | 2 337 280 000 octets ; 2 332 991 488 octets | `passes[i].measures.disk_free_before.private_dir` moins `passes[i].measures.disk_free_minimum_during_pass.private_dir` | dossier privé, `/tmp` et Docker sur le même système de fichiers, partagé avec d'autres agents : indication seulement ; sans octets de fichiers ; 2 352 029 696 ; 2 094 116 864 ; 2 628 112 384 |
+| R5 | Staging de l'import (copie privée de `data.db`) | 325 212 482 octets | `passes[i].measures.staging_bytes` | mode manifeste, sans `storage/` ; même valeur pour AP1 à AP3 |
+| R6 | Pic RSS de l'importeur | 145 120 Kio ; 148 208 Kio | `passes[i].measures.import_child.peak_rss_kib` | 143 196 ; 143 728 ; 145 196 |
+| R7 | Pic RSS du diagnostic et de l'audit | 237 240 Kio ; 237 284 Kio | `passes[i].measures.diagnosis_child.peak_rss_kib` | 233 028 ; 233 080 ; 237 048 |
+| R8 | Pic RSS du serveur PPBase | 112 648 Kio ; 112 752 Kio | `passes[i].server.peak_rss_kib` | lectures de L16 ; 109 924 ; 109 836 ; 112 792 |
+| R9 | Mémoire PostgreSQL non récupérable (anon + shmem, maximum échantillonné) | 337 018 880 octets ; 337 723 392 octets | `passes[i].measures.container_memory.sampled_max_anon_plus_shmem_bytes` | limite de 2 Gio atteinte par le cache de pages ; 0 OOM (`oom` et `oom_kill` de `passes[i].measures.container_memory.events`) ; 311 136 256 ; 312 598 528 ; 330 690 560 |
+| R10 | Configuration PostgreSQL de la répétition | 16.15 ; `shared_buffers` 128MB ; `work_mem` 4MB ; `maintenance_work_mem` 64MB ; `max_wal_size` 1GB ; `synchronous_commit` on ; `max_parallel_workers_per_gather` 2 ; `datcollate` `en_US.utf8` | `passes[i].measures.database` | réglages par défaut de l'image ; image musl, texte trié par octets (2.2) ; mêmes valeurs pour AP1 à AP3 |
 | R11 | Pic RSS de l'extraction | 27 Mo | D-0028 | archives synthétiques |
+| R12 | Croissance de la base pendant les lectures HTTP | 393 216 octets | `passes[i].measures.database_bytes_after_http` moins `passes[i].measures.database_bytes_after_import` | 414 requêtes de L16 : journal `_requests` (6.11) et superuser synthétique du banc ; indication du volume du journal ; AP3 (414 contrôles) : 368 640 octets ; AP1 et AP2 non comparées (256 contrôles) |
 
 ### 5.3 Fenêtre de maintenance
 
@@ -648,33 +763,42 @@ bascule ; la fenêtre n'est fixée qu'après lui.
 
 1. Installer sur la machine de bascule les checkouts BUMA et PPBase aux
    commits de release, avec un seul venv comme sur le serveur de session
-   (`docs/server-session-plan.md`, section 3) ; consigner les deux commits et
-   `pip freeze`. **C-45** : depuis la racine du checkout BUMA,
+   (`docs/server-session-plan.md`, section 3) ; construire le tableau de bord
+   PPBase (2.2) ; consigner les deux commits et `pip freeze`. **C-45** :
+   depuis la racine du checkout BUMA,
 
    ```sh
    git rev-parse HEAD
+   git merge-base --is-ancestor <code.buma.commit> HEAD && echo ancestor
+   git diff --name-only <code.buma.commit> HEAD
    git status --porcelain --untracked-files=no
    git status --porcelain --untracked-files=all
    git -C <checkout PPBase> rev-parse HEAD
    git -C <checkout PPBase> status --porcelain --untracked-files=no
    git -C <checkout PPBase> status --porcelain --untracked-files=all
    PYTHONPATH=<checkout BUMA>:<checkout PPBase> .venv/bin/python -c \
-     "import ppbase, ppbase.models.field_multiplicity, ppbase.middleware.error_compat; print(ppbase.__file__)"
+     "import ppbase, ppbase.models.field_multiplicity, ppbase.middleware.error_compat, ppbase.storage.serving, ppbase.services.record_file_fields; print(ppbase.__file__)"
    ```
 
-   donnent les commits `code.buma.commit` et `code.ppbase.commit` du rapport
-   final ; deux états vides pour les fichiers suivis, critère
-   `tracked_files_clean` de la répétition (`git_state` de
-   `scripts/c11_real_rehearsal.py`) ; les fichiers non suivis, consignés, ne
-   sont que ceux de l'installation (par exemple
-   `buma_master_ppbase.egg-info/`, que `.gitignore` n'exclut pas) ; et un
+   donnent : pour BUMA, `code.buma.commit` du rapport final (`b7427fe`) ou un
+   descendant (`ancestor`) dont la différence ne liste que des fichiers sous
+   `docs/` (le rapport final lui-même est commité après `b7427fe`) ; pour
+   PPBase, exactement `code.ppbase.commit` (`069e0bb`) ; deux états vides pour
+   les fichiers suivis, critère `tracked_files_clean` de la répétition
+   (`git_state`, `scripts/c11_real_rehearsal.py:290-300`) ; des fichiers non
+   suivis, consignés, qui ne sont que ceux de l'installation (par exemple
+   `buma_master_ppbase.egg-info/`, que `.gitignore` n'exclut pas ; le build du
+   tableau de bord, `ppbase/admin/dist/`, est ignoré par Git, 2.2) ; et un
    chemin sous `<checkout PPBase>`. Sans `ppbase.models.field_multiplicity`,
    les hooks BUMA ne se chargent pas (D-0025) ; sans
-   `ppbase.middleware.error_compat`, `pb.set_error_compat` manque au
-   raccordement (D-0034) [à confirmer à l'intégration : WS-A8]. Y copier
-   aussi l'export corrigé, dont le SHA-256 est contrôlé
-   par l'outillage (`scripts/c11_import.py:42`, `:338-341`), et un checkout en
-   lecture seule de la source gelée `530018c` (C-08, `--source-migrations`).
+   `ppbase.middleware.error_compat`, `pb.set_error_compat` manque et
+   `register(pb)` échoue (`app/hooks/register.py:51`, D-0034) ;
+   `ppbase.storage.serving` et `ppbase.services.record_file_fields` portent le
+   service et les noms des fichiers (D-0037, D-0038). Ces imports ne prouvent
+   que le chemin chargé : seule l'égalité des commits fait foi. Y copier aussi
+   l'export corrigé, dont le SHA-256 est contrôlé par l'outillage
+   (`scripts/c11_import.py:42`, `:338-341`), et un checkout en lecture seule de
+   la source gelée `530018c` (C-08, `--source-migrations`).
 2. **C-46**, machines : sur l'hôte PocketBase, la machine de bascule et le
    serveur PostgreSQL, l'infrastructure relève, sans rien modifier (commandes
    Ubuntu et Debian ; équivalents sur un autre système) :
@@ -710,43 +834,48 @@ bascule ; la fenêtre n'est fixée qu'après lui.
      test, interdit (I16), utilise le SMTP importé ;
    - `PPBASE_JWT_SECRET`, secret propre à PPBase. Sans lui, PPBase génère et
      conserve `<PPBASE_DATA_DIR>/.jwt_secret` (0600) et l'annonce au
-     démarrage (`ppbase/config.py:125-171`, `ppbase/app.py:70-74`). Il ne
+     démarrage (`ppbase/config.py:129-175`, `ppbase/app.py:70-74`). Il ne
      signe et ne vérifie les jetons superuser qu'en l'absence de collection
      `_superusers` (`ppbase/api/deps.py:89-101`), ce qui n'arrive pas ici :
      la continuité des sessions repose sur `token_key` et les secrets
      `authToken` importés (contrat `docs/contracts/c11-auth-import.md` §1).
      C'est néanmoins un secret, géré selon I14 et compris dans la sauvegarde
      du dossier de données (I18) ;
-   - l'équivalent PPBase de `--origins` (`origins`, `ppbase/config.py:95`)
+   - l'équivalent PPBase de `--origins` (`origins`, `ppbase/config.py:99`)
      si PocketBase n'utilise pas la valeur par défaut `*`
      (`cmd/serve.go:55-60`) ;
    - si I2 montre un `pb_public` servi : une copie de ce dossier et
-     `PPBASE_PUBLIC_DIR`, ou `--publicDir` (`ppbase/config.py:39`,
+     `PPBASE_PUBLIC_DIR`, ou `--publicDir` (`ppbase/config.py:43`,
      `ppbase/__main__.py:667-674`, `ppbase/app.py:492-532`). Le repli sur
      `index.html` (`--indexFallback`, vrai par défaut dans 0.22.34,
      `examples/base/main.go:73-79`) et la cohabitation avec la route `GET /`
      de BUMA (10.4) sont à vérifier sur staging ; non vérifié par WS-F.
 
-   Le mode d'erreur PocketBase 0.22 (enveloppe `{code, message, data}` et
-   messages de 0.22.34) est activé par l'enregistrement des hooks BUMA,
-   `pb.set_error_compat("0.22")` (`c11/hookup`, `d0a6dc8`, D-0034), et non
-   par ce fichier [à confirmer à l'intégration] ; C-44 le contrôle.
+   Le mode PocketBase 0.22 (enveloppe d'erreur `{code, message, data}`,
+   messages de 0.22.34 et service des fichiers de 0.22.34, D-0034 et D-0037)
+   est activé par l'enregistrement des hooks BUMA, `pb.set_error_compat("0.22")`
+   (`app/hooks/register.py:51`), et non par ce fichier : la variable
+   équivalente `PPBASE_ERROR_COMPAT` (`ppbase/config.py:36-39`) reste absente
+   (une valeur non reconnue empêche le démarrage,
+   `ppbase/middleware/error_compat.py:51-53`, `:182-191`). Le mode n'existe que si
+   PPBase charge les hooks (`--hooks app.hooks.register:register`, 6.9) ;
+   C-44 le contrôle.
 4. Dossier de lancement de PPBase : un dossier vide et privé, sans `.env` ni
-   `pb_hooks/` : PPBase lit `./.env` (`ppbase/config.py:118-123`), charge les
-   fichiers `*.py` de `./pb_hooks` (`ppbase/config.py:109`,
+   `pb_hooks/` : PPBase lit `./.env` (`ppbase/config.py:122-127`), charge les
+   fichiers `*.py` de `./pb_hooks` (`ppbase/config.py:113`,
    `ppbase/services/hook_manager.py:315-326`) et les surveille
    (`ppbase/app.py:258-278`). `PYTHONPATH=<checkout BUMA>:<checkout PPBase>`
    donne le module `app` du checkout de release, puis PPBase, dans l'ordre du
-   serveur de la répétition réelle (`PPBaseServer` de
-   `scripts/c11_real_rehearsal.py`). Ne pas utiliser les cibles `make`,
+   serveur de la répétition réelle (`PPBaseServer`,
+   `scripts/c11_real_rehearsal.py:2972-3008`). Ne pas utiliser les cibles `make`,
    qui visent par défaut la base locale du port `55434`. Ne jamais passer
    l'URL PostgreSQL par `--db` : le mot de passe serait visible dans la liste
    des processus ; les outils cités lisent `PPBASE_DATABASE_URL`, et les deux
    vérificateurs de schéma visent la base locale `55434` si elle manque
-   (`scripts/verify_complete_schema.py:56-59`,
-   `scripts/verify_view_queries.py:32-35`).
-5. Créer la base PostgreSQL de production neuve et son rôle (I6) : aucune
-   donnée, aucun serveur PPBase dessus.
+   (`scripts/verify_complete_schema.py:61-64`,
+   `scripts/verify_view_queries.py:39-42`).
+5. Créer la base PostgreSQL de production neuve et son rôle (I6), avec la
+   collation retenue (2.2) : aucune donnée, aucun serveur PPBase dessus.
 6. Préparer sans l'activer la configuration du proxy vers PPBase et la page
    de maintenance ; reprendre à l'identique les limites, délais, en-têtes et
    réglages SSE de la configuration PocketBase (I7).
@@ -763,7 +892,11 @@ bascule ; la fenêtre n'est fixée qu'après lui.
    creux choisi par l'utilisateur [durée non mesurée]. La copie est conservée
    ou détruite selon I17, jamais publiée. Avec une autorisation propre (2.1),
    la répétition réelle de l'annexe A peut aussi tourner sur ce backup, dans
-   un PostgreSQL jetable, pour mesurer L10 à L17 sur la machine de bascule.
+   un PostgreSQL jetable local, pour mesurer L10 à L17 sur la machine de
+   bascule. Elle crée toujours son propre conteneur local : si PostgreSQL de
+   production est sur un autre hôte (I6), aucune répétition ne mesure L11 et
+   L13 dans cette configuration [outil non attribué] et M1 n'y vaut pas
+   (5.1) ; la fenêtre réserve alors une marge décidée par le décideur.
 8. Communication (I12) : annonce ; demander aux utilisateurs mobiles de
    synchroniser leurs opérations en attente et de ne rien saisir pendant la
    fenêtre ; prévenir les utilisateurs de la console desktop que, depuis
@@ -846,11 +979,26 @@ Méthode B — copie à froid, sous gel G-A ou G-B :
    règle de redémarrage, l'arrêter proprement et recontrôler ; ou passer à
    la méthode A, qui exige le même redémarrage.
 3. Copier `data.db`, `storage/` et, pour archive seulement, `logs.db` vers
-   `<privé>` ; manifeste SHA-256 et tailles de chaque fichier, calculé sur la
-   source arrêtée et sur la copie, puis comparé : 0 écart
-   [outil non attribué ; le format du manifeste privé,
-   `{archive_sha256, files: [{path, bytes, sha256, crc32}]}`, que produit
-   `scripts/c11_extract.py` à partir d'un ZIP, sert de modèle].
+   `<privé>` de la machine de bascule ; manifeste SHA-256 et tailles de
+   chaque fichier, calculé sur la source arrêtée et sur la copie, puis
+   comparé : 0 écart [outil non attribué ; le format du manifeste privé,
+   `{archive_sha256, files: [{path, bytes, sha256, crc32}]}`, que produisent
+   `scripts/c11_extract.py` à partir d'un ZIP et `directory_manifest`
+   (`scripts/c11_import.py:1134-1154`) à partir d'un dossier, sert de
+   modèle].
+4. Sans ZIP, C-04 et C-05 (6.4) n'ont pas d'outil ; leurs équivalents pour
+   la méthode B, à consigner comme eux :
+   - **C-04 (méthode B)** : le manifeste de l'étape 3, recalculé sur la copie
+     après son arrivée sur la machine de bascule, égal à celui de la source
+     arrêtée ; l'empreinte de ce manifeste tient lieu, dans le journal, de
+     l'empreinte de la capture ;
+   - **C-05 (méthode B)** : à la racine de la copie, un seul `data.db`,
+     `data.db-wal` et `data.db-journal` absents ou vides, aucun lien
+     symbolique ni fichier spécial dans la copie
+     (`find <copie> ! -type f ! -type d` ne rend rien) ; le diagnostic de 6.5
+     les refuse aussi (`standalone_data_db_required`,
+     `live_or_incomplete_sqlite_snapshot`, `scripts/c11_import.py:391-397` ;
+     `symlink_in_storage`, `non_regular_storage_object`, `:1030-1045`).
 
 Dans les deux cas :
 
@@ -930,8 +1078,10 @@ Dans les deux cas :
    dans le résumé, `"ok": true`, `crc_all_files_ok`,
    `sha256_all_files_recorded`, `destination_reread_verified` et
    `archive_unchanged` vrais, `archive_sha256` égal à C-04, `members` égal à
-   C-05. Durée : L5. Avec la méthode B, la copie à froid et
-   son manifeste tiennent lieu d'extraction et de C-06.
+   C-05. Durée : L5. Avec la méthode B, la copie à froid et son manifeste
+   tiennent lieu de transfert, d'inventaire, d'extraction et de C-06, et
+   C-04 et C-05 sont remplacés par leurs équivalents de 6.3 (méthode B,
+   étape 4).
 
 ### 6.5 Diagnostic de la capture (porte G2)
 
@@ -1055,15 +1205,20 @@ Contrôles :
    .venv/bin/python -m ppbase migrate status --dir pb_migrations
    ```
 
-   **C-15** : les onze migrations de la release appliquées, de `1789236840`
-   à `1789236850`, `Pending: 0`, `Orphaned: 0`. La migration `1789236850`
-   n'a aucun effet sur cette base neuve, dont PPBase corrigé crée déjà les
-   trois colonnes en `TEXT[]` ; comme elle le demande, aucun serveur PPBase
-   ne tourne pendant les migrations (un serveur resté démarré garderait des
-   requêtes préparées de l'ancien type,
-   `pb_migrations/1789236850_c11_relation_multiple_columns.py`, D-0025).
-3. Schéma, en lecture (les vues de contrôle sont temporaires,
-   `scripts/verify_view_queries.py:57-76`) :
+   **C-15** : les douze migrations de la release appliquées, de
+   `1789236840` à `1789236851` (`12 migration(s) applied.`, comme
+   `passes[i].checks.target_before_import.migrations_applied` du rapport
+   final), `Pending: 0`, `Orphaned: 0`, toutes **avant l'import**. La
+   migration `1789236850` n'a aucun effet sur cette base neuve, dont PPBase
+   corrigé crée déjà les trois colonnes en `TEXT[]` (D-0025) ; `1789236851`
+   recrée treize vues et crée la fonction `buma_source_rowids`, qui lira
+   l'archive `_buma_c11_rowids` créée par l'import (D-0039). Comme elles le
+   demandent, aucun serveur PPBase ne tourne pendant les migrations : un
+   serveur resté démarré garderait des requêtes préparées de l'ancien type
+   (`pb_migrations/1789236850_c11_relation_multiple_columns.py`,
+   `pb_migrations/1789236851_c11_view_sqlite_semantics.py:101-102`).
+3. Schéma, en lecture (les vues de contrôle sont temporaires et créées dans
+   une transaction, `scripts/verify_view_queries.py:115-143`) :
 
    ```sh
    .venv/bin/python scripts/verify_complete_schema.py --schema <export corrigé>
@@ -1074,16 +1229,19 @@ Contrôles :
    valeur par défaut, convient à une base neuve. **C-16** : `"ok": true`
    (114 définitions ; métadonnées d'index égales à l'export plus l'index
    source de D-0022 ; 191 colonnes relationnelles, les trois multiples en
-   `text[]` avec index GIN) et 42 vues sur 42 en `OK`. Durée des étapes 2 à
-   4 : L10.
+   `text[]` avec index GIN) et 42 vues sur 42 en `OK`, les treize vues de
+   `1789236851` vérifiées avec la requête que cette migration enregistre
+   (`view_queries_of` `1789236851` dans les deux rapports). Durée des étapes
+   2 à 4 : L10.
 4. Graines C5 : la migration `1789236846` insère 24 lignes
    (`STOCK_PRINCIPAL`, trois moyens de paiement, `CUSTOMER_DIVERS`,
    `SUPPLIER_DIVERS` et 18 rôles applicatifs). Le backup contient leurs
    versions source, créées par le bootstrap de PocketBase
    (`master.setup.ts`), et l'importeur refuse une cible non vide. Les
    répétitions ne les retirent que dans la base qu'elles viennent de créer,
-   par leur harnais (`scripts/c11_rehearsal.py:1949-1956` ; `prepare_target`
-   de `scripts/c11_real_rehearsal.py`, `seed_rows_removed` à 24).
+   par leur harnais (`remove_fresh_seeds`, `scripts/c11_rehearsal.py:1892-1899` ;
+   `prepare_target`, `scripts/c11_real_rehearsal.py:1934-1987`,
+   `seed_rows_removed` à 24 dans le rapport final).
    [outil non attribué] : une commande qui refuse si la base n'est pas celle
    de C-14 juste migrée (exactement les 24 lignes de `1789236846`, aucun
    `_superusers`, aucun paramètre `settings`), les supprime en une
@@ -1133,10 +1291,25 @@ Contrôles :
    et les paramètres que PPBase sait représenter (`meta`, `logs`, `smtp`,
    modèles d'email) ; `s3`, `backups`, OAuth2 et `_externalAuths` ne sont pas
    importés (D-0027). Aucun secret n'est journalisé. À faire **avant** tout
-   démarrage de PPBase sur cette base : sans superuser, PPBase crée un jeton
-   d'installation dans `_params` et imprime une URL d'installation dans sa
-   console (`ppbase/app.py:189-214`), et l'import refuserait ensuite la
-   cible.
+   démarrage de PPBase sur cette base. Sans superuser, le démarrage n'écrit
+   dans la base que la ligne `_params` de clé `_setup_token` (seule écriture
+   que la répétition synthétique admet dans ce cas,
+   `scripts/c11_rehearsal.py:2412-2431`) et imprime
+   dans sa console une URL d'installation à usage unique
+   (`ppbase/app.py:189-214`, `ppbase/services/setup_service.py:13-38`).
+   Cette ligne seule ne bloque
+   pas l'import, qui ne refuse qu'une des 72 tables non vide
+   (`target_not_empty`), une archive d'un import antérieur
+   (`rowid_archive_exists`, `auth_archive_exists`), `_superusers` non vide
+   (`superusers_target_not_empty`) ou une clé `settings` dans `_params`
+   (`settings_target_not_empty`) (`scripts/c11_import.py:2826-2835`,
+   `scripts/c11_auth_import.py:698-707`). Mais tant qu'aucun superuser
+   n'existe, quiconque lit cette URL dans le journal peut créer un superuser,
+   et la première lecture des paramètres (`GET /api/settings`, tableau de
+   bord) crée la clé `settings` (`ppbase/api/settings.py:112-126`,
+   `:370-381`) : l'import serait alors refusé ; et la ligne `_setup_token`
+   resterait après l'import, contre C-25. Un démarrage avant l'import est
+   donc consigné, puis ces conditions sont vérifiées avant l'étape 5.
 7. Échec à l'une de ces étapes : NO-GO, retour arrière avant ouverture (8.2).
    La base reste en l'état pour analyse ; elle n'est ni vidée ni réutilisée
    sans décision.
@@ -1164,8 +1337,8 @@ seule sur la base de production, rapport agrégé dans `<privé>`). Durée : L13
 | C-23 Doublons mobile | groupes et lignes égaux à C-09 ; aucune ligne supprimée |
 | C-24 Comptes utilisateurs | `users` et `agent_users` : nombres égaux ; hash bcrypt et `tokenKey` identiques pour 100 % des records, comparés sans affichage |
 | C-25 Superusers | nombre égal à `_admins` de la capture ; email, hash, `tokenKey` et avatar repris ; aucun jeton d'installation dans `_params` |
-| C-26 Paramètres | nom, SMTP et durées des jetons égaux à la source, secrets présents et jamais affichés ; `meta.appURL` égal à l'URL publique des clients après la bascule (avec U-A, celle de la source ; sinon décision avant G0), car c'est la seule base des liens envoyés par email, `http://localhost:8090` s'il manque ou n'est pas une URL absolue (I16) ; S3 désactivé ; `backups.cron` vide (non importé, avertissement `backup_schedule_not_imported`) ou valeur décidée avec I13 et I18 ; `rateLimiting` et `rateLimits` désactivés (`ppbase/middleware/rate_limit.py:26-30`, `ppbase/api/settings.py:94-102`), PocketBase 0.22.34 n'en ayant pas ; `batch` selon la décision de 10.4 ; environnement du service : `PPBASE_SMTP_*` conforme à I16 et `PPBASE_DEV` absent |
-| C-27 Schéma après import | C-15 et C-16 rejoués : 114 définitions, 42 vues, `Pending: 0` |
+| C-26 Paramètres | nom, SMTP et durées des jetons égaux à la source, secrets présents et jamais affichés ; `meta.appURL` égal à l'URL publique des clients après la bascule (avec U-A, celle de la source ; sinon décision avant G0), car c'est la seule base des liens envoyés par email, `http://localhost:8090` s'il manque ou n'est pas une URL absolue (I16) ; S3 désactivé ; `backups.cron` vide (non importé, avertissement `backup_schedule_not_imported`) et laissé vide, la sauvegarde native de PPBase refusant cette base (C-47, I18) ; `rateLimiting` et `rateLimits` désactivés (`ppbase/middleware/rate_limit.py:26-30`, `ppbase/api/settings.py:94-102`), PocketBase 0.22.34 n'en ayant pas ; `batch` selon la décision de 10.4 ; environnement du service : `PPBASE_SMTP_*` conforme à I16 et `PPBASE_DEV` absent |
+| C-27 Schéma après import | C-15 et C-16 rejoués : 114 définitions, 42 vues, `Pending: 0` ; signature du schéma égale à celle d'avant l'import, hors les deux archives de l'import (`_buma_c11_rowids`, `_buma_c11_auth_archive`), comme `passes[i].checks.schema_after_import` du rapport final (`only_import_archives_added`) |
 | C-28 Horloge | `now()` de PostgreSQL et horloge de l'hôte PPBase postérieurs au plus grand `created` ou `updated` importé ; NTP synchronisé [outil non attribué] |
 | C-29 Source inchangée | SHA-256 du `data.db` de la capture égal avant et après l'import |
 
@@ -1181,7 +1354,9 @@ numéros en double.
    (septembre : 1 282 objets, dont 601 `.attrs`, 80 miniatures et 5 autres
    objets non référencés, tous conservés ; PocketBase lit dans les `.attrs`
    les attributs des fichiers, dont leur type, par exemple
-   `apis/file.go:166-172`). Le dossier est un vrai dossier, propriété de
+   `apis/file.go:166-172`, et PPBase les lit de même pour servir le type et
+   la disposition de PocketBase, D-0037 : sans eux, il retomberait sur le
+   type de l'extension). Le dossier est un vrai dossier, propriété de
    l'utilisateur du service PPBase, sans accès pour les autres. Jamais de
    lien symbolique ni de montage partagé avec `pb_data/storage` de
    PocketBase : PPBase refuse une racine liée
@@ -1193,7 +1368,7 @@ numéros en double.
    `storage_inventory` et `directory_manifest` de
    `scripts/c11_import.py:1030-1045` et `:1134-1154`, et la répétition
    synthétique, qui compare le `storage/` servi à l'inventaire source,
-   `scripts/c11_rehearsal.py:2491`]. Durée : L14.
+   `scripts/c11_rehearsal.py:2433-2434`]. Durée : L14.
 3. Les fichiers référencés absents (2 303 en septembre) restent absents ;
    aucun fichier de remplacement.
 4. Option à décider : pré-copie de `storage/` avant le gel pour raccourcir la
@@ -1208,9 +1383,10 @@ Démarrer PPBase **sous le gestionnaire de service de production** (I5) dès
 cette étape : utilisateur système dédié, fichier d'environnement 0600 de 6.1,
 dossier de lancement vide (6.1, étape 4), politique de redémarrage décidée,
 écoute en boucle locale ou sur une adresse réservée à l'opérateur, les
-clients restant en maintenance. La ligne de commande est celle des
-répétitions (`scripts/c11_rehearsal.py:2284-2320`, `PPBaseServer` de
-`scripts/c11_real_rehearsal.py`), sans `--db` :
+clients restant en maintenance. La ligne de commande est celle du serveur
+de la répétition réelle (`PPBaseServer.command_line`,
+`scripts/c11_real_rehearsal.py:3000-3008`), sans `--db` (la répétition
+synthétique le passe pour sa base jetable, `scripts/c11_rehearsal.py:2240-2263`) :
 
 ```sh
 <checkout BUMA>/.venv/bin/python -m ppbase serve \
@@ -1226,7 +1402,7 @@ est d'abord lancé hors service, rejouer C-31, C-44 et C-41 après le passage
 sous service, avant G5, et le consigner. `--generate-migrations` reste
 désactivé sauf décision (I2) : actif, une modification de collection dans le
 tableau de bord écrit un fichier dans le dossier des migrations
-(`ppbase/config.py:179-183`). Durée du démarrage : L15.
+(`ppbase/config.py:183-187`). Durée du démarrage : L15.
 
 Contrôles en lecture seule, sans écriture métier sur la production ; records
 choisis en privé, jamais cités. Jamais d'appel à `POST
@@ -1240,10 +1416,24 @@ avant le jour J (scénarios ci-dessous). Règles de comparaison :
 
 - statut HTTP identique ;
 - `Content-Type` identique ; seule exception possible, la classe
-  `json_content_type_charset` (10.4), si elle est décidée ;
+  `json_content_type_charset` (`application/json` au lieu de
+  `application/json; charset=UTF-8`, sans effet sur les SDK, D-0034 ; 10.4),
+  si elle est acceptée avant G0 ;
 - pour les fichiers, `Content-Type`, `Content-Disposition`,
   `Content-Length`, `Cache-Control` et `Content-Security-Policy` identiques,
   et `X-Frame-Options` absent comme dans PocketBase (`apis/file.go:203-206`) ;
+  `ETag` en plus dans PPBase (D-0037) ;
+- en-têtes de sécurité : PocketBase 0.22.34 envoie sur toute réponse
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` et
+  `X-Xss-Protection: 1; mode=block` (`middleware.Secure()` d'echo,
+  `apis/base.go:53`), sauf `X-Frame-Options` retiré des fichiers ; PPBase
+  `069e0bb` n'envoie `X-Content-Type-Options` et `X-XSS-Protection` que sur
+  les fichiers servis (`ppbase/storage/serving.py:121-129`), aucun des trois
+  ailleurs, et ajoute `server: uvicorn`. Mesuré par WS-F3 en boucle locale
+  sur le binaire officiel et sur PPBase avec les hooks BUMA, bases
+  synthétiques vides : santé, liste, 404, `/_/` et `/`. Écart ouvert (10.4),
+  à corriger ou à décider avant G0 ; à comparer aussi derrière le proxy
+  (I7), qui peut ajouter ou retirer ces en-têtes ;
 - corps JSON comparés comme valeurs : ordre des clés d'objet ignoré, traité à
   part par D-0029 ; nombres comparés par leur texte ;
 - jetons comparés par leur en-tête et leurs claims, hors `iat` et `exp` ;
@@ -1274,13 +1464,17 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   PocketBase 0.22.34 répond
   `{"code":400,"message":"Failed to authenticate.","data":{}}`
   (`forms/record_password_login.go:83-85`, `apis/record_auth.go:316-317`,
-  `apis/api_error.go:11-16`, `:67-89`) ; PPBase `237b403` renseigne
-  `data.identity` (`app/auth/login.py:108-113`,
-  `ppbase/api/record_auth.py:286-291`). Le mode d'erreur 0.22 de WS-A6
-  réécrit ce `data` en `{}` pour les connexions natives (`docs/error-compat.md`
-  de `c11/ws-a6`) ; le même effet sur la connexion par username de BUMA est
-  [à confirmer à l'intégration]. Sans correction ni décision avant G0 (10.4),
-  C-33 échoue.
+  `apis/api_error.go:11-16`, `:67-89`). PPBase construit l'échec avec
+  `data.identity` (`ppbase/api/record_auth.py:289-294`, repris par la
+  connexion par username de BUMA, `app/auth/login.py:109-114`) et le mode 0.22
+  le réécrit en `data: {}` sur les routes de connexion
+  (`ppbase/middleware/error_compat.py:540-550`). Mesuré à l'état intégré : la
+  répétition synthétique (D-0040) donne le statut et le corps de PocketBase
+  0.22.34 pour les mauvais mots de passe `users` par username, `agent_users`
+  par email et administrateur (`users_wrong_password`,
+  `agent_wrong_password`, `admin_wrong_password` de
+  `comparison_with_pocketbase.results`, `docs/c11-synthetic-rehearsal-report.json`),
+  `Content-Type` à part (10.4). Un autre corps est un échec.
 - **C-34** : continuité des sessions : le jeton PocketBase de 6.1 de chaque
   compte de contrôle est accepté après l'import : `POST
   /api/collections/<collection>/auth-refresh` pour `users` et `agent_users`,
@@ -1305,19 +1499,26 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   consigne la destruction, sans valeur : ces jetons restent valides jusqu'à
   leur expiration.
 - **C-35** : l'administrateur se connecte (`POST
-  /api/admins/auth-with-password`) et ouvre le tableau de bord `/_/` ;
-  72 collections et 42 vues listées ; aucune modification.
-- **C-44** : mode d'erreur PocketBase 0.22 actif [à confirmer à
-  l'intégration : WS-A8 et `c11/hookup`]. Avec le jeton administrateur de C-35,
-  `GET /api/collections/users/records/<ID inexistant de 15 caractères>`
+  /api/admins/auth-with-password`) et ouvre le tableau de bord `/_/`, construit
+  au préalable (2.2) ; 72 collections et 42 vues listées ; aucune
+  modification, pas même l'enregistrement d'un écran de paramètres (une
+  première lecture des paramètres n'écrit rien ici, la clé `settings` existant
+  déjà après l'import).
+- **C-44** : mode PocketBase 0.22 actif. Avec le jeton administrateur de
+  C-35, `GET /api/collections/users/records/<ID inexistant de 15 caractères>`
   répond 404 avec la clé `code` à 404 et sans clé `status`, comme PocketBase
   0.22.34 : `{"code":404,"message":"The requested resource wasn't
   found.","data":{}}` (`apis/record_crud.go:171-174`,
-  `apis/api_error.go:31-38`, `:67-89`). PPBase `237b403` sert `code` à côté
-  de `status` (`ppbase/app.py:426-429`) ; selon le projet D-0034, WS-A8
-  retire cette recopie hors du mode 0.22 [à confirmer à l'intégration].
-  Dans les deux cas, sans `pb.set_error_compat("0.22")` (6.1, étape 3),
-  C-44 échoue.
+  `apis/api_error.go:31-38`, `:67-89`). PPBase `069e0bb` répond par défaut
+  l'enveloppe de la version actuelle, `{status, message, data}`
+  (`ppbase/app.py:534-609`), et, sous le mode 0.22 que BUMA active, celle et
+  les messages de 0.22.34 (`ppbase/app.py:611-618`,
+  `ppbase/middleware/error_compat.py`, D-0034). Mesuré à l'état intégré :
+  enveloppes d'erreur identiques à l'octet dans la répétition synthétique
+  (D-0040) et 0 échec sur les 414 contrôles HTTP de la répétition réelle,
+  refus compris (D-0041). Une réponse avec `status`, ou sans `code`, signale
+  un PPBase lancé sans les hooks BUMA ou sans `pb.set_error_compat("0.22")`
+  (6.1, étape 3) : C-44 échoue.
 - **C-36** : lectures natives avec un compte de contrôle : liste filtrée de
   `buma_transaction` avec `expand=article,author` (enveloppe `page`,
   `perPage`, `totalItems`, `totalPages`, `items`) ; une vente dont le client
@@ -1327,34 +1528,51 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   `buma_stockage_no_manager` et `buma_stock_transaction_list_view`, rowids
   égaux à la source ; une liste lisible sans compte, avec `expand` vers une
   cible dont la viewRule n'est pas publique : aucun record protégé développé
-  (D-0033, `apis/record_helpers.go:153-174`, `:177-210`) [à confirmer à
-  l'intégration : WS-A8] ; la vue publique `buma_article_stockage_list_view`,
-  dont les ids se répètent (989 lignes pour 42 ids distincts en septembre,
-  D-0035) : `totalItems` égal au nombre d'ids distincts et `totalPages`
-  calculé dessus, comme PocketBase (`COUNT(DISTINCT id)`,
-  `tools/search/provider.go:238-256`), items inchangés [à confirmer à
-  l'intégration : WS-A8].
+  (D-0033, `apis/record_helpers.go:153-174`, `:177-210` ; intégré dans PPBase
+  `069e0bb`, prouvé par la sonde appariée de PPBase
+  `tests/pocketbase_parity/expand_rules_probe.py` ; la répétition réelle ne
+  développe qu'avec le superuser) ; la vue publique
+  `buma_article_stockage_list_view`, dont les ids se répètent (989 lignes pour
+  42 ids distincts en septembre, D-0035) : `totalItems` égal au nombre d'ids
+  distincts et `totalPages` calculé dessus, comme PocketBase
+  (`COUNT(DISTINCT id)`, `tools/search/provider.go:238-256` ; PPBase
+  `ppbase/services/record_service.py:1103-1114`), items inchangés, comme
+  l'ont mesuré les totaux de la répétition réelle (D-0041) ; une vue dont une
+  colonne vient d'un LEFT JOIN sans correspondance sert la valeur zéro du
+  type (`""`, `0`, `false`, `[]`) et non `null`, comme PocketBase (D-0036) ;
+  pour les vues de D-0039 (par exemple la vue des dépenses), numérotation et
+  concaténations égales à la source, nombres et booléens selon l'acceptation
+  de D-0039 (2.1).
 - **C-37** : fichiers : échantillon de fichiers présents, d'images ou de PDF
   (servis `inline` par PocketBase) et d'autres types (servis `attachment`),
   téléchargés par `/api/files/<collectionId>/<recordId>/<fichier>` : octets
   égaux au manifeste, et statut et en-têtes égaux à ceux de PocketBase
-  0.22.34 selon les règles ci-dessus (aucun des 20 champs fichiers de
-  l'export n'est protégé). PocketBase sert le type enregistré dans les
-  `.attrs` à l'envoi, avec `Content-Disposition` `inline; filename=<nom>`
-  ou `attachment; filename=<nom>`, et retire `X-Frame-Options`
-  (`tools/filesystem/filesystem.go:168-215`, `:367-377`, `:393-430` ;
-  `apis/file.go:203-206`) ; PPBase `237b403` déduit le type de l'extension et
-  n'envoie `Content-Disposition` qu'avec `download`
-  (`ppbase/api/files.py:141-145`, `:1117-1145`) : sans correction (WS-A7, en
-  relecture) ni décision avant G0, C-37 échoue. Une référence de fichier
-  absent répond 404 « The requested resource wasn't found. » dans les deux
-  systèmes (`apis/file.go:213-215`, `apis/api_error.go:31-38` ;
-  `ppbase/api/files.py:84-92`), dans l'enveloppe de C-44. Aucune miniature
-  avant l'ouverture : la demande en crée une (`apis/file.go:162-193`) ; les
-  miniatures sont testées sur staging.
+  0.22.34 selon les règles ci-dessus (aucun des 20 champs fichiers des
+  collections de l'export, 34 avec les vues, n'est protégé). PocketBase sert
+  le type enregistré dans les `.attrs` à l'envoi, avec `Content-Disposition`
+  `inline; filename=<nom>` ou `attachment; filename=<nom>`, et retire
+  `X-Frame-Options` (`tools/filesystem/filesystem.go:168-215`, `:367-377`,
+  `:393-430` ; `apis/file.go:203-206`). PPBase `069e0bb` sert de même sous le
+  mode 0.22 (D-0037) : type lu dans le side-car `.attrs`
+  (`ppbase/api/files.py:203-223`), `Content-Disposition`, `Content-Type`,
+  `Content-Security-Policy`, `Cache-Control` et en-têtes de sécurité des
+  fichiers (`ppbase/api/files.py:1226-1247`, `ppbase/storage/serving.py:113-129`),
+  sonde appariée sans différence inattendue (D-0037) ; écarts restants :
+  `ETag` en plus, pas de `304` ni de `412` sur une requête conditionnelle
+  (10.4). Ces octets et en-têtes n'ont été comparés que sur données
+  synthétiques, faute d'octets réels sur le serveur (D-0041). Une référence
+  de fichier absent répond 404 « The requested resource wasn't found. » dans
+  les deux systèmes (`apis/file.go:213-215`, `apis/api_error.go:31-38` ;
+  `ppbase/api/files.py:151-159`), dans l'enveloppe de C-44. Aucune miniature
+  avant l'ouverture : la demande en crée une, dans les deux systèmes, avec
+  son side-car chez PPBase (`apis/file.go:162-193` ; D-0037), ce qui
+  modifierait le `storage/` contrôlé par C-30 ; les miniatures sont testées
+  sur staging.
 - **C-38** : realtime : connexion `GET /api/realtime` reçue avec
   `PB_CONNECT`, abonnement accepté ; la réception d'événements, qui demande
-  une écriture, est testée sur staging.
+  une écriture, est testée sur staging, y compris l'écart restant de D-0033 :
+  un événement `delete` ne porte que l'id et ne part qu'aux admins et aux
+  abonnements à règle publique sans filtre.
 - **C-39** (recommandé, référence des réponses de C-31 à C-38) : mêmes
   lectures sur un PocketBase 0.22.34 lancé sur une **copie** de la capture
   avec les hooks de production, en boucle locale, jamais sur le `pb_data` de
@@ -1364,11 +1582,23 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
 - **C-40** : mêmes lectures avec le SDK des clients (I8)
   [outil non attribué]. `scripts/c10_sdk_probe.mjs` écrit des données :
   jamais sur la production.
-- **C-41** : comptages et empreintes des 72 tables de collections égaux
-  avant et après ces contrôles [outil non attribué ; la répétition réelle le
-  fait dans son seul conteneur, phase `after_http_checks`, L17] ; seul le
-  journal de requêtes de PPBase, `_requests`, hors de ces tables, grossit
-  (`ppbase/middleware/request_logger.py:1-6`).
+- **C-41** : avant et après ces contrôles, PPBase arrêté pour la seconde
+  mesure, égaux : comptages et empreintes stockées des 72 tables de
+  collections, des deux archives de l'import (`_buma_c11_rowids`,
+  `_buma_c11_auth_archive`), de `_collections`, `_params` et `_superusers` ;
+  comptes, hash, `tokenKey` et dates égaux à la source ; signature du schéma
+  (tables, colonnes, défauts, contraintes, déclencheurs, fonctions, index et
+  corps des vues) inchangée. C'est le périmètre de la phase
+  `after_http_checks` de la répétition réelle (`passes[i].checks.after_http` :
+  `tables_changed_by_server_and_reads` vide,
+  `accounts_equal_to_source_after_reads` et `schema_unchanged_by_server`
+  vrais ; `scripts/c11_real_rehearsal.py:4069-4071`, `:4088-4120`), qui ne
+  s'exécute que dans son conteneur [outil non attribué pour la production ;
+  L17]. Seul le journal de requêtes de PPBase, `_requests`, hors de ce
+  périmètre, grossit (`ppbase/middleware/request_logger.py:1-6` ; R12). Les
+  connexions et refresh de C-33 à C-35 n'écrivent rien : la répétition
+  synthétique n'a relevé, pendant ses 84 sondes, que l'écriture voulue de sa
+  sonde realtime (`writes_during_http_probes`, D-0040).
 
 Staging, avant le jour J et obligatoire pour la porte G0, sous
 l'autorisation de 2.1 (I23) : base PostgreSQL jetable chargée depuis un
@@ -1405,13 +1635,26 @@ Scénarios, résultats validés par les référents métier :
 
 - desktop : connexion, écrans principaux, vente, retour, opérations de
   caisse ; console `executeSql` avec une requête PostgreSQL contenant `id`,
-  puis lecture native de `buma_sql_table` page 1, `perPage` 1000 (D-0018) ;
-  appels éventuels à `POST /sql` (I8) ;
+  puis lecture native de `buma_sql_table` page 1, `perPage` 1000 (D-0018),
+  plusieurs fois de suite, sans erreur après la réécriture de la vue
+  (requête préparée, 10.4) ; appels éventuels à `POST /sql` (I8) ;
 - mobile : connexion, refresh, synchronisation, opération avec
   `mobile_message_id` rejouée deux fois (une seule écriture), rejeu d'une file
   hors ligne ; usage éventuel de `isAuthRecord` après un refresh (D-0027) ;
-- administration : tableau de bord, consultation et édition de records de
-  test ; filtres sur des dates vides (D-0032) ;
+- administration : tableau de bord construit (2.2), consultation et édition
+  de records de test ; filtres sur des dates vides (D-0032) ;
+- vues : écrans qui lisent les vues de D-0036 et D-0039 (valeurs zéro des
+  LEFT JOIN sans correspondance, numérotation et pagination des vues
+  numérotées, nombres et booléens servis selon l'acceptation de D-0039,
+  filtres `= ""` et tris sur une colonne NULL de vue selon celle de D-0036) ;
+  temps de réponse des écrans qui lisent la vue des dépenses, comparés à L20
+  et validés par les référents métier ;
+- écritures : booléens envoyés en FormData avec un fichier, en chaîne JSON ou
+  en clé répétée, enregistrés comme en production (D-0042) ; mise à jour d'un
+  record de test dont un booléen requis vaut `false` sans changer ce champ,
+  acceptée par PPBase et refusée par PocketBase (validation partielle de
+  D-0042, selon son acceptation) ; référence à un fichier non téléversé dans
+  le record refusée en 400 (D-0038) ;
 - SDK, fichiers et realtime : écritures, envoi et téléchargement de
   fichiers avec leurs en-têtes, miniatures, événements, avec un outil
   paramétrable (URL cible, comptes de test, aucun accès direct à la base,
@@ -1437,7 +1680,8 @@ Scénarios, résultats validés par les référents métier :
 | U-C, nouvelle URL dans les clients | nouvelle version ou configuration des clients desktop et mobile | lent : nouvelle diffusion des clients |
 
 1. Basculer l'amont vers PPBase avec la configuration préparée (6.1) : mêmes
-   limites, délais, en-têtes et SSE sans mise en tampon ; CORS identique
+   limites, délais, en-têtes (de sécurité compris, selon la décision de 10.4)
+   et SSE sans mise en tampon ; CORS identique
    (`--origins` de PocketBase contre `origins` de PPBase) ; certificat
    valide.
 2. **C-42** : par l'URL publique, avant la levée de la maintenance si le
@@ -1469,12 +1713,20 @@ Pendant la surveillance renforcée, d'une durée fixée par le décideur (I21) :
   révocation globale seulement par 6.12 ;
 - PostgreSQL : violations de contraintes, interblocages, attentes de verrous,
   saturation des connexions (10 + 20 par processus PPBase, I6), requêtes
-  lentes, disque et WAL ;
+  lentes, disque et WAL ; en particulier la vue des dépenses
+  `buma_caisse_transaction_by_categorie_list_view`, 2,5 à 3,5 fois plus lente
+  depuis `1789236851` (L20, D-0039) : durées du comptage, de la première page
+  et des listes complètes comparées à L20, seuil fixé par le décideur (I21) ;
 - métier : numéros de transaction sans doublon, rejeux mobiles sans doublon
   (retour, recharge et conversion recherchent la clé d'idempotence, D-0022),
   ouverture et fermeture des sessions de caisse, soldes cohérents selon les
-  référents ;
-- fichiers : envois et téléchargements, avec leurs en-têtes ;
+  référents ; mises à jour que PocketBase aurait refusées pour un champ
+  requis non modifié (D-0042), invisibles dans les statuts : à suivre selon
+  la décision de 2.1 ;
+- fichiers : envois et téléchargements, avec leurs en-têtes. Un fichier
+  envoyé à PPBase n'a pas de side-car `.attrs` et une suppression laisse le
+  side-car en place (D-0037 ; `docs/file-serving.md` de PPBase, « Known
+  differences with PocketBase ») : à relever pour le retour arrière (8.3) ;
 - journal de requêtes PPBase : chaque requête est enregistrée dans
   `_requests` (`ppbase/middleware/request_logger.py:1-6`), avec des extraits
   de corps de requête et de réponse jusqu'à 32 Kio et le seul masquage des
@@ -1487,11 +1739,36 @@ Pendant la surveillance renforcée, d'une durée fixée par le décideur (I21) :
   `hide_parameters` (`ppbase/db/engine.py:45-49`, D-0027) ; chaque email
   envoyé y laisse son destinataire (`ppbase/services/mail_service.py:69-72`) ;
   `PPBASE_DEV` reste désactivé ; accès restreint et conservation décidée ;
-- sauvegardes : PostgreSQL et dossier de données PPBase selon I18 ;
-  sauvegardes natives de PPBase seulement si `backups.cron` est renseigné
-  (`ppbase/backup/automation.py:144-175`, lancées par
-  `ppbase/app.py:280-284`) : à surveiller dans ce cas (rotation
-  `cronMaxKeep`, archives dans le dossier de données).
+- sauvegardes : PostgreSQL par `pg_dump` et dossier de données PPBase selon
+  I18 (C-47). Les sauvegardes natives de PPBase, lancées seulement si
+  `backups.cron` est renseigné (`ppbase/backup/automation.py:144-175`,
+  `ppbase/app.py:280-284`), refusent cette base : `backups.cron` reste vide
+  (C-26).
+- **C-47**, sauvegarde et restauration d'essai. La sauvegarde native de
+  PPBase refuse une table hors de son modèle et tout déclencheur ou fonction
+  non géré (`ppbase/backup/native.py:276-289`,
+  `ppbase/backup/schema_contract.py:29-33`) : ici les archives de l'import
+  (`_buma_c11_rowids`, `_buma_c11_auth_archive`), la fonction et les
+  déclencheurs rowid de `1789236848` (`buma_allocate_sqlite_rowid`,
+  `buma_sqlite_rowid` sur `users` et `buma_article`) et la fonction
+  `buma_source_rowids` de `1789236851` (D-0039). Or `_buma_c11_rowids` et
+  `buma_source_rowids` portent les rowids source de tous les records importés
+  (`passes[i].checks.rowids.archive_rows` du rapport final : 1 188 247), la
+  numérotation des sept vues `ROW_NUMBER()` et l'ordre des concaténations de
+  D-0039 ; sans l'archive, cet ordre retombe sur `created, id`
+  (`pb_migrations/1789236851_c11_view_sqlite_semantics.py:89-99`). Ils sont
+  donc conservés après la bascule, et toute sauvegarde ou restauration de la
+  base passe par `pg_dump` de la base entière (format personnalisé) et
+  `pg_restore` dans une base neuve, aucun serveur PPBase ne tournant sur la
+  base restaurée pendant la restauration. Critère, avant la fin de la
+  surveillance renforcée : une première sauvegarde faite, puis restaurée à
+  l'essai dans une base jetable, jamais sur la production :
+  `_buma_c11_rowids` y compte autant de lignes que de records importés
+  (C-17), `_buma_c11_auth_archive` y est, les deux fonctions et les deux
+  déclencheurs aussi, et `scripts/verify_complete_schema.py` et
+  `scripts/verify_view_queries.py` y sont conformes (C-16) ; empreinte de la
+  sauvegarde consignée [outil non attribué pour comparer la numérotation des
+  vues entre la base et sa restauration]. Non exécuté par les répétitions.
 
 Fin : le décideur clôt la surveillance ; `H_stop` est revérifiée ; PocketBase
 et la capture sont conservés selon I17.
@@ -1557,27 +1834,30 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | Porte | Critère | Seuil |
 | --- | --- | --- |
 | G0 | autorisations (2.1) et informations I1 à I25 | 100 % fournies |
-| G0 | code de release et PPBase exigé (2.2, C-45) | commits du rapport final, fichiers suivis inchangés, `ppbase.models.field_multiplicity` et `ppbase.middleware.error_compat` présents |
-| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques, divergences acceptées seulement par décision ; durées de 5.1 et ressources de 5.2 reportées |
+| G0 | code de release et PPBase exigé (2.2, C-45) | BUMA : `code.buma.commit` du rapport final ou descendant dont la différence ne touche que `docs/` ; PPBase : `code.ppbase.commit` (`069e0bb`) ; fichiers suivis inchangés ; modules de C-45 présents |
+| G0 | répétition réelle finale (`docs/c11-real-rehearsal-report.json`) | `status` passed, deux passages identiques ; après les acceptations de 2.1, `acceptance_still_requested` vide et `accepted_divergences` limité aux trois codes acceptés ; durées de 5.1 et ressources de 5.2 reportées |
+| G0 | acceptations de l'utilisateur (2.1) : D-0029, D-0036, D-0039, D-0042 | une ligne `Statut : acceptée par l'utilisateur le AAAA-MM-JJ` dans chacune des quatre sections, ou correction intégrée et bancs de l'annexe A rejoués |
+| G0 | tableau de bord PPBase et collation de la base de production (2.2) | `/_/` construit et servi sur staging ; texte trié par octets, ou écart décidé |
+| G0 | politique de sauvegarde (2.1, I18, C-47) | `pg_dump` de la base entière retenu, `backups.cron` vide |
 | G0 | porte de release (annexe A) | 0 échec ; 100 % des échecs PPBase antérieurs analysés |
 | G0 | outils de 10.2 nécessaires aux portes G1 à G4, dont l'import de production | écrits, relus, testés, autorisés |
 | G0 | version de la production (2.2, C-02) | binaire 0.22.34, empreinte officielle |
 | G0 | révision des hooks et migrations déployés (2.2) | hooks égaux au build de `530018c`, toute différence décidée ; 0 migration en attente |
 | G0 | gel du schéma et diagnostic à blanc (2.4, 6.1) | règles de 2.4 respectées ; C-05 et C-07 à C-13 conformes ; L4 à L9 mesurées en mode complet |
 | G0 | machines (C-46) | décision consignée pour chaque hôte |
-| G0 | écarts et constats de la section 10 | 100 % corrigés ou décidés ; D-0029 accepté ou corrigé |
+| G0 | écarts et constats de la section 10 | 100 % corrigés ou décidés, en-têtes de sécurité, emails et STARTTLS compris (10.4) |
 | G0 | staging autorisé et isolé ; scénarios desktop, mobile et administration | 100 % passants |
 | G1 | machines revérifiées avant le gel (C-46) | aucune exécution planifiée dans la fenêtre, ou décision appliquée |
 | G1 | requêtes transmises à PocketBase après `T_gel` (C-01) | 0 hors opérateur |
 | G1 | version du binaire (C-02) | 0.22.34, empreinte officielle |
-| G1 | inventaire (C-05) | 0 blocage, 1 `data.db`, WAL et journal absents ou vides |
-| G1 | empreintes de capture, transfert et extraction (C-03, C-04, C-06) | 0 écart |
+| G1 | inventaire (C-05 ; méthode B : son équivalent de 6.3) | 0 blocage, 1 `data.db`, WAL et journal absents ou vides ; méthode B : aucun lien ni fichier spécial |
+| G1 | empreintes de capture, transfert et extraction (C-03, C-04, C-06 ; méthode B : équivalent de C-04 et manifeste de la copie) | 0 écart |
 | G2 | intégrité et schéma (C-07) | `ok`, 0 dérive sur 114, hors règle `buma_sql_table` décidée (2.4) |
 | G2 | `_migrations` (C-08) | a) 325 sur 326, seule `1785599959` absente ; b) 14 sur 14 ; c) 0 disparue, 0 nouvelle hors console |
 | G2 | clés `idem:` dupliquées (C-09), records postérieurs à `T_gel` ou `T_gel'` (C-10) | 0 et 0 |
 | G2 | diminutions de comptage (C-11) | toutes expliquées et acceptées |
 | G2 | situations non couvertes (C-13) | 0 |
-| G3 | cible et migrations (C-14 à C-16) | base neuve, onze migrations, `Pending: 0`, `ok`, 42 sur 42 |
+| G3 | cible et migrations (C-14 à C-16) | base neuve, douze migrations appliquées avant l'import, `Pending: 0`, `ok`, 42 sur 42 |
 | G3 | comptages, empreintes, rowids (C-17 à C-19) | 72/72, 72/72, 100 % |
 | G3 | tableaux, orphelins, fichiers absents, doublons (C-20 à C-23) | 0 écart avec la capture |
 | G3 | comptes, superusers, paramètres (C-24 à C-26) | 100 % identiques ; `meta.appURL` et `PPBASE_SMTP_*` conformes |
@@ -1588,9 +1868,12 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | G4 | contrôles avant ouverture (C-31 à C-38) | 100 % passants selon les règles de 6.9 : statut, content type, en-têtes significatifs et corps égaux à PocketBase 0.22.34, erreurs comprises ; 0 réponse 5xx |
 | G4 | continuité des sessions (C-34) | 100 % des comptes de contrôle |
 | G4 | comparaison avec PocketBase (C-39), si l'outil existe | 0 écart inexpliqué |
-| G4 | écritures pendant les contrôles (C-41) | 0 dans les 72 tables |
+| G4 | écritures pendant les contrôles (C-41) | 0 dans les 72 tables, les archives de l'import, `_collections`, `_params` et `_superusers` ; comptes et signature du schéma inchangés |
 | G5 | URL publique et premières opérations (C-42, C-43) ; tâches externes redirigées (6.10) | 100 % |
 | G6 | surveillance | seuils ci-dessous |
+| G6 | sauvegarde et restauration d'essai (C-47) | conformes avant la fin de la surveillance renforcée |
+| G6 | vue des dépenses (6.11, L20) | sous le seuil fixé par le décideur (I21) |
+| G5, G6 | retour arrière après ouverture (8.3) : fichiers envoyés à PPBase et recopiés vers PocketBase par un outil | 0 fichier recopié sans side-car `.attrs`, 0 side-car orphelin recopié ; sinon ressaisie par l'API de PocketBase |
 
 Seuils proposés pour G6, à valider par l'utilisateur (I21) ; aucun n'est une
 mesure :
@@ -1607,7 +1890,9 @@ mesure :
 - un compte valide qui ne peut plus se connecter, hors erreur de mot de
   passe : décision ;
 - soupçon de fuite d'un jeton ou d'un secret : décision de révocation
-  (6.12).
+  (6.12) ;
+- vue des dépenses au-delà du seuil fixé au regard de L20 (6.11) : analyse ;
+  écrans de caisse inutilisables : décision.
 
 ## 8. Retour arrière
 
@@ -1659,10 +1944,10 @@ mesure :
 1. Geler PPBase immédiatement (maintenance au proxy) et suspendre les tâches
    externes redirigées vers lui (6.10, étape 4), chacune consignée ; noter
    `T_gel2`. Plus aucun client ni aucune tâche n'écrit.
-2. Conserver PPBase : sauvegarde complète de la base de production (par
-   exemple `pg_dump` au format personnalisé), manifeste de `storage/`
-   [outil non attribué, celui de C-30] et journaux, dans `<privé>`,
-   empreintes consignées.
+2. Conserver PPBase : sauvegarde complète de la base de production par
+   `pg_dump` au format personnalisé (la sauvegarde native de PPBase refuse
+   cette base, C-47), manifeste de `storage/` [outil non attribué, celui de
+   C-30] et journaux, dans `<privé>`, empreintes consignées.
 3. **Arrêter PPBase** (service de production) et vérifier qu'il n'écoute
    plus et que son processus est terminé, tâches de fond comprises
    (realtime, sauvegardes automatiques, surveillance des hooks) ; consigner
@@ -1671,7 +1956,9 @@ mesure :
 4. Relever les écritures reçues entre `T_ouverture` et `T_gel2` : records
    créés, modifiés ou supprimés ; métadonnées de collections modifiées (par
    exemple la vue `buma_sql_table` par `executeSql`) ; fichiers ajoutés ou
-   retirés ; comptes modifiés (mot de passe, `tokenKey`) ; rotation d'urgence
+   retirés, en sachant qu'un fichier envoyé à PPBase n'a pas de side-car
+   `.attrs` et qu'une suppression laisse le side-car du fichier supprimé
+   (D-0037) ; comptes modifiés (mot de passe, `tokenKey`) ; rotation d'urgence
    éventuelle (6.12). `updated` ne suffit pas, une suppression ne laissant
    pas de trace : comparer l'état de PPBase ligne à ligne à la capture,
    inchangée [outil non attribué]. La table `_requests` aide à reconstituer
@@ -1683,7 +1970,14 @@ mesure :
    écrit et testé sur staging avant usage [outil non attribué]. Jamais
    d'écriture SQL directe dans `data.db`. Avant toute ressaisie, vérifier
    qu'un client ne l'a pas déjà rejouée vers PocketBase (`mobile_message_id`,
-   `system_id`).
+   `system_id`). Un fichier ressaisi par l'API de PocketBase reçoit son
+   side-car de PocketBase (`tools/filesystem/filesystem.go:187-215`). Un
+   outil qui recopierait des fichiers de PPBase dans `pb_data/storage` doit
+   écrire ce side-car comme PocketBase, faute de quoi PocketBase sert le
+   fichier en `application/octet-stream`, `attachment`, sans miniature
+   (`docs/file-serving.md` de PPBase, « Known differences with
+   PocketBase ») ; critère : 0 fichier recopié sans side-car, 0 side-car
+   orphelin recopié.
 6. Puis 8.2, étape 1 (PPBase arrêté, vérifié à l'étape 3) et étapes 3 à 9.
 
 Impact client d'un retour après ouverture (D-0027 ; contrat
@@ -1693,7 +1987,10 @@ Impact client d'un retour après ouverture (D-0027 ; contrat
 - les opérations faites dans PPBase manquent dans PocketBase jusqu'à leur
   ressaisie, et leurs IDs n'y existent pas ;
 - les fichiers envoyés et les changements de compte faits dans PPBase (mot de
-  passe, email, vérification) n'y sont pas ; un jeton à usage 0.22 consommé
+  passe, email, vérification) n'y sont pas ; un fichier envoyé à PPBase et
+  recopié sans side-car serait servi par PocketBase en
+  `application/octet-stream`, `attachment`, sans miniature (étape 5) ; un
+  jeton à usage 0.22 consommé
   sur PPBase reste utilisable sur PocketBase jusqu'à son `exp` (mesuré) ; le
   sort, sur PocketBase, des jetons à usage émis par PPBase après la bascule
   n'est pas mesuré ;
@@ -1719,7 +2016,12 @@ Impact client d'un retour après ouverture (D-0027 ; contrat
 Déclarée par le décideur (I21). Ensuite, le retour n'est plus planifié ; le
 `pb_data` de PocketBase et la capture sont archivés en lecture seule selon
 I17, jamais supprimés sans décision ; le service PocketBase reste arrêté, son
-redémarrage automatique désactivé par décision consignée.
+redémarrage automatique désactivé par décision consignée. Les archives de
+l'import (`_buma_c11_rowids`, `_buma_c11_auth_archive`) et la fonction
+`buma_source_rowids` restent dans la base de production au-delà de cette
+fin, dans chaque sauvegarde et chaque restauration (C-47) ; toute suppression
+exige une décision, qui en mesure d'abord l'effet sur les rowids et les vues
+(D-0039).
 
 ## 9. Journal de bascule
 
@@ -1733,49 +2035,58 @@ empreintes de fichiers.
 | `<…>` | 6.3, C-03 | `H_stop` calculée | empreintes consignées | `<privé>/…` | `<…>` | `<…>` | — |
 | `<…>` | G2 | relecture du diagnostic | conforme ou écart | `<privé>/…` | `<…>` | `<…>` | GO ou NO-GO |
 
-À consigner au minimum : autorisations et méthodes retenues ; décisions sur
+À consigner au minimum : autorisations et méthodes retenues ; les quatre
+acceptations de 2.1, avec leur date ; décisions sur
 les écarts et constats de la section 10 ; décisions de l'infrastructure sur
 les machines (C-46) ; diagnostic à blanc, ses durées et sa référence ;
 commits BUMA et PPBase (C-45) ; `T_gel`, capture, arrêt de PocketBase,
 `H_stop` ; chaque redémarrage sous gel et son `T_gel'` ; chaque suspension et
 chaque rétablissement d'une tâche externe ou d'un redémarrage automatique ;
 empreinte de la capture ; chaque rapport et son empreinte ; chaque contrôle
-C-01 à C-46 et chaque porte G0 à G6 avec sa décision ; destruction des
+C-01 à C-47 et chaque porte G0 à G6 avec sa décision ; collation de la base
+de production ; empreinte de chaque sauvegarde `pg_dump` ; destruction des
 jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 (6.12), sans valeur ; en cas de retour, `T_gel2`, l'arrêt de PPBase,
 `T_retour` et le relevé des écritures ; fin de la période de retour arrière.
 
 ## 10. Points ouverts avant une bascule
 
-### 10.1 Intégration encore attendue à la rédaction
+### 10.1 État de l'intégration
 
-- WS-A8 (PPBase), en cours : fusion de WS-A6 dans
-  `fix/d0019-relation-maxselect` (expand filtré par la viewRule de la cible et
-  emails des comptes comme `EnrichRecords`, D-0033 ; mode d'erreur PocketBase
-  0.22, D-0034) et `totalItems` compté en `COUNT(DISTINCT id)` comme
-  PocketBase (D-0035) ; C-33, C-36, C-44, C-45.
-- WS-A7 (PPBase), branche `c11/ws-a7`, en relecture : service des fichiers
-  comme PocketBase (type des `.attrs`, `Content-Disposition`, miniature par
-  défaut, `HEAD`) ; C-37.
-- Raccordement BUMA `c11/hookup` (`d0a6dc8`) : `pb.set_error_compat("0.22")`
-  dans `app/hooks/register.py`, contexte de rôle des réponses d'auth
-  (`app/hooks/auth.py`) et contexte de requête de l'expand de la connexion
-  par username (`app/auth/login.py`) ; il exige le PPBase de WS-A8 (C-44,
-  C-45).
-- WS-G (BUMA) : `scripts/c11_real_rehearsal.py`, de la branche `c11/ws-g`, et
-  le rapport final `docs/c11-real-rehearsal-report.json` (deux passages, code
-  intégré), dont les valeurs remplacent AP1 et AP2 dans 5.1 et 5.2.
-- Publication de D-0030 à D-0035 par l'orchestrateur.
+Intégrés, et vérifiés par la répétition synthétique et la répétition réelle
+finales (D-0040, D-0041) :
+
+- PPBase `fix/d0019-relation-maxselect` à `069e0bb` : correction D-0019
+  (D-0025) ; WS-A5 et WS-A2 (D-0027, D-0030 à D-0032) ; WS-A6, fusionné par
+  WS-A8 (expand, emails des comptes et mode d'erreur 0.22, D-0033 et D-0034),
+  et `totalItems` (D-0035) ; WS-A9 (valeurs zéro, D-0036) ; WS-A7 (service des
+  fichiers, D-0037) ; WS-A10 (noms de fichiers des écritures, D-0038) ;
+  WS-A12 (booléens écrits, D-0042) ;
+- BUMA `c11/integration` : raccordement de `c11/hookup` (`c333e14`) ;
+  répétition réelle `scripts/c11_real_rehearsal.py` (`1edfed1`) ; migration
+  `1789236851` des vues (WS-H, `47c3c47`) ; rapports régénérés sur l'état
+  final (`b7427fe`) et rapport final de la répétition réelle (`a99a2a4`).
+
+Non intégré : le chantier PPBase WS-A11 (branche `c11/ws-a11`, `61bc951`),
+qui corrigeait le placement des NULL de vues dans les filtres et les tris,
+n'a pas été approuvé après deux relectures (régressions hors NULL, D-0036).
+L'écart reste ouvert : G0 exige l'acceptation de D-0036 (2.1) ou la reprise
+du chantier, sa relecture indépendante, son intégration et les bancs de
+l'annexe A rejoués.
+
+D-0024 à D-0039 sont publiées dans `docs/decisions-and-divergences.md` ;
+D-0040 à D-0042 sont publiées par l'orchestrateur avec cette version du
+runbook.
 
 ### 10.2 Outils non attribués
 
 - **import de production** (6.6, étape 5) et retrait des graines C5 de la
   base neuve (6.6, étape 4) : sans eux, aucune bascule ;
 - contrôles de conservation indépendants sur la base de production (6.7) et
-  empreintes des 72 tables avant et après les contrôles (C-41) ;
-- manifeste SHA-256 et tailles d'un dossier : copie à froid (6.3),
-  `storage/` de `H_stop` (C-03), copie de `storage/` de PPBase (C-30) et
-  sauvegarde de 8.3 ;
+  contrôle des écritures pendant les contrôles, au périmètre de C-41 ;
+- manifeste SHA-256 et tailles d'un dossier : copie à froid (6.3) et ses
+  équivalents de C-04 et C-05, `storage/` de `H_stop` (C-03), copie de
+  `storage/` de PPBase (C-30) et sauvegarde de 8.3 ;
 - preuve de révision : hooks déployés contre un build de `530018c`,
   migrations déployées contre la source et `_migrations` (2.2) ;
 - `_migrations` par catégorie, comparé à sa référence privée (C-08 b et c) ;
@@ -1787,9 +2098,13 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
   écriture (C-40) ;
 - chargement du staging depuis un backup réel, avec des secrets propres au
   staging, et parcours SDK, fichiers et realtime paramétrable (6.9) ;
+- mesure de L11 et L13 sur un PostgreSQL qui n'est pas local (6.1, étape 7 ;
+  validité de M1) ;
+- comparaison de la numérotation des vues et de l'ordre des concaténations
+  entre la base et sa restauration d'essai (C-47) ;
 - taux d'erreurs habituel de PocketBase (6.11) ;
-- relevé des écritures PPBase après ouverture et outil de rejeu éventuel
-  (8.3) ;
+- relevé des écritures PPBase après ouverture et outil de rejeu éventuel,
+  qui écrit le side-car `.attrs` de chaque fichier recopié (8.3) ;
 - comparaison des routes enregistrées par PPBase avec celles de 0.22.34
   (10.4).
 
@@ -1797,8 +2112,10 @@ jetons de contrôle ; `T_ouverture` ; incidents ; toute rotation d'urgence
 
 Toujours en vigueur : D-0016 (rowid), D-0018 (console PostgreSQL), D-0021
 (historique réel), D-0022 (index d'idempotence source), D-0023 (ordre du
-lookup). D-0019 est résolu par D-0025. D-0030 à D-0035 sont des projets de
-l'orchestrateur, publiés sous ces numéros (marqués « projet » ci-dessous).
+lookup). D-0019 est résolu par D-0025. D-0024 à D-0039 sont publiées ;
+D-0040 à D-0042 le sont par l'orchestrateur avec cette version (10.1).
+Quatre décisions attendent l'acceptation de l'utilisateur avant G0 : D-0029,
+D-0036, D-0039 et D-0042 (2.1).
 
 | Décision | Effet pour les clients ou l'exploitation | Dans ce runbook |
 | --- | --- | --- |
@@ -1807,44 +2124,67 @@ l'orchestrateur, publiés sous ces numéros (marqués « projet » ci-dessous).
 | D-0026 | historiques importés tels quels, anomalies comprises, sans troncature ni conversion ; une seule transaction ; SIGTERM et SIGHUP annulent proprement sous `cancelled_by_termination` ; après SIGKILL ou OOM, seul le staging privé reste | 6.6 ; C-17 à C-23 ; L11, L12 |
 | D-0027 | sessions 0.22 reprises, sans reconnexion forcée ; nouveaux jetons de type `auth` (SDK JS 0.21 : `isAuthRecord` faux, à vérifier sur les clients, I8) ; `PATCH /api/settings` ne révoque rien, la rotation SQL est la seule révocation globale mesurée (`PUT /api/collections/import` non mesuré, à ne pas utiliser) ; emails d'authentification par `PPBASE_SMTP_*`, mais email de test par le SMTP importé de production, interdit tant que `smtp` vient de la production ; liens sur `meta.appURL` (défaut `http://localhost:8090`) ; jamais `request-*`, `confirm-*` ni email de test pendant une répétition sur données réelles ; gel avant le backup frais ; au retour arrière, un jeton à usage 0.22 consommé sur PPBase reste utilisable sur PocketBase (mesuré) ; journaux PPBase confidentiels | I16, 6.1, C-26, C-33, C-34, 6.9, 6.11, 6.12, 8.3, annexe A |
 | D-0028 | extraction plus stricte que PocketBase ; à lancer dans `tmux` ou `screen` | 6.4 ; L5 |
-| D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; acceptation de l'utilisateur demandée | 2.1, G0 ; règles de comparaison de 6.9 |
-| D-0030 (projet) | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; écart restant : `data.rule` au lieu de `data: {}` sur une création refusée | staging (6.9) ; 10.4 |
-| D-0031 (projet) | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
-| D-0032 (projet) | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
-| D-0033 (projet) | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) ; emails des comptes montrés à l'admin, au propriétaire et à qui satisfait la manageRule, comme `EnrichRecords` ; réponses d'auth développées comme le record authentifié (raccordement `c11/hookup`) ; écarts restants : ordre des back-relations `_via_`, `fields=id,expand` qui retire l'expand | C-36 [à confirmer à l'intégration : WS-A8, `c11/hookup`] |
-| D-0034 (projet) | erreurs JSON au format PocketBase 0.22 (`{code, message, data}` et messages de 0.22.34), mode activé par BUMA (`pb.set_error_compat("0.22")`) ; statuts jamais modifiés ; écarts restants : 7 statuts non réécrits, détails de `data`, exception non gérée servie en 500 texte | 6.1, C-33, C-44 ; 10.4 |
-| D-0035 (projet) | `totalItems` et `totalPages` comptés sur `COUNT(DISTINCT id)` comme PocketBase ; items servis inchangés ; une vue publique réelle a 989 lignes pour 42 ids | C-36 [à confirmer à l'intégration : WS-A8] |
+| D-0029 | ordre des clés JSON (7 objets réels) et filtres `= null` sur 100 valeurs SQL NULL différents de PocketBase ; **acceptation de l'utilisateur exigée** | 2.1, G0 ; règles de comparaison de 6.9 |
+| D-0030 | règles `users` en multi-match : un utilisateur ordinaire ne crée ni ne modifie plus de compte ; `buma_pdv.deleteRule` autorise, comme PocketBase, la suppression des PDV sans client ni agent ; l'écart restant (`data.rule` au lieu de `data: {}` sur une création refusée) est réécrit en `data: {}` sous le mode 0.22 d'après le code de PPBase (`ppbase/middleware/error_compat.py:103-110`), non remesuré par WS-F3 | staging (6.9) ; 10.4 |
+| D-0031 | colonnes auth cachées non filtrables (400 opaque) ; plus d'erreur 500 sur une valeur `@request` absente ; `totalPages` 0 et pas de clé `expand` vide ; écarts restants : `?=` et `?!=` contre une valeur absente, modificateurs `:lower` et `:changed` acceptés | C-36 ; 10.4 |
+| D-0032 | dates vides servies `""`, filtrées et triées comme PocketBase ; écarts restants : colonne de vue NULL par LEFT JOIN (`<`, `<=`, `!~`, tri ASC), date illisible refusée en 400 ; filtres des clients non vérifiés | staging (6.9) ; 10.4 |
+| D-0033 | l'expand applique la viewRule de la collection liée (49 chemins anonymes dans le schéma) ; emails des comptes montrés à l'admin, au propriétaire et à qui satisfait la manageRule, comme `EnrichRecords` ; réponses d'auth développées comme le record authentifié (raccordement BUMA, `app/hooks/auth.py:39`, `app/auth/login.py:133-147`) ; écarts restants : ordre des back-relations `_via_`, `fields=id,expand` qui retire l'expand, événements realtime `delete` réduits à l'id | C-36, C-38 ; 10.4 |
+| D-0034 | erreurs JSON au format PocketBase 0.22 (`{code, message, data}` et messages de 0.22.34), mode activé par BUMA (`app/hooks/register.py:51`) ; statuts jamais modifiés ; écarts restants : 7 statuts non réécrits, détails de `data`, exception non gérée servie en 500 texte, `Content-Type` sans `charset` | 6.1, C-33, C-44 ; 10.4 |
+| D-0035 | `totalItems` et `totalPages` comptés sur `COUNT(DISTINCT id)` comme PocketBase ; items servis inchangés ; une vue publique réelle a 989 lignes pour 42 ids | C-36 |
+| D-0036 | NULL d'une colonne de vue servi comme la valeur zéro de son type (`""`, `0`, `false`, `[]` ; `null` pour json), comme PocketBase ; **acceptation de l'utilisateur exigée** pour l'écart restant : filtres `= ""` et tris sur une colonne NULL de vue, PPBase gardant la sémantique NULL de PostgreSQL (WS-A11 non intégré, 10.1) | 2.1, G0 ; C-36 ; staging (6.9) |
+| D-0037 | fichiers servis comme PocketBase 0.22.34 sous le mode 0.22 : type des `.attrs`, `Content-Disposition`, miniature `100x100`, en-têtes, `HEAD` ; écarts restants : aucun side-car `.attrs` pour un fichier envoyé à PPBase et side-car laissé à la suppression, pas de `304`, `412` ni plages multiples, `ETag` en plus, octets des miniatures générées, S3 par l'extension | 6.8, C-37, 6.11, 8.3 ; 10.4 |
+| D-0038 | noms de fichiers d'une écriture vérifiés comme PocketBase : référencer un fichier non téléversé dans le record est refusé (400) ; écart assumé : un nom posé par un hook de requête est refusé sous le mode 0.22 | staging (6.9) |
+| D-0039 | treize vues recréées par `1789236851` avec les valeurs des vues SQLite de PocketBase (numérotation `ROW_NUMBER()`, concaténations, `payedPercent`, `isNafama`, `uvUser`) et fonction `buma_source_rowids` sur l'archive `_buma_c11_rowids` ; **acceptation de l'utilisateur exigée** pour les écarts restants : nombres servis en chaîne et entiers 1/0 servis en booléens, filtres et tris inchangés sur ces colonnes, nombre comparé à l'id d'une vue numérotée en 500, ordre par défaut des vues numérotées, concaténation de la lecture par id des vues stock, sommes, coût de la vue des dépenses ; archive et fonction conservées par `pg_dump` | 2.1, G0 ; C-15, C-36, C-47 ; 6.11 ; L20 |
+| D-0040 | répétition synthétique complète sur le code final (profil `real_shape`, binaire 0.22.34) : 84 réponses sur 84 identiques en statut et en corps, seule classe ouverte `json_content_type_charset` ; toute autre différence fait échouer le banc | annexe A ; C-33, C-44 ; 10.4 |
+| D-0041 | répétition réelle sans octets de fichiers : deux passages passés et identiques ; ne prouve ni les octets des fichiers, ni les jetons des comptes réels, ni l'ordre des tableaux à plusieurs éléments, ni les clients, les écritures et le realtime sur ces données, ni la collation glibc ou ICU, ni la production | 2.2, 5.1, 5.2 ; annexe A |
+| D-0042 | booléens écrits convertis comme `cast.ToBool` (FormData, chaîne JSON, clé répétée, clé modificatrice) ; **acceptation de l'utilisateur exigée** pour l'écart ouvert : à la mise à jour, PPBase ne valide que les champs modifiés, PocketBase tous les champs du record (872 des 989 `buma_article_stock` réels ont un `status` requis à `false`) | 2.1, G0 ; staging (6.9) ; 6.11 |
 
 ### 10.4 Écarts PPBase restants, à corriger ou à décider avant G0
 
-État à la rédaction (PPBase `237b403`, répétition synthétique
-`docs/c11-synthetic-rehearsal-report.json`, clés
-`comparison_with_pocketbase.divergence_classes.<classe>`, mesurée sur PPBase
-`526397a`). Chacun reçoit une correction, ou une décision D-XXXX avec impact
-client et test de régression (`AGENTS.md`).
+État à la rédaction : PPBase `069e0bb`, répétition synthétique sur le même
+état (`docs/c11-synthetic-rehearsal-report.json`, clés
+`comparison_with_pocketbase.divergence_classes.<classe>`, D-0040) et
+répétition réelle (D-0041). Chacun reçoit une correction, ou une décision
+D-XXXX avec impact client et test de régression (`AGENTS.md`). Les quatre
+écarts dont l'acceptation est exigée (D-0029, D-0036, D-0039, D-0042) sont en
+2.1.
 
-| Écart | PocketBase 0.22.34 | PPBase | Impact client | Suite |
+| Écart | PocketBase 0.22.34 | PPBase `069e0bb` | Impact client | Suite |
 | --- | --- | --- | --- | --- |
-| enveloppe des erreurs natives | `{code, message, data}` (`apis/api_error.go:11-16`) | `{status, message, data}` avec `code` ajouté (`ppbase/app.py:426-429`, `:534-578`) | client qui lit `code` ou `status` d'une erreur native | mode 0.22, D-0034 (WS-A8, `c11/hookup`) ; C-44 |
-| libellés de refus | « Only admins can perform this action. » (`apis/record_crud.go:57`, `:155`) | « Only superusers… » | client qui affiche ou compare le message | mode 0.22, D-0034 |
-| échec de connexion | `data: {}` (C-33) | `data.identity` (`ppbase/api/record_auth.py:286-291`) | client qui lit `data` d'un échec de connexion | classe `failed_login_identity_detail` ; le mode 0.22 réécrit `data` en `{}` pour les connexions natives, effet sur la connexion par username de BUMA à confirmer (C-33) |
-| `totalItems` d'une liste | `COUNT(DISTINCT id)` (`tools/search/provider.go:238-256`) | `COUNT(*)` (`ppbase/services/record_service.py:889-898`) | pagination d'une vue à ids répétés : 989 au lieu de 42 sur une vue publique réelle | D-0035, WS-A8 ; C-36 |
-| `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte | ouvert (classe `json_content_type_charset`) |
-| type, disposition et miniature des fichiers | type des `.attrs`, `inline` ou `attachment; filename=` (`tools/filesystem/filesystem.go:367-377`, `:393-430`) ; miniature 100x100 par défaut (`apis/file.go:26-27`, `:162-193`) | type par l'extension, `Content-Disposition` seulement avec `download` (`ppbase/api/files.py:141-145`, `:1117-1145`) ; original servi pour `thumb=100x100` | nom et mode d'ouverture dans le navigateur ; taille des vignettes | classes `file_content_disposition_missing` et `default_thumb_size_serves_original` ; WS-A7 (C-37) |
-| emails des comptes et manageRule | visibles par les admins, le propriétaire et la manageRule (`apis/record_helpers.go:216-279`) | superusers et propriétaire | session `isAdmin` sans les emails des autres comptes | D-0033 (WS-A6, fusionné par WS-A8) |
+| en-têtes de sécurité | `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` et `X-Xss-Protection: 1; mode=block` sur toute réponse (`apis/base.go:53`), `X-Frame-Options` retiré des fichiers (`apis/file.go:203-206`) ; aucun en-tête `Server` | `X-Content-Type-Options` et `X-XSS-Protection` sur les seuls fichiers servis (`ppbase/storage/serving.py:121-129`), aucun des trois ailleurs ; `server: uvicorn` en plus | aucun pour les SDK ; navigateur : le tableau de bord `/_/` et les réponses JSON peuvent être encadrés par une autre page ou interprétés hors de leur type | nouveau, mesuré par WS-F3 (6.9) : correction PPBase sous le mode 0.22, ou ajout au proxy (I7), ou décision D-XXXX |
+| `Content-Type` JSON | `application/json; charset=UTF-8` (mesuré) | `application/json` | client qui compare la chaîne exacte ; sans effet sur les SDK (D-0034) | classe `json_content_type_charset`, seule ouverte de la répétition synthétique (D-0040) : à accepter ou corriger |
+| emails d'authentification | modèles de `meta` (sujet, corps HTML), expéditeur `meta.senderName` et `meta.senderAddress` (`mails/record.go:61-74`) | modèles importés stockés mais ignorés : textes intégrés en anglais, en texte brut, expéditeur `PPBASE_SMTP_FROM` (`ppbase/services/mail_service.py:75-141` ; contrat `docs/contracts/c11-auth-import.md` §3) | contenu, langue et expéditeur des emails de vérification, de réinitialisation et de changement d'email | nouveau, ouvert : correction ou décision ; I16 |
+| TLS du SMTP | `smtp.tls` vrai : TLS implicite (`mailyak.NewWithTLS`), sinon connexion `mailyak.New` ; méthode d'authentification et `localName` des paramètres (`tools/mailer/smtp.go:60-85`, `core/base.go:495-509`) | emails d'authentification : STARTTLS imposé hors du port 25, jamais de TLS implicite, ni `authMethod` ni `localName` (`ppbase/services/mail_service.py:29-46`) ; email de test : STARTTLS si `smtp.tls` est vrai (`ppbase/api/settings.py:359-366`) | avec un SMTP en TLS implicite (port 465 en général) ou sans STARTTLS hors du port 25, aucun email ne part (erreur journalisée) | nouveau, ouvert : port et mode TLS du SMTP retenu vérifiés (I16), puis correction ou décision |
+| envoi des emails d'authentification | en arrière-plan : la requête répond sans attendre l'envoi (`routine.FireAndForget`, `apis/record_auth.go:395-403`, `:487-495`) | envoi `smtplib` synchrone, sans délai d'attente, dans la boucle d'événements de la requête (`ppbase/services/mail_service.py:40`, `:68-69`, appelé par `await` depuis `ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895`), sauf le reset admin, envoyé dans un thread (`ppbase/services/mail_service.py:193-194`) | pendant chaque envoi, et sans limite si le SMTP ne répond pas, la requête et les autres requêtes du processus PPBase attendent [lu dans le code, non mesuré] | nouveau, ouvert : correction ou décision ; envoi essayé avant G0 avec un SMTP de test, jamais avec le staging chargé de données réelles (6.9, I16) |
 | `GET /api/health` | `data.canBackup` (`apis/health.go:23-42`) | `data.version` en plus (`ppbase/api/health.py:14-26`) | sonde qui compare le corps | ouvert, non consigné |
-| routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) | `GET /` JSON de santé (`app/hooks/health.py`), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
-| `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2009`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
+| routes BUMA hors source | `GET /` sert `--publicDir` sur `/*` (`examples/base/main.go:118-122`) ; 404 JSON sans `pb_public` (mesuré par WS-F3) | `GET /` JSON de santé, 200 (`app/hooks/health.py`, mesuré par WS-F3), `/__foundation/*` (`app/hooks/poc.py`, chargé par `app/hooks/register.py:34`) | sonde ou client qui appelle `/` | ouvert : retirer de l'enregistrement de production ou documenter |
+| `POST /api/batch` | absent de 0.22.34 | présent et activé par défaut (`ppbase/api/records.py:2234`, `ppbase/api/settings.py:88-93`) | voie d'écriture groupée absente de la production | ouvert, non consigné |
 | type des jetons de record | `authRecord` | `auth` | `isAuthRecord` du SDK JS 0.21 | D-0027 : à vérifier sur les clients (I8) |
 | révocation globale | `PATCH /api/settings` révoque | 200 sans effet | procédure 0.22 inopérante | D-0027 : rotation SQL (6.12) |
-| forme de `GET /api/settings`, pages de confirmation des liens email, `POST /api/files/token` sans auth, corps des refus des jetons à usage | 0.22 | forme actuelle ; pages absentes ; 401 au lieu de 400 ; autres corps | outils d'administration, liens ouverts dans le navigateur | contrat `docs/contracts/c11-auth-import.md` §4 et §5 |
+| forme de `GET /api/settings`, pages de confirmation des liens email, `POST /api/files/token` sans auth, corps des refus des jetons à usage | 0.22 | forme actuelle ; pages absentes ; 401 au lieu de 400 ; autres corps | outils d'administration, liens ouverts dans le navigateur | contrat `docs/contracts/c11-auth-import.md` §4 et §5 ; D-0027, D-0034 |
 | identité realtime | ID seul | `collectionId:id` | aucun ID partagé dans le backup réel | D-0027, écart délibéré |
+| événements realtime `delete` | record complet développé, à chaque abonné dont règle et filtre correspondaient | `{id}` seul, aux admins et aux abonnements à règle publique sans filtre | client abonné qui lit les champs d'une suppression | D-0033, écart ouvert du côté restrictif ; staging (C-38) |
+| erreurs restantes du mode 0.22 | statuts et `data` de 0.22.34 | 7 statuts non réécrits, détails de `data`, exception non gérée en 500 texte (`docs/error-compat.md` de PPBase, « Known differences ») | client qui lit ces statuts ou ces détails | D-0034, épinglés par test |
+| fichiers, écarts restants | `http.ServeContent` (`304`, `412`, plages multiples) ; side-car écrit à l'envoi et retiré à la suppression | `ETag` en plus, pas de `304` ni de `412` ni de plages multiples ; pas de side-car pour un fichier envoyé à PPBase, side-car laissé à la suppression | client qui revalide : 200 et fichier entier au lieu de 304 ; retour arrière (8.3) | D-0037 (`docs/file-serving.md` de PPBase) |
+| écarts documentés des relations, règles, filtres et dates | 0.22.34 | voir D-0025 et D-0030 à D-0032 (10.3) | selon chaque décision | décisions publiées, tests de régression cités |
+| requête préparée après un changement de schéma à chaud | sans objet | une requête préparée avant une modification de schéma faite pendant que PPBase tourne (tableau de bord, `executeSql` de la console, D-0018) peut échouer (`InvalidCachedStatement` d'asyncpg) ; les listes réessaient une fois (`ppbase/services/record_service.py:1109-1118`, `:1128-1136`) | une erreur ponctuelle après une modification de schéma | préexistant, relevé par l'orchestrateur (`docs/progress/ledger.md`, entrée de fin de session du 2026-10-25), sans décision ; non mesuré par WS-F3 : scénario desktop `executeSql` puis lecture de `buma_sql_table` sur staging (6.9), puis correction ou décision |
 | journal de requêtes | `logs.db` séparé | table `_requests`, sans rétention appliquée | données personnelles dans la base | 6.11, I18 |
+| sauvegarde native | sauvegarde de `pb_data` (`core/base_backup.go:30-84`) | refuse cette base : archives de l'import, fonctions et déclencheurs (C-47) | aucun pour les clients ; exploitation | `pg_dump` (C-47) |
+| ordre des textes | octets (SQLite BINARY) | collation de la base : octets sur la cible musl des répétitions, ordre linguistique avec glibc ou ICU | ordre des listes triées sur un texte | 2.2 : ordre des octets ou décision |
 | TLS vers la base | sans objet (SQLite) | désactivé (`ppbase/db/engine.py:50`) | aucun ; exploitation | I6 |
+
+Résolus depuis la version WS-F2 (PPBase `237b403`), mesurés par la
+répétition synthétique (D-0040) et la répétition réelle (D-0041) :
+enveloppe des erreurs natives et libellés de refus (D-0034), détail `data`
+d'un échec de connexion (C-33), `totalItems` d'une vue à ids répétés
+(D-0035), type, disposition et miniature des fichiers (D-0037, sur données
+synthétiques), emails des comptes et manageRule (D-0033), NULL de vue servi
+`null` (D-0036).
 
 Autres constats sans décision : SMTP de PPBase lu dans son environnement,
 sauf l'email de test qui utilise le SMTP importé (I16, D-0027) ; règle
-`buma_sql_table` si la console a servi depuis l'export (2.4).
+`buma_sql_table` si la console a servi depuis l'export (2.4) ; tableau de
+bord PPBase à construire avant G0 (2.2).
 
 ## 11. Références
 
@@ -1876,7 +2216,13 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
   `:495-509` : SMTP des paramètres ou `sendmail` ; `:538-552` : sauvegardes
   locales ou S3.
 - `mails/admin.go:22-26` et `mails/record.go:175-184` : liens des emails
-  construits sur l'URL de l'application.
+  construits sur l'URL de l'application ; `mails/record.go:61-74` : modèle,
+  expéditeur et corps HTML d'un email de record ; `tools/mailer/smtp.go:60-85` :
+  authentification, TLS implicite ou connexion simple, `localName` ;
+  `apis/record_auth.go:395-403` et `:487-495` : emails envoyés en
+  arrière-plan.
+- `apis/base.go:53` : `middleware.Secure()` d'echo, en-têtes de sécurité de
+  toute réponse.
 - `apis/health.go:23-42` : corps de `/api/health`.
 - `apis/record_crud.go:57`, `:155` : refus « Only admins » ; `:171-174` :
   404 d'un record introuvable.
@@ -1898,6 +2244,8 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
   emails des comptes.
 - `tools/search/provider.go:238-256` : `totalItems` compté en
   `COUNT(DISTINCT id)`, `totalPages` calculé dessus.
+- `forms/validators/record_data.go:74-90` : tous les champs du record validés
+  à chaque écriture (D-0042).
 - `tokens/tokens.go:5-6`, `tokens/record.go:13-27`, `tokens/admin.go:11-17`,
   `apis/middlewares.go:217-254`, `daos/admin.go:52-78` : types, signature et
   lecture des jetons ; `models/settings/settings.go:77` : URL de
@@ -1906,35 +2254,43 @@ session serveur, `/root/buma-c11-tools/pocketbase-src`) :
 - Comparaison : `v0.23.0`, `core/record_tokens.go:13` (type `auth`) et
   `core/settings_model.go:127` (limites de débit, absentes de 0.22.34).
 
-PPBase `237b403` (`fix/d0019-relation-maxselect` à la rédaction : correction
-D-0019, WS-A5, WS-A2 ; avant WS-A8 et WS-A7, dont les lignes pourront
-bouger) : `ppbase/__main__.py:667-674` ; `ppbase/config.py:29-30`, `:39`,
-`:86-92`, `:95`, `:109`, `:118-123`, `:125-171`, `:179-183` ;
-`ppbase/app.py:70-74`, `:189-214`, `:258-278`, `:280-284`, `:426-429`,
-`:492-532`, `:534-578` ; `ppbase/api/deps.py:89-101` ;
-`ppbase/api/files.py:84-92`, `:141-145`, `:1117-1145` ;
-`ppbase/api/health.py:14-26` ; `ppbase/api/record_auth.py:286-291` ;
-`ppbase/api/collections.py:448` ; `ppbase/api/records.py:2009` ;
-`ppbase/api/settings.py:88-93`, `:94-102`, `:151-180`, `:482-534` ;
-`ppbase/backup/automation.py:144-175` ; `ppbase/db/engine.py:45-50` ;
-`ppbase/middleware/rate_limit.py:26-30` ;
+PPBase `069e0bb` (`fix/d0019-relation-maxselect`, `code.ppbase.commit` du
+rapport final ; copie en lecture seule de la session serveur,
+`/root/projects/ppbase`) : `ppbase/__main__.py:667-674` ;
+`ppbase/config.py:29-30`, `:36-39`, `:43`, `:90-96`, `:99`, `:113`,
+`:122-127`, `:129-175`, `:183-187` ; `ppbase/app.py:70-74`, `:189-214`,
+`:258-278`, `:280-284`, `:460-490`, `:492-532`, `:534-609`, `:611-618` ;
+`ppbase/api/deps.py:89-101` ; `ppbase/api/files.py:151-159`, `:203-223`,
+`:1226-1247` ; `ppbase/api/health.py:14-26` ;
+`ppbase/api/record_auth.py:289-294` ; `ppbase/api/collections.py:448` ;
+`ppbase/api/records.py:2234` ; `ppbase/api/settings.py:88-93`, `:94-102`,
+`:112-126`, `:151-183`, `:359-366`, `:370-381`, `:487-592` ;
+`ppbase/backup/automation.py:144-175` ; `ppbase/backup/native.py:276-289` ;
+`ppbase/backup/schema_contract.py:29-33` ; `ppbase/db/engine.py:45-50` ;
+`ppbase/middleware/error_compat.py:51-53`, `:103-110`, `:182-191`,
+`:540-550` ; `ppbase/middleware/rate_limit.py:26-30` ;
 `ppbase/middleware/request_logger.py:1-6`, `:31-56` ;
 `ppbase/services/app_url.py:29`, `:32-51` ;
 `ppbase/services/auth_service.py:19`, `:487` ;
 `ppbase/services/file_storage.py:466-480` ;
 `ppbase/services/hook_manager.py:315-326` ;
-`ppbase/services/mail_service.py:49-72` ;
-`ppbase/services/record_service.py:889-898`. Branche `c11/ws-a6`
-(`2b79069`) : `docs/error-compat.md`, `ppbase/middleware/error_compat.py`.
+`ppbase/services/mail_service.py:29-46`, `:49-72`, `:75-141`, `:193-194` ;
+`ppbase/services/record_auth_service.py:616-618`, `:700-702`, `:893-895` ;
+`ppbase/services/record_service.py:1103-1114` ;
+`ppbase/services/setup_service.py:13-38` ;
+`ppbase/storage/serving.py:113-129` ; `admin-ui/package.json`,
+`admin-ui/vite.config.ts:13-16` ; documentation `docs/error-compat.md`,
+`docs/file-serving.md` ; sonde `tests/pocketbase_parity/expand_rules_probe.py`.
 
 Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `docs/c11-master-diagnostic.md`, `docs/c11-master-initial-diagnostic.json`,
 `docs/c11-idempotency-source-check.json`, `docs/c11-volume-benchmark-report.json`,
 `docs/c11-synthetic-rehearsal-report.json`, `docs/c11-auth-runtime-report.json`,
 `docs/c11-pb-0.22.34-reference-report.json`, `docs/c11-real-rehearsal-report.json`
-(attendu), `docs/next-agent-handoff.md`, `docs/decisions-and-divergences.md`
-(D-0016, D-0018 à D-0029 ; D-0027 complétée sur `c11/integration` en
-`527bfa1`), `docs/contracts/authentication.md`,
+(rapport final, `a99a2a4`), `docs/next-agent-handoff.md`,
+`docs/decisions-and-divergences.md` (D-0016, D-0018 à D-0039 ; D-0040 à
+D-0042 publiées par l'orchestrateur avec cette version),
+`docs/contracts/authentication.md`,
 `docs/contracts/c11-auth-import.md`, `docs/contracts/legacy-sql.md`,
 `docs/contracts/rowid.md`, `docs/contracts/routes.json`,
 `docs/contracts/settings-referentials.md`, `docs/test-matrix.md`,
@@ -1943,18 +2299,19 @@ Dépôt BUMA : `docs/server-session-plan.md`, `docs/c11-preparation.md`,
 `scripts/c11_idempotency_source_check.py`, `scripts/c11_rehearsal.py`,
 `scripts/c11_auth_runtime.py`, `scripts/c11_idempotency_runtime.py`,
 `scripts/c11_relation_columns_runtime.py`, `scripts/c11_volume_benchmark.py`,
-`scripts/c11_real_rehearsal.py` (branche `c11/ws-g`),
+`scripts/c11_real_rehearsal.py`, `scripts/c11_view_semantics_runtime.py`,
 `scripts/c10_sdk_runtime.py`, `scripts/c10_remaining_runtime.py`,
 `scripts/verify_complete_schema.py`, `scripts/verify_view_queries.py`,
 `app/auth/login.py`, `app/finance/service.py`, `app/legacy/http.py`,
-`app/hooks/register.py`, `app/hooks/health.py`, `app/hooks/poc.py`,
-`pb_migrations/1789236842_buma_master_views.py`,
+`app/hooks/register.py`, `app/hooks/auth.py`, `app/hooks/health.py`,
+`app/hooks/poc.py`, `pb_migrations/1789236842_buma_master_views.py`,
 `pb_migrations/1789236846_c5_reference_defaults.py`,
-`pb_migrations/1789236850_c11_relation_multiple_columns.py` ; branche
-`c11/hookup` (`d0a6dc8`) : `app/hooks/register.py`, `app/hooks/auth.py`,
-`app/auth/login.py`. Projets D-0030 à D-0035 : fichier de travail de
-l'orchestrateur, non versionné, publié par lui dans
-`docs/decisions-and-divergences.md`.
+`pb_migrations/1789236848_c10_sqlite_rowid.py`,
+`pb_migrations/1789236850_c11_relation_multiple_columns.py`,
+`pb_migrations/1789236851_c11_view_sqlite_semantics.py` ; le raccordement
+de `c11/hookup` y est fusionné (`c333e14`). Mesures de variabilité AP1 à AP3
+(5.1) : copies non versionnées de l'orchestrateur, sous
+`/tmp/buma-c11-session/`.
 Source gelée `buma_master_hooks@530018c` : `src/entries/index.pb.ts`,
 `src/entries/master.article.ts`, `src/entries/master.pb.ts`,
 `src/entries/master.rupture.ts`, `src/entries/master.setup.ts`,
@@ -1973,10 +2330,12 @@ BUMA_SCHEMA_EXPORT=<export corrigé> PYTHONDONTWRITEBYTECODE=1 \
   .venv/bin/python -m pytest -p no:cacheprovider -q
 .venv/bin/python -m ruff check app tests scripts \
   pb_migrations/1789236849_c11_source_transaction_idempotency.py \
-  pb_migrations/1789236850_c11_relation_multiple_columns.py
+  pb_migrations/1789236850_c11_relation_multiple_columns.py \
+  pb_migrations/1789236851_c11_view_sqlite_semantics.py
 .venv/bin/python -m ruff format --check app tests scripts \
   pb_migrations/1789236849_c11_source_transaction_idempotency.py \
-  pb_migrations/1789236850_c11_relation_multiple_columns.py
+  pb_migrations/1789236850_c11_relation_multiple_columns.py \
+  pb_migrations/1789236851_c11_view_sqlite_semantics.py
 BUMA_SCHEMA_EXPORT=<export corrigé> \
   .venv/bin/python -m scripts.c11_idempotency_runtime \
   --report <nouveau rapport>.json
@@ -1994,21 +2353,30 @@ BUMA_SCHEMA_EXPORT=<export corrigé> \
   .venv/bin/python -m scripts.c11_relation_columns_runtime \
   --legacy-ppbase <checkout PPBase> --legacy-ppbase-commit c6821aa \
   --report <nouveau rapport>.json
+BUMA_SCHEMA_EXPORT=<export corrigé> \
+  .venv/bin/python -m scripts.c11_view_semantics_runtime \
+  --pocketbase <binaire pocketbase 0.22.34> \
+  --schema <export corrigé> \
+  --report <nouveau rapport>.json
 ```
 
 Ruff couvre, outre `app tests scripts`, chaque migration ajoutée depuis
-D-0022 ; les anciennes migrations générées restent hors de son périmètre.
-`scripts.c11_rehearsal` accepte la version que déclare le binaire si le
-constructeur de fixture et l'importeur la valident
-(`scripts/c11_rehearsal.py:2565-2576`) : utiliser 0.22.34, version de la
-production. Les variables `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`
+D-0022 ; les anciennes migrations générées restent hors de son périmètre
+(130 fichiers à `a99a2a4`, vérifié par WS-F3). `scripts.c11_rehearsal`
+accepte la version que déclare le binaire si le constructeur de fixture et
+l'importeur la valident (`scripts/c11_rehearsal.py:2508-2519`) : utiliser
+0.22.34, version de la production ; c'est la répétition synthétique de
+D-0040, qui exige ses 84 réponses identiques à PocketBase 0.22.34 hors la
+classe `json_content_type_charset`. `scripts.c11_view_semantics_runtime`
+prouve `1789236851` contre le binaire 0.22.34 sur données synthétiques
+(D-0039). Les variables `BUMA_C11_POCKETBASE_0_22_27` et `_0_22_34`
 désignent les binaires officiels (annexe B) dont ont besoin les tests de
 fixture et de colonnes relationnelles (`tests/test_c11_fixture.py`,
 `tests/test_c11_relation_columns.py`) ; sans elles, ces tests ne
 s'exécutent pas. `--legacy-ppbase` désigne le dépôt Git du checkout PPBase
 de release, qui contient `c6821aa`, antérieur à D-0019 : l'outil exporte ce
 commit par `git archive` sans changer de branche
-(`scripts/c11_relation_columns_runtime.py:29-36`). Les quatre bancs rendent
+(`scripts/c11_relation_columns_runtime.py:29-36`). Les cinq bancs rendent
 un rapport `passed`.
 
 Répétition réelle, sur le paquet base de données (`data.db` sans `storage/`)
@@ -2025,22 +2393,34 @@ dossier du backup :
   --schema <export corrigé> \
   --source-version 0.22.34 \
   --source-migrations <source gelée>/migrationsDir \
+  --accept-divergence jsonb_key_order_normalized=D-0029 \
+  --accept-divergence number_served_as_text=D-0039 \
+  --accept-divergence sqlite_integer_boolean_served_as_boolean=D-0039 \
   --report <nouveau rapport public>.json \
   --private-dir <nouveau dossier privé>
 ```
 
 Deux passages par défaut (`--passes`), conteneur limité par défaut à 2 Gio et
-2 CPU (`--memory`, `--cpus`) ; `--source-migrations` ajoute le contrôle
-d'idempotence de D-0022 (L8) ; `--accept-divergence CODE=D-NNNN` seulement
-pour un écart décidé. Codes de sortie : 0 si le rapport est `passed` et que
-son contrôle de confidentialité passe ; 1 sinon, le rapport public n'étant
-écrit qu'après ce contrôle ; 2 si la commande est refusée avant tout passage
-(interpréteur non isolé ; données, manifeste ou export absents ; sorties
-qui ne sont pas des chemins neufs ; parent du dossier privé accessible à
-d'autres que son propriétaire ; code de divergence inconnu). Options et
-codes relevés par `--help` et dans `main()` sur `c11/ws-g` (`456dbae`),
-à revérifier au commit de release. Le rapport final publié est
-`docs/c11-real-rehearsal-report.json` (2.2).
+2 CPU, `/dev/shm` de 512 Mio (`--memory`, `--cpus`, `--shm-size`), lots de
+5 000 (`--batch-size`) ; `--source-migrations` ajoute le contrôle
+d'idempotence de D-0022 (L8). `--accept-divergence CODE=D-NNNN` ne vaut que
+pour un code dont la section de décision existe : sans la ligne
+`Statut : acceptée par l'utilisateur le AAAA-MM-JJ`, le code passe comme
+divergence documentée dont l'acceptation reste demandée
+(`acceptance_still_requested`), comme dans le rapport final ; avec elle, il
+est rangé dans `accepted_divergences` (2.1). Codes de sortie : 0 si le
+rapport est `passed` et que son contrôle de confidentialité passe ; 1 sinon,
+le rapport public n'étant écrit qu'après ce contrôle ; 2 si la commande est
+refusée avant tout passage (interpréteur non isolé ; données, manifeste ou
+export absents ; interpréteur, code ou sorties à l'intérieur du dossier du
+backup ; sorties qui ne sont pas des chemins neufs ; parent du dossier privé
+accessible à d'autres que son propriétaire ; dossier privé dans le dépôt
+sans être ignoré par Git ; rapport dans le dépôt sans code commité ;
+`--source-migrations` qui n'est pas le `migrationsDir` gelé ; code de
+divergence inconnu ou sans décision). Options et codes relevés par `--help`
+et dans le code à `a99a2a4` (`scripts/c11_real_rehearsal.py:422-453`,
+`:4518-4529`, `:4661`). Le rapport final publié est
+`docs/c11-real-rehearsal-report.json` (2.2, D-0041).
 
 Sur données réelles, le serveur PPBase de la répétition porte les secrets de
 jetons et le SMTP de production importés et accepte les sessions réelles
@@ -2054,9 +2434,10 @@ Côté PPBase, `pytest -p no:cacheprovider -q tests` au commit de release :
 aucun échec nouveau, et chacun des échecs antérieurs analysé et consigné
 avant G0, attente du test comparée au comportement de PocketBase 0.22.34,
 source citée, ou corrigé. Au commit `c6821aa`, la phase 0 de la session
-serveur en a relevé dix (`docs/progress/ledger.md`). À `237b403`,
-l'orchestrateur en a relevé cinq, tous parmi ces dix, à consigner au ledger :
-collision de routes
+serveur en a relevé dix (`docs/progress/ledger.md`). À `237b403` puis à
+`069e0bb`, l'orchestrateur en a relevé cinq, les mêmes, tous parmi ces dix
+(à `069e0bb` : 2 120 passés, 72 sautés, 5 échecs ; `docs/progress/ledger.md`,
+entrée de fin de session du 2026-10-25) : collision de routes
 (`test_flask_like_pb_routing::test_route_collision_with_core_routes_is_blocking`),
 routeur des hooks (`test_hooks_api::test_hooks_api_router_is_registered`) et
 options ou durées de jeton attendues (deux tests de
