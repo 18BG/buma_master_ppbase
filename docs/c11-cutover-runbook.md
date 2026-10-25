@@ -1335,7 +1335,7 @@ seule sur la base de production, rapport agrégé dans `<privé>`). Durée : L13
 | C-24 Comptes utilisateurs | `users` et `agent_users` : nombres égaux ; hash bcrypt et `tokenKey` identiques pour 100 % des records, comparés sans affichage |
 | C-25 Superusers | nombre égal à `_admins` de la capture ; email, hash, `tokenKey` et avatar repris ; aucun jeton d'installation dans `_params` |
 | C-26 Paramètres | nom, SMTP et durées des jetons égaux à la source, secrets présents et jamais affichés ; `meta.appURL` égal à l'URL publique des clients après la bascule (avec U-A, celle de la source ; sinon décision avant G0), car c'est la seule base des liens envoyés par email, `http://localhost:8090` s'il manque ou n'est pas une URL absolue (I16) ; S3 désactivé ; `backups.cron` vide (non importé, avertissement `backup_schedule_not_imported`) et laissé vide, la sauvegarde native de PPBase refusant cette base (C-47, I18) ; `rateLimiting` et `rateLimits` désactivés (`ppbase/middleware/rate_limit.py:26-30`, `ppbase/api/settings.py:94-102`), PocketBase 0.22.34 n'en ayant pas ; `batch` selon la décision de 10.4 ; environnement du service : `PPBASE_SMTP_*` conforme à I16 et `PPBASE_DEV` absent |
-| C-27 Schéma après import | C-15 et C-16 rejoués : 114 définitions, 42 vues, `Pending: 0` |
+| C-27 Schéma après import | C-15 et C-16 rejoués : 114 définitions, 42 vues, `Pending: 0` ; signature du schéma égale à celle d'avant l'import, hors les deux archives de l'import (`_buma_c11_rowids`, `_buma_c11_auth_archive`), comme `passes[i].checks.schema_after_import` du rapport final (`only_import_archives_added`) |
 | C-28 Horloge | `now()` de PostgreSQL et horloge de l'hôte PPBase postérieurs au plus grand `created` ou `updated` importé ; NTP synchronisé [outil non attribué] |
 | C-29 Source inchangée | SHA-256 du `data.db` de la capture égal avant et après l'import |
 
@@ -1426,12 +1426,11 @@ avant le jour J (scénarios ci-dessous). Règles de comparaison :
   `apis/base.go:53`), sauf `X-Frame-Options` retiré des fichiers ; PPBase
   `069e0bb` n'envoie `X-Content-Type-Options` et `X-XSS-Protection` que sur
   les fichiers servis (`ppbase/storage/serving.py:121-129`), aucun des trois
-  ailleurs, et ajoute
-  `server: uvicorn` (mesuré par WS-F3 en boucle locale sur le binaire
-  officiel et sur PPBase avec les hooks BUMA, base synthétique vide : santé,
-  liste, 404, `/_/`, `/`). Écart ouvert (10.4) : à corriger ou à décider
-  avant G0 ; comparé aussi derrière le proxy (I7), qui peut ajouter ou
-  retirer ces en-têtes ;
+  ailleurs, et ajoute `server: uvicorn`. Mesuré par WS-F3 en boucle locale
+  sur le binaire officiel et sur PPBase avec les hooks BUMA, bases
+  synthétiques vides : santé, liste, 404, `/_/` et `/`. Écart ouvert (10.4),
+  à corriger ou à décider avant G0 ; à comparer aussi derrière le proxy
+  (I7), qui peut ajouter ou retirer ces en-têtes ;
 - corps JSON comparés comme valeurs : ordre des clés d'objet ignoré, traité à
   part par D-0029 ; nombres comparés par leur texte ;
 - jetons comparés par leur en-tête et leurs claims, hors `iat` et `exp` ;
@@ -1587,7 +1586,7 @@ Durée des lectures automatiques : L16 ; contrôles manuels, SDK et desktop
   comptes, hash, `tokenKey` et dates égaux à la source ; signature du schéma
   (tables, colonnes, défauts, contraintes, déclencheurs, fonctions, index et
   corps des vues) inchangée. C'est le périmètre de la phase
-  `after_http_checks` de la répétition réelle (`checks.after_http` :
+  `after_http_checks` de la répétition réelle (`passes[i].checks.after_http` :
   `tables_changed_by_server_and_reads` vide,
   `accounts_equal_to_source_after_reads` et `schema_unchanged_by_server`
   vrais ; `scripts/c11_real_rehearsal.py:4069-4071`, `:4088-4120`), qui ne
@@ -1633,8 +1632,9 @@ Scénarios, résultats validés par les référents métier :
 
 - desktop : connexion, écrans principaux, vente, retour, opérations de
   caisse ; console `executeSql` avec une requête PostgreSQL contenant `id`,
-  puis lecture native de `buma_sql_table` page 1, `perPage` 1000 (D-0018) ;
-  appels éventuels à `POST /sql` (I8) ;
+  puis lecture native de `buma_sql_table` page 1, `perPage` 1000 (D-0018),
+  plusieurs fois de suite, sans erreur après la réécriture de la vue
+  (requête préparée, 10.4) ; appels éventuels à `POST /sql` (I8) ;
 - mobile : connexion, refresh, synchronisation, opération avec
   `mobile_message_id` rejouée deux fois (une seule écriture), rejeu d'une file
   hors ligne ; usage éventuel de `isAuthRecord` après un refresh (D-0027) ;
@@ -1677,7 +1677,8 @@ Scénarios, résultats validés par les référents métier :
 | U-C, nouvelle URL dans les clients | nouvelle version ou configuration des clients desktop et mobile | lent : nouvelle diffusion des clients |
 
 1. Basculer l'amont vers PPBase avec la configuration préparée (6.1) : mêmes
-   limites, délais, en-têtes et SSE sans mise en tampon ; CORS identique
+   limites, délais, en-têtes (de sécurité compris, selon la décision de 10.4)
+   et SSE sans mise en tampon ; CORS identique
    (`--origins` de PocketBase contre `origins` de PPBase) ; certificat
    valide.
 2. **C-42** : par l'URL publique, avant la levée de la maintenance si le
@@ -1868,6 +1869,8 @@ avant ouverture (8.2), sans perte. Aux portes G5 et G6, le décideur applique
 | G5 | URL publique et premières opérations (C-42, C-43) ; tâches externes redirigées (6.10) | 100 % |
 | G6 | surveillance | seuils ci-dessous |
 | G6 | sauvegarde et restauration d'essai (C-47) | conformes avant la fin de la surveillance renforcée |
+| G6 | vue des dépenses (6.11, L20) | sous le seuil fixé par le décideur (I21) |
+| G5, G6 | retour arrière après ouverture (8.3) : fichiers envoyés à PPBase et recopiés vers PocketBase par un outil | 0 fichier recopié sans side-car `.attrs`, 0 side-car orphelin recopié ; sinon ressaisie par l'API de PocketBase |
 
 Seuils proposés pour G6, à valider par l'utilisateur (I21) ; aucun n'est une
 mesure :
