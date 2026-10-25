@@ -1,12 +1,12 @@
 {
-  "timestamp_utc": "2026-10-24T20:04:07.930923+00:00",
+  "timestamp_utc": "2026-10-25T12:33:04.810958+00:00",
   "scope": "c11_ws_c_auth_settings_session_continuity_synthetic",
   "production_data_used": false,
   "pocketbase": {
     "version": "0.22.34",
     "binary_sha256": "f164a6333e674fec53fbaf49fffba884654de3a6e712f220d0bbe1c54f2ee04d"
   },
-  "ppbase_commit": "22929a02406d78b91d590af708f8af3316729c64",
+  "ppbase_commit": "069e0bbb8e13b2dafef8729bc775d826a3080801",
   "status": "passed",
   "pocketbase_reference": {
     "probes": {
@@ -869,7 +869,7 @@
     "waiver_applied": false,
     "rows": 8
   },
-  "migrations_applied": 11,
+  "migrations_applied": 12,
   "schema_before": {
     "definitions": 114,
     "views": 42,
@@ -885,42 +885,42 @@
     "settings_row_already_present": {
       "refused_with": "settings_target_not_empty",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 2.59
+      "seconds": 1.47
     },
     "archive_table_already_present": {
       "refused_with": "auth_archive_exists",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 3.21
+      "seconds": 1.65
     },
     "records_from_another_snapshot": {
       "refused_with": "records_snapshot_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 3.7
+      "seconds": 1.65
     },
     "auth_collection_set_changed": {
       "refused_with": "target_auth_collections_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 3.44
+      "seconds": 1.71
     },
     "auth_collection_id_changed": {
       "refused_with": "target_auth_collection_id_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 2.48
+      "seconds": 1.65
     },
     "superusers_readback_altered": {
       "refused_with": "superusers_readback_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 3.36
+      "seconds": 1.41
     },
     "options_readback_altered": {
       "refused_with": "auth_options_readback_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 3.6
+      "seconds": 1.43
     },
     "settings_readback_altered": {
       "refused_with": "settings_readback_mismatch",
       "state_after_rollback_equals_baseline": true,
-      "seconds": 2.89
+      "seconds": 1.59
     },
     "database_error_during_admin_insert": {
       "refused_with": "auth_import_database_error",
@@ -928,7 +928,7 @@
       "context_chained": false,
       "values_in_message_or_traceback": false,
       "state_after_rollback_equals_baseline": true,
-      "seconds": 4.62
+      "seconds": 1.57
     },
     "engine_without_hide_parameters": {
       "refused_with": "engine_hide_parameters_required",
@@ -1375,7 +1375,7 @@
   },
   "second_import": {
     "outcome": "superusers_target_not_empty",
-    "waited_for_lock_seconds": 1.02,
+    "waited_for_lock_seconds": 1.01,
     "no_duplicate_or_merge": true
   },
   "schema_after": {
@@ -1385,8 +1385,8 @@
   },
   "purpose_accounts_imported_identically": true,
   "server_ppbase": {
-    "package_dir": "/root/buma-c11-work/ppbase-preview/ppbase",
-    "git_commit": "22929a02406d78b91d590af708f8af3316729c64",
+    "package_dir": "/root/projects/ppbase/ppbase",
+    "git_commit": "069e0bbb8e13b2dafef8729bc775d826a3080801",
     "package_tree_clean": true,
     "same_as_bench_process": true,
     "ws_a2_secret_redaction_module": true,
@@ -1708,198 +1708,198 @@
       "anonymous_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "anonymous_users_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "tampered_admin_lists_admins": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       },
       "tampered_admin_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "tampered_users_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "tampered_users_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "tampered_agent_own_record": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "expired_admin_lists_admins": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       },
       "expired_users_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "expired_users_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "users_token_on_agent_refresh": {
         "status": 403,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires auth record from users collection."
       },
       "users_token_on_admin_route": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       },
       "users_token_on_admin_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       },
       "admin_token_on_users_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "agent_token_on_admin_role_caisse_access": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "forged_base_collection_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "forged_base_collection_users_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "users_ref_token_before_password_reset_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "users_ref_token_before_password_reset_protected_supplier": {
         "status": 404,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The requested resource wasn't found."
       },
       "users_ref_token_before_email_change_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid record authorization token to be set."
       },
       "admin_ref_token_before_reset_lists_admins": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       },
       "admin_ref_token_before_reset_refresh": {
         "status": 401,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ],
         "message": "The request requires valid admin authorization token to be set."
       }
@@ -2004,9 +2004,9 @@
       "users_wrong_password": {
         "status": 400,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ]
       },
       "agent_by_email": {
@@ -2056,9 +2056,9 @@
       "agent_wrong_password": {
         "status": 400,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ]
       },
       "admin_by_email": {
@@ -2098,9 +2098,9 @@
       "admin_wrong_password": {
         "status": 400,
         "keys": [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ]
       },
       "superusers_collection": {
@@ -2323,7 +2323,7 @@
       },
       "password_reset_after_email_change": {
         "status": 400,
-        "message": "Failed to confirm password reset.",
+        "message": "Something went wrong while processing your request.",
         "data_codes": {
           "token": "validation_invalid_token"
         }
@@ -2676,9 +2676,9 @@
       ],
       "ppbase": [
         [
+          "code",
           "data",
-          "message",
-          "status"
+          "message"
         ]
       ]
     },
@@ -2768,7 +2768,7 @@
         },
         "ppbase": {
           "status": 400,
-          "message": "Failed to confirm password reset.",
+          "message": "Something went wrong while processing your request.",
           "data_codes": {
             "token": "validation_invalid_token"
           }
@@ -2887,8 +2887,8 @@
         "step": "password_reset_after_email_change",
         "field": "message",
         "pocketbase": "Something went wrong while processing your request.",
-        "ppbase": "Failed to confirm password reset.",
-        "resolved": false,
+        "ppbase": "Something went wrong while processing your request.",
+        "resolved": true,
         "cause": "v0.22.34 apis/record_auth.go:440-460 returns the form error unchanged; ppbase/api/record_auth.py:1497-1498 sets its own message"
       }
     ],
@@ -3327,7 +3327,7 @@
     "status_or_wording_differences_with_pocketbase": 0,
     "purpose_tokens_issued_before_import_continued": true,
     "purpose_tokens_statuses_effects_and_logins_like_pocketbase": true,
-    "purpose_token_refusal_body_differences": 3,
+    "purpose_token_refusal_body_differences": 2,
     "admin_password_reset_route_like_pocketbase": true,
     "buma_legacy_probes_match_contract": true,
     "realtime_matches_pocketbase": true,
