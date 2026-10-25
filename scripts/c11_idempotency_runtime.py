@@ -2,7 +2,7 @@
 
 No --db argument exists: this cannot target an existing database. It applies
 the official migrations, compares source/C4 index behaviour, reverts and
-replays 1789236849 (after 1789236850, the latest migration), checks lock+lookup
+replays 1789236849 (after 1789236850 and 1789236851, the latest migrations), checks lock+lookup
 concurrency without the C4 mobile index, then replays C4, C7 and C9 against an
 isolated PPBase server. The server gets the caller's PYTHONPATH after this
 project, so PYTHONPATH selects the PPBase under test; the report records the
@@ -55,6 +55,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 MIGRATIONS = PROJECT / "pb_migrations"
 D0022 = "1789236849_c11_source_transaction_idempotency.py"
 D0019 = "1789236850_c11_relation_multiple_columns.py"
+VIEWS = "1789236851_c11_view_sqlite_semantics.py"
 RELATION_COLUMNS = (
     ("buma_customer", "pdv"),
     ("buma_pilotage_ticket", "tag"),
@@ -367,7 +368,7 @@ async def exercise(root: Path, url: str, report: dict) -> None:
             tables = "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
             assert (await conn.execute(text(tables))).scalar_one() == 0
         applied = await prepare_database(engine, MIGRATIONS)
-        assert applied[-2:] == [D0022, D0019] and len(applied) == 11, applied
+        assert applied[-3:] == [D0022, D0019, VIEWS] and len(applied) == 12, applied
         report["migrations_applied"] = applied
         arrays = {f"{t}.{c}": "ARRAY:_text" for t, c in RELATION_COLUMNS}
         scalars = {f"{t}.{c}": "character varying:varchar" for t, c in RELATION_COLUMNS}
@@ -376,12 +377,12 @@ async def exercise(root: Path, url: str, report: dict) -> None:
         assert_source_state(await index_state(engine), baseline)
         report["source_index_matrix"] = await matrix(engine, 0)
 
-        # 1789236850 is applied after D-0022: revert it first, then D-0022.
-        assert await run_migrations_down(engine, MIGRATIONS, count=2) == [D0019, D0022]
+        # 1789236850 and 1789236851 are applied after D-0022: revert them first.
+        assert await run_migrations_down(engine, MIGRATIONS, count=3) == [VIEWS, D0019, D0022]
         assert await relation_column_types(engine) == scalars
         assert_c4_state(await index_state(engine), baseline)
         report["c4_index_matrix_after_rollback"] = await matrix(engine, 1)
-        assert await run_migrations_up(engine, MIGRATIONS) == [D0022, D0019]
+        assert await run_migrations_up(engine, MIGRATIONS) == [D0022, D0019, VIEWS]
         assert_source_state(await index_state(engine), baseline)
         assert await relation_column_types(engine) == arrays
         report["rollback_replay"] = "down_restores_c4_metadata_and_indexes_up_restores_source"
@@ -390,15 +391,15 @@ async def exercise(root: Path, url: str, report: dict) -> None:
         for index in (1, 2):
             await insert(engine, f"d0022h{index:02d}", mobile="d0022-history")
         try:
-            await run_migrations_down(engine, MIGRATIONS, count=2)
+            await run_migrations_down(engine, MIGRATIONS, count=3)
         except IntegrityError as exc:
             assert C4_MOBILE in str(exc.orig), exc
         else:
             raise AssertionError("C4 rollback accepted duplicate mobile history")
         assert_source_state(await index_state(engine), baseline)
         assert await relation_column_types(engine) == scalars
-        # Only 1789236850's own transaction was reverted; replay it.
-        assert await run_migrations_up(engine, MIGRATIONS) == [D0019]
+        # Only the transactions of 1789236851 and 1789236850 were reverted; replay them.
+        assert await run_migrations_up(engine, MIGRATIONS) == [D0019, VIEWS]
         assert await relation_column_types(engine) == arrays
         async with engine.connect() as conn:
             kept = "SELECT COUNT(*) FROM buma_transaction WHERE mobile_message_id='d0022-history'"

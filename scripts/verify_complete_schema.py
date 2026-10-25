@@ -8,7 +8,10 @@ auth system fields while PPBase 0.3.x does not create the physical columns
 itself. It also runs the physical relation column check of
 ``verify_schema_baseline.verify_relation_columns`` (D-0019): ``fresh`` by
 default, ``--relation-columns migrated`` for a database created before the
-D-0019 correction and converted by migration 1789236850.
+D-0019 correction and converted by migration 1789236850. The expected view
+queries are those stored by migration 1789236851 for the thirteen views it
+recreates (``verify_view_queries.migrated_view_definitions``) when the database
+recorded it (``_migrations``), the translated ones otherwise.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ try:
         read_physical,
         verify_relation_columns,
     )
+    from scripts.verify_view_queries import applied_view_semantics, migrated_view_definitions
 except ImportError:  # pragma: no cover - direct script execution
     from generate_native_baseline import load_schema
     from verify_schema_baseline import (
@@ -47,6 +51,7 @@ except ImportError:  # pragma: no cover - direct script execution
         read_physical,
         verify_relation_columns,
     )
+    from verify_view_queries import applied_view_semantics, migrated_view_definitions
 
 DEFAULT_SCHEMA = Path(
     os.environ.get(
@@ -102,8 +107,12 @@ def verify(
     actual_rows: list[dict[str, Any]],
     *,
     relation_columns: str | None = None,
+    view_semantics: bool = True,
 ) -> dict[str, Any]:
-    expected = {str(item["name"]): item for item in expected_definitions}
+    definitions = (
+        migrated_view_definitions(expected_definitions) if view_semantics else expected_definitions
+    )
+    expected = {str(item["name"]): item for item in definitions}
     actual = {str(item["name"]): item for item in actual_rows if not item["system"]}
     actual_all = {str(item["name"]): item for item in actual_rows}
 
@@ -195,7 +204,16 @@ async def main() -> int:
 
     definitions, digest, _ = load_schema(args.schema, include_views=True)
     actual_rows = await read_collections(args.db)
-    report = verify(definitions, actual_rows, relation_columns=args.relation_columns)
+    view_semantics = await applied_view_semantics(args.db)
+    report = verify(
+        definitions,
+        actual_rows,
+        relation_columns=args.relation_columns,
+        view_semantics=view_semantics,
+    )
+    report["view_queries_of"] = (
+        "1789236851" if view_semantics else "the translation (no 1789236851)"
+    )
     report["schema_sha256"] = digest
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if report["ok"] else 1

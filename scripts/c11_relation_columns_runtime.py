@@ -35,6 +35,11 @@ temporary directory, whatever branch DIR has checked out:
     python -m scripts.c11_relation_columns_runtime --legacy-ppbase ../ppbase \
         --legacy-ppbase-commit c6821aa --report NEW.json
 
+The migrations are those of this proof, through 1789236850: they are copied
+into the temporary directory (``pin_migrations``) and the views are checked
+with their translated queries. Later BUMA migrations (1789236851 and after)
+have their own runtime proofs; the branch directory must start with these.
+
 All values are synthetic.
 """
 
@@ -62,7 +67,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 PROJECT = Path(__file__).resolve().parents[1]
-MIGRATIONS = PROJECT / "pb_migrations"
+BRANCH_MIGRATIONS = PROJECT / "pb_migrations"
+MIGRATIONS = BRANCH_MIGRATIONS  # pinned through 1789236850 by main()
 SCHEMA = Path(
     os.environ.get(
         "BUMA_SCHEMA_EXPORT", "/Users/omarsisss/Downloads/buma-master-pb_schema-corrected.json"
@@ -82,6 +88,23 @@ LEGACY_MIGRATIONS = (
     "1789236849_c11_source_transaction_idempotency.py",
 )
 HEAD_MIGRATIONS = (*LEGACY_MIGRATIONS, D0019)
+
+
+def pin_migrations(root: Path) -> dict:
+    """Copy this proof's migrations (through 1789236850) and use the copy."""
+    global MIGRATIONS
+    branch = sorted(path.name for path in BRANCH_MIGRATIONS.glob("*.py"))
+    assert branch[: len(HEAD_MIGRATIONS)] == list(HEAD_MIGRATIONS), branch
+    later = branch[len(HEAD_MIGRATIONS) :]
+    assert all(name > D0019 for name in later), later
+    pinned = root / "pinned_migrations"
+    pinned.mkdir()
+    for name in HEAD_MIGRATIONS:
+        (pinned / name).write_bytes((BRANCH_MIGRATIONS / name).read_bytes())
+    MIGRATIONS = pinned
+    return {"through": D0019, "files": len(HEAD_MIGRATIONS), "later_branch_files": later}
+
+
 PARTIAL_MIGRATIONS = LEGACY_MIGRATIONS[:6]  # up to 1789236845, before the C5 seed
 LAST_FIVE = HEAD_MIGRATIONS[6:]  # 1789236846 (C5 seed) .. 1789236850
 C5 = LEGACY_MIGRATIONS[6]
@@ -559,7 +582,9 @@ async def down_up_last_five(engine, url: str, mode: str) -> dict:
         relation_columns=mode,
     )
     assert check["ok"], check
-    views = await verify_views(url, load_schema(SCHEMA, include_views=True)[0])
+    views = await verify_views(
+        url, load_schema(SCHEMA, include_views=True)[0], view_semantics=False
+    )
     assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
     return {
         "reverted": reverted,
@@ -801,10 +826,13 @@ async def exercise_migrated(url: str, report: dict) -> dict:
         assert only_varchar_single_errors(strict["relation_columns"]["errors"])
         assert strict["relation_columns"]["hint"], strict["relation_columns"]
         complete = verify_complete(
-            view_definitions, await read_complete(url), relation_columns="migrated"
+            view_definitions,
+            await read_complete(url),
+            relation_columns="migrated",
+            view_semantics=False,
         )
         assert complete["ok"], complete
-        views = await verify_views(url, view_definitions)
+        views = await verify_views(url, view_definitions, view_semantics=False)
         assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
         assert await prepare_database(engine, MIGRATIONS) == []
         report["verifiers_after_up"] = {
@@ -944,10 +972,13 @@ async def exercise_partial(url: str, converted: dict, report: dict) -> None:
         assert len(strict["relation_columns"]["errors"]) == 188
         assert only_varchar_single_errors(strict["relation_columns"]["errors"])
         complete = verify_complete(
-            view_definitions, await read_complete(url), relation_columns="migrated"
+            view_definitions,
+            await read_complete(url),
+            relation_columns="migrated",
+            view_semantics=False,
         )
         assert complete["ok"], complete
-        views = await verify_views(url, view_definitions)
+        views = await verify_views(url, view_definitions, view_semantics=False)
         assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
         customers = await resolve_collection(engine, "buma_customer")
         assert (await get_record(engine, customers, "CUSTOMER_DIVERS"))["pdv"] == []
@@ -1025,10 +1056,13 @@ async def exercise_fresh(root: Path, url: str, converted: dict, report: dict) ->
         complete_definitions = load_schema(SCHEMA, include_views=True)[0]
         baseline = verify(definitions, await read_collections(url), relation_columns="fresh")
         complete = verify_complete(
-            complete_definitions, await read_complete(url), relation_columns="fresh"
+            complete_definitions,
+            await read_complete(url),
+            relation_columns="fresh",
+            view_semantics=False,
         )
         assert baseline["ok"] and complete["ok"], (baseline, complete)
-        views = await verify_views(url, complete_definitions)
+        views = await verify_views(url, complete_definitions, view_semantics=False)
         assert len(views) == 42 and all(item["status"] == "OK" for item in views), views
         fresh_model = await model_check(engine)
         assert set(fresh_model["validate_collection_indexes_failures"]) == {"_superusers"}
@@ -1237,6 +1271,7 @@ def main():
     started = time.monotonic()
     try:
         with tempfile.TemporaryDirectory(prefix="buma-c11-ws-e-") as folder:
+            report["migrations"] = pin_migrations(Path(folder))
             command(
                 "docker",
                 "run",
