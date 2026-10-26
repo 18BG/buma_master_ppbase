@@ -284,7 +284,14 @@ def schema_export(environ) -> Path:
 
 def ppbase_installation() -> dict:
     """The PPBase this interpreter loads: it must carry what BUMA requires."""
-    import ppbase
+    try:
+        import ppbase
+    except ImportError:
+        raise refused(
+            "ppbase_missing",
+            "PPBase n'est pas installé dans cet environnement Python : active le venv du dépôt "
+            "(source .venv/bin/activate) ou lance pip install -e ../ppbase.",
+        ) from None
 
     package = Path(ppbase.__file__).resolve().parent
     missing = [] if importlib.util.find_spec(PPBASE_MODULE) else ["field_multiplicity"]
@@ -852,7 +859,7 @@ class LocalImport:
             f"Lignes de départ de la migration C5 retirées : {sum(seeds.values())} "
             f"({len(seeds)} tables), et seulement elles.",
         )
-        self.note("Diagnostic du backup en cours (deux à trois minutes pour le backup complet)…")
+        self.note("Diagnostic du backup en cours (deux à quatre minutes pour le backup complet)…")
         try:
             diagnostic = importer.diagnose(
                 backup.data,
@@ -889,7 +896,7 @@ class LocalImport:
         if self.run_dir is None:
             self.run_dir = new_run_dir(self.work_root)
         staging = self.run_dir / "staging"
-        self.note("Import en une seule transaction (quatre à six minutes pour le backup complet)…")
+        self.note("Import en une seule transaction (cinq à dix minutes pour le backup complet)…")
         try:
             records, evidence = asyncio.run(
                 import_backup(url, backup, staging, diagnostic, definitions, name)
@@ -1106,6 +1113,9 @@ def main(argv=None) -> int:
         job.execute()
     except LocalImportRefused as exc:
         job.report_failure(exc.message)
+        return 1
+    except importer.ImportBlocked as exc:  # its code is value-free by contract
+        job.report_failure(blocked(exc, "Refus").message)
         return 1
     except KeyboardInterrupt:
         job.report_failure("interrompu.")

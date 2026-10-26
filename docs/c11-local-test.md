@@ -89,7 +89,7 @@ automatique :
 - contrôles finaux, puis un résumé et **la commande exacte pour démarrer PPBase**.
 
 Valeurs par défaut : version source 0.22.34, export du schéma lu dans
-`BUMA_SCHEMA_EXPORT`, dossier de données `pb_data/`, port 8090. Compte 15 à 20
+`BUMA_SCHEMA_EXPORT`, dossier de données `pb_data/`, port 8090. Compte 10 à 20
 minutes pour le backup complet, et environ deux fois sa taille décompressée en
 espace disque libre (la commande le vérifie avant de commencer).
 
@@ -141,6 +141,8 @@ La commande s'arrête au premier problème et dit ce qu'elle laisse :
   # puis la commande docker run de l'étape 4
   ```
 
+- échec après l'import (copie des fichiers, contrôles finaux), très rare : la
+  commande le dit ; supprime la base et `pb_data/storage`, puis relance ;
 - la copie extraite du ZIP est gardée dans `backups/c11-local-…/backup` : donne
   ce dossier comme backup pour relancer sans réextraire.
 

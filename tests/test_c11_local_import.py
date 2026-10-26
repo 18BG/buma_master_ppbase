@@ -173,6 +173,21 @@ def test_the_schema_export_comes_from_its_variable(tmp_path):
     assert local.schema_export({"BUMA_SCHEMA_EXPORT": str(export)}) == export
 
 
+def test_the_installed_ppbase_must_carry_what_buma_requires(monkeypatch):
+    import ppbase
+
+    found = local.ppbase_installation()
+    assert found["root"] == Path(ppbase.__file__).resolve().parent.parent
+    monkeypatch.setattr(type(ppbase.pb), "set_error_compat", None)
+    found = refusal(local.ppbase_installation)
+    assert found.code == "ppbase_too_old" and "fix/d0019-relation-maxselect" in found.message
+
+
+def test_a_missing_ppbase_is_refused_clearly(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ppbase", None)
+    assert refusal(local.ppbase_installation).code == "ppbase_missing"
+
+
 def write_zip(path: Path, names) -> Path:
     with zipfile.ZipFile(path, "w") as archive:
         for name in names:
@@ -744,6 +759,29 @@ def test_no_procfs_or_linux_only_call():
     from scripts import c11_real_rehearsal
 
     assert "/proc" not in inspect.getsource(c11_real_rehearsal.migrate_virgin_target)
+
+
+def test_main_reports_any_failure_with_its_code_and_the_advice(monkeypatch, capsys):
+    def blocked_late(job):
+        job.phase = "files"
+        raise ImportBlocked("symlink_in_storage", detail="never printed")
+
+    monkeypatch.setattr(LocalImport, "execute", blocked_late)
+    assert local.main(["backup.zip", URL]) == 1
+    printed = capsys.readouterr().out
+    assert (
+        "Échec : Refus : storage/ contient un lien symbolique (code symlink_in_storage)." in printed
+    )
+    assert "never printed" not in printed
+    assert "Les données du backup sont dans la base" in printed
+
+    def interrupted(job):
+        job.phase = "import"
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(LocalImport, "execute", interrupted)
+    assert local.main(["backup.zip", URL]) == 130
+    assert "une seule transaction, annulée" in capsys.readouterr().out
 
 
 def test_errors_are_described_without_their_text():
