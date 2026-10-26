@@ -787,8 +787,10 @@ bascule ; la fenêtre n'est fixée qu'après lui.
    ```
 
    donnent : pour BUMA, `code.buma.commit` du rapport final (`b7427fe`) ou un
-   descendant (`ancestor`) dont la différence ne liste que des fichiers sous
-   `docs/` (le rapport final lui-même est commité après `b7427fe`) ; pour
+   descendant (`ancestor`) dont la différence ne liste que des fichiers de
+   documentation (`docs/` et `AGENTS.md`, aucun fichier de `app/`, `scripts/`,
+   `tests/` ni `pb_migrations/` ; le rapport final lui-même est commité après
+   `b7427fe`) ; pour
    PPBase, exactement `code.ppbase.commit` (`069e0bb`) ; deux états vides pour
    les fichiers suivis, critère `tracked_files_clean` de la répétition
    (`git_state`, `scripts/c11_real_rehearsal.py:290-300`) ; des fichiers non

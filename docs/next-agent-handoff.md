@@ -9,7 +9,8 @@ et le 2026-10-25 à sa fin.
   2026-10-25 (périmètre, preuves, incidents, écarts ouverts, prochaine action).
 - Preuves publiées : `docs/c11-real-rehearsal-report.json` (vrai backup, deux passages
   identiques, sans octets de fichiers), `docs/c11-synthetic-rehearsal-report.json`
-  (84 réponses sur 84 identiques à PocketBase 0.22.34), `docs/c11-auth-runtime-report.json`,
+  (84 réponses sur 84 identiques à PocketBase 0.22.34 en statut et en corps, dont 75 ne
+  diffèrent que par l'en-tête `Content-Type`, D-0034), `docs/c11-auth-runtime-report.json`,
   `docs/c11-pb-0.22.34-reference-report.json` ; décisions D-0024 à D-0042 ;
   runbook `docs/c11-cutover-runbook.md`.
 - Dépendance : PPBase `ssakone/ppbase`, branche `fix/d0019-relation-maxselect`, révision
@@ -17,9 +18,12 @@ et le 2026-10-25 à sa fin.
   `pb.set_auth_record_rule_context` au démarrage). 12 migrations BUMA.
 - À faire, dans l'ordre : obtenir les acceptations de l'utilisateur pour D-0029, D-0036,
   D-0039 et D-0042 (ou reprendre les corrections : branche PPBase `c11/ws-a11` non
-  intégrée pour D-0036, validation de tous les champs pour D-0042) ; répétition avec le
-  ZIP complet et les octets des fichiers, devant l'utilisateur ; tests des clients réels
-  sur un staging ; autorisation distincte d'import de production et de bascule.
+  intégrée pour D-0036, validation de tous les champs pour D-0042) ; corriger ou décider
+  les écarts ouverts de la section 10.4 du runbook ; écrire, faire relire et tester l'outil
+  d'import de production et les autres outils de la section 10.2 du runbook (ils n'existent
+  pas encore : G0 reste NO-GO) ; répétition avec le ZIP complet et les octets des fichiers,
+  devant l'utilisateur ; tests des clients réels sur un staging ; autorisation distincte
+  d'import de production et de bascule.
 - Interdits inchangés : aucune action sur la production ; aucune déduplication, aucune
   liste aplatie, aucun record, ID, rowid ou fichier inventé ; données réelles en lecture
   seule, agrégats seulement dans les rapports publics.

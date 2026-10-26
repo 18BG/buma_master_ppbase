@@ -1061,8 +1061,11 @@ retirés en v0.24.0) : les clients BUMA sont sur 0.22.34.
 Impact client, identique à la production : un utilisateur ordinaire ne peut plus créer
 ni modifier de compte ; `buma_pdv.deleteRule` (`client.id = '' && agent.id = ''`)
 autorise désormais, comme PocketBase, la suppression des 1 930 PDV réels sans client
-ni agent ; `rels.x = v` exige que toutes les lignes liées correspondent. Écart restant :
-une création refusée par la règle répond `data.rule` au lieu de `data: {}`.
+ni agent ; `rels.x = v` exige que toutes les lignes liées correspondent. Écart du mode
+par défaut seulement : une création refusée par la règle répond `data.rule` au lieu de
+`data: {}` ; sous le mode 0.22 activé par BUMA (D-0034), le type `create_rule_failed`
+efface ce détail (`ppbase/api/records.py`, `ppbase/middleware/error_compat.py`), d'après
+le code, non remesuré.
 Régressions : `tests/integration/test_multi_match_rules.py` (53 filtres et matrice des
 règles BUMA), `tests/integration/test_admin_only_filter_fields.py`, six anciens xfail
 stricts devenus tests, sonde `relation_multiplicity_probe.py --groups multimatch,buma_rules`.
@@ -1243,8 +1246,9 @@ les envoie que sur les fichiers servis (D-0037), pas sur les réponses JSON ni l
 (mesuré par WS-F3) ; impact : protections du navigateur (cadrage, détection de type)
 absentes si aucun proxy ne les ajoute ; à poser par le proxy de bascule (runbook).
 Mesures avec le raccordement BUMA : répétition
-synthétique complète 0.22.34 passante, 84 sondes dont 82 identiques en statut et corps,
-0 différence inattendue, enveloppes d'erreur identiques à l'octet ; banc des sessions :
+synthétique complète 0.22.34 passante, 84 sondes sur 84 identiques en statut et en corps
+(9 identiques en tout, 75 qui ne diffèrent que par l'en-tête `Content-Type`), 0 différence
+inattendue, enveloppes d'erreur identiques à l'octet ; banc des sessions :
 33 sur 33.
 Régressions : `tests/test_error_compat_unit.py`, `tests/integration/test_error_compat.py`,
 `tests/integration/test_error_compat_guards.py`, groupes `errors` et `guards` de la
@@ -1367,8 +1371,8 @@ modificateurs, suppressions héritées et téléversements multiples de 0.22.34)
 
 Impact client, identique à la production : un client ne peut plus référencer un fichier
 qu'il n'a pas téléversé dans ce record ; garder, retirer, réordonner ou dédoublonner
-les noms existants reste permis. Données réelles (agrégats) : 2 899 noms stockés dans
-20 champs, aucun refusé ; aucun fournisseur OAuth2 activé ; aucun hook ni service BUMA
+les noms existants reste permis. Données réelles (agrégats) : 2 899 noms stockés dans 9
+des 20 champs fichier, aucun refusé ; aucun fournisseur OAuth2 activé ; aucun hook ni service BUMA
 n'écrit de champ fichier. Écart assumé : en mode 0.22, un nom posé par un hook de
 requête dans `e.data` est refusé, alors que 0.22.34 enregistre ce qu'un hook pose
 (les hooks PPBase reçoivent les données de la requête ; v0.40.6 valide après les hooks).
@@ -1393,8 +1397,8 @@ Correction BUMA, migration `1789236851_c11_view_sqlite_semantics.py` (chantier W
 trois fois) : treize vues recréées sans CASCADE, schémas et règles inchangés, une seule
 fonction `buma_source_rowids` qui lit l'archive `_buma_c11_rowids` de l'import :
 `payedPercent` comme SQLite (division entière tronquée si les deux sommes sont entières,
-NULL pour un diviseur nul au lieu d'une erreur 500 ; les 115 093 opérandes réels sont
-entiers) ; les sept vues `ROW_NUMBER()` numérotées dans l'ordre de SQLite (ordre rowid,
+NULL pour un diviseur nul au lieu d'une erreur 500 ; les 115 093 lignes réelles, soit
+230 186 opérandes, sont entières) ; les sept vues `ROW_NUMBER()` numérotées dans l'ordre de SQLite (ordre rowid,
 ordre du GROUP BY, ou « 1 » pour une vue d'une ligne ; repli stable pour une ligne créée
 après l'import : après les lignes archivées, par created puis id) avec un id texte
 `CAST(… AS TEXT) COLLATE "C"` comme le `cast(id as text)` de PocketBase ; ordre des
@@ -1452,14 +1456,16 @@ est la répétition synthétique complète et la porte avant fusion : une fixtur
 références orphelines, fichiers absents, doublons RETURN, IDs personnalisés, select non
 déclarés, JSON null, dates vides, comptes, superuser, paramètres, jetons), des jetons
 émis par PocketBase **avant** l'import, l'import par `import_snapshot`, puis un serveur
-PPBase isolé comparé réponse par réponse au binaire. Elle prouve, en deux passages
-identiques : la fidélité de l'import (records, rowids, tableaux dans l'ordre stocké,
+PPBase isolé comparé réponse par réponse au binaire. Elle prouve (deux passages
+identiques sur le code de WS-D2 ; sur l'état final, un passage publié, reproduit à
+l'identique par la relecture WS-ORCH4 sur `f7e4ebd`) : la fidélité de l'import (records, rowids, tableaux dans l'ordre stocké,
 orphelins, dates, JSON null, comptes, superuser, 16 chemins de paramètres, secrets de
 jetons), l'acceptation des jetons 0.22.34 d'avant l'import (admin, users, agent_users,
 refresh, realtime), les mots de passe d'origine, les fichiers présents servis octet pour
 octet et les absents en 404, trois échecs injectés qui laissent l'état migré vide, un seul
 gagnant sur deux imports concurrents, le schéma (114 définitions, 42 vues) avant et
-après. Sur l'état final (BUMA `b7427fe`, PPBase `069e0bb`, mode d'erreur 0.22 activé),
+après. Sur l'état final (BUMA `c96943b` avec les seuls rapports publics régénérés non
+encore commités, code identique à `b7427fe` ; PPBase `069e0bb` ; mode d'erreur 0.22 activé),
 les **84 réponses comparées sont identiques à PocketBase 0.22.34 en statut et en corps**,
 sans différence inattendue ; seule reste ouverte la classe `json_content_type_charset`
 (en-tête `Content-Type` sans `charset`, D-0034). Toute autre différence fait échouer la
@@ -1491,7 +1497,8 @@ contrôles HTTP (lectures publiques et protégées, listes, totaux, filtres dont
 multiples et orphelines, expand, tri, refus, fichiers, valeurs servies comparées à un
 modèle de la sérialisation 0.22.34 tiré des valeurs SQLite brutes, indépendant de
 l'importeur) : 405 sans écart, 0 échec, les autres couverts par des divergences
-documentées dont l'acceptation est demandée (D-0029 : 3, D-0039 : 7) ; copie privée
+documentées dont l'acceptation est demandée (9 contrôles, 10 occurrences : D-0029 3,
+D-0039 7 = 5 + 2) ; copie privée
 inchangée (empreinte et listage) ; confidentialité : 0 violation sur 3 442 001 valeurs.
 Durées par passage : diagnostic 144-146 s, import 248-249 s, contrôles après commit 77-78 s,
 lectures HTTP 105-107 s ; base 784,5 Mo, staging 325,2 Mo (runbook).

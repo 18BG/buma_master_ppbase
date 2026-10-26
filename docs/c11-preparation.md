@@ -3,11 +3,13 @@
 Actualisation du 2026-10-25 (fin de la session serveur) : la répétition complète sur le
 vrai backup est faite, sans octets de fichiers, dans un PostgreSQL jetable : deux
 passages passés et identiques (D-0041, `c11-real-rehearsal-report.json`, outil
-`scripts/c11_real_rehearsal.py`). Les outils de l'import final sont
+`scripts/c11_real_rehearsal.py`). Les outils de diagnostic et de répétition sont
 `scripts/c11_extract.py` (extraction vérifiée du ZIP complet, D-0028),
 `scripts/c11_import.py` (diagnostic, mode manifeste, `import_snapshot` : records puis
 comptes et paramètres dans une transaction, D-0026, D-0027) et
-`scripts/c11_snapshot_audit.py` ; la procédure de bascule et de retour arrière, avec ses
+`scripts/c11_snapshot_audit.py` ; `import_snapshot` refuse toute base autre que la base
+jetable de répétition : l'outil d'import de production reste à écrire (runbook, 10.2). La
+procédure de bascule et de retour arrière, avec ses
 durées mesurées et ses portes, est `c11-cutover-runbook.md`. Les sections ci-dessous
 restent l'historique de la préparation. C11 reste ouvert : voir l'entrée du ledger du
 2026-10-25 pour les conditions avant toute bascule.

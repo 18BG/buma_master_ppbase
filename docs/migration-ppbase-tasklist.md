@@ -341,6 +341,10 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
 - [x] Couvrir tous les records et tables, comptes, paramètres et continuité des
   sessions : import en une transaction de records, comptes et paramètres (D-0026,
   D-0027) ; jetons PocketBase d'avant l'import acceptés après (banc des sessions).
+  Sort des autres éléments de l'ancien point : S3 hors périmètre (un S3 activé bloque
+  l'import, D-0027) ; aucun champ fichier protégé dans BUMA (D-0037) ; arrêt brutal et
+  manque de mémoire traités au runbook (transaction unique, rien d'importé) ; disque
+  plein **non testé** (ouvert).
 - [x] Corriger les failles de sécurité PPBase préexistantes trouvées en chemin : règles
   `users` (D-0030), champs auth cachés et `@request` absents (D-0031), expand et viewRule
   (D-0033), noms de fichiers d'une écriture (D-0038) ; et les parités de réponses : dates
@@ -348,13 +352,17 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   valeurs zéro des NULL (D-0036), fichiers (D-0037), vues (D-0039, migration
   `1789236851`), booléens écrits (D-0042).
 - [x] Répétition synthétique complète sur le code final (D-0040) : 84 réponses sur 84
-  identiques à PocketBase 0.22.34 ; `docs/c11-synthetic-rehearsal-report.json`.
+  identiques à PocketBase 0.22.34 en statut et en corps (75 ne diffèrent que par l'en-tête
+  `Content-Type`, D-0034) ; `docs/c11-synthetic-rehearsal-report.json`.
 - [x] Répétition complète sur le vrai backup, sans octets de fichiers, dans un PostgreSQL
   jetable (D-0041) : deux passages passés et identiques ;
   `docs/c11-real-rehearsal-report.json`.
 - [x] Runbook de bascule et de retour arrière chronométré par cette répétition :
   `docs/c11-cutover-runbook.md`.
 - [ ] Acceptations de l'utilisateur demandées : D-0029, D-0036, D-0039, D-0042.
+- [ ] Écarts ouverts de la section 10.4 du runbook corrigés ou décidés avant G0.
+- [ ] Outil d'import de production et autres outils de la section 10.2 du runbook :
+  à écrire, relire, tester et faire autoriser (aucun n'existe ; G0 NO-GO d'ici là).
 - [ ] Répétition avec le ZIP complet (octets des fichiers), devant l'utilisateur.
 - [ ] Tests des clients réels (desktop, web, mobile) sur un staging, dont `isAuthRecord`
   après un refresh PPBase (D-0027) et les valeurs des vues (D-0039).

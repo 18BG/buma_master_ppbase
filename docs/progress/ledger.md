@@ -1951,7 +1951,7 @@ Lecture du framework editable (`ppbase/app.py:174-196`) : le lien unique
 `/_/setup?token=...` est généré/affiché uniquement si `count_admins == 0`.
 
 Vérification en transaction PostgreSQL READ ONLY sur la base locale configurée :
-un superuser `admin@admin.ad` existe ; `users=0`, `roles=0`, `buma_config=0`.
+un superuser (adresse e-mail de l'administrateur, caviardée le 2026-10-26) existe ; `users=0`, `roles=0`, `buma_config=0`.
 Cette base n'est donc pas neuve au niveau des comptes techniques. GET `/` et
 `/_/` sur 8091 répondent 200 (JSON BUMA et HTML dashboard). L'accès réseau
 sandbox initial a échoué ; la vérification locale autorisée a réussi ensuite.
@@ -2927,7 +2927,8 @@ d'où le téléchargement d'objets non référencés (D-0038).
 - `c11_idempotency_runtime` passed (C4, C7, C9 sur 29 routes) ; `c11_auth_runtime` 0.22.34
   passed (22 refus sur 22 au statut de PocketBase, 0 écart de libellé, mêmes clés
   d'enveloppe, 19 résultats realtime identiques, 0 secret servi) ; `c11_rehearsal` 0.22.34
-  passed (84 réponses sur 84 identiques à PocketBase en statut et corps, 0 différence
+  passed (84 réponses sur 84 identiques à PocketBase en statut et en corps, dont 75 ne
+  diffèrent que par l'en-tête `Content-Type`, 0 différence
   inattendue) ; `c11_view_semantics_runtime` passed (matrice de 6 433 requêtes avant et
   après `1789236851`, 190 requêtes appariées) ; référence 0.22.34 régénérée (toutes les
   conclusions vraies, dont « seule la porte de version » pour tous les profils).
@@ -2977,6 +2978,12 @@ intactes). `data.db` vérifié intact à chaque étape (empreinte publiée).
   changement de schéma à chaud (préexistant PPBase) ; en-têtes de sécurité de PocketBase
   (`X-Content-Type-Options`, `X-Frame-Options`, `X-Xss-Protection`) absents des réponses JSON
   et du dashboard de PPBase (D-0034, à poser par le proxy, runbook).
+- **Outils de bascule** : aucune commande d'import de production n'existe : l'outil d'import de production et les autres outils de la section 10.2 du runbook restent à écrire, relire, tester et faire autoriser (G0 NO-GO d'ici là).
+- **Écarts de la section 10.4 du runbook, à corriger ou décider avant G0** : modèles et
+  expéditeur des e-mails importés mais ignorés par PPBase ; SMTP en TLS implicite non pris
+  en charge ; envoi des e-mails synchrone dans la boucle d'événements ; `data.version` de
+  `/api/health` ; routes BUMA hors source (`GET /`, `/__foundation/*`) ; `/api/batch`
+  activé.
 - **Production** : import de production et bascule **ni demandés, ni autorisés, ni
   exécutés**.
 
@@ -2985,7 +2992,10 @@ intactes). `data.db` vérifié intact à chaque étape (empreinte publiée).
 C11 reste **ouvert** et est **prêt pour la bascule sous conditions** : tous les blocages
 d'import mesurés (D-0019, D-0021) sont résolus en code avec tests et preuves, la répétition
 complète sur le vrai backup passe (sans octets de fichiers), et le runbook est chronométré
-par elle. Conditions avant toute bascule : acceptations ci-dessus, répétition avec le ZIP
-complet, tests des clients réels sur un staging, autorisation distincte de l'utilisateur.
-Prochaine action exacte : soumettre à l'utilisateur les acceptations D-0029, D-0036, D-0039
-et D-0042, puis la répétition avec le ZIP complet devant lui.
+par elle. Conditions avant toute bascule : acceptations ci-dessus, écarts de la section
+10.4 corrigés ou décidés, outil d'import de production et autres outils de la section 10.2
+écrits, relus, testés et autorisés, répétition avec le ZIP complet, tests des clients réels
+sur un staging, autorisation distincte de l'utilisateur. Prochaine action exacte : soumettre
+à l'utilisateur les acceptations D-0029, D-0036, D-0039 et D-0042 et les écarts de la section
+10.4, puis écrire et faire relire l'outil d'import de production, puis la répétition avec le
+ZIP complet devant lui.

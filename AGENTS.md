@@ -170,6 +170,9 @@ conversation alone is never the project handoff record.
   filters and sorts) is NOT integrated: it failed two reviews. Keep _buma_c11_rowids
   and buma_source_rowids after an import (they carry rowids, view numbering and
   concatenation order; back them up with pg_dump). Remaining before any cutover:
-  those acceptances, the rehearsal with the complete ZIP and its file bytes, tests of
-  the real clients on a staging, and a distinct production authorization (not
-  requested, not obtained, not executed).
+  those acceptances; the open gaps of section 10.4 of the runbook, fixed or decided;
+  the production import tool and the other tools of section 10.2 of the runbook,
+  which do not exist yet (written, reviewed, tested and authorized: G0 is NO-GO until
+  then); the rehearsal with the complete ZIP and its file bytes; tests of the real
+  clients on a staging; and a distinct production authorization (not requested, not
+  obtained, not executed).
