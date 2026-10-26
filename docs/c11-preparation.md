@@ -8,7 +8,10 @@ passages passés et identiques (D-0041, `c11-real-rehearsal-report.json`, outil
 `scripts/c11_import.py` (diagnostic, mode manifeste, `import_snapshot` : records puis
 comptes et paramètres dans une transaction, D-0026, D-0027) et
 `scripts/c11_snapshot_audit.py` ; `import_snapshot` refuse toute base autre que la base
-jetable de répétition : l'outil d'import de production reste à écrire (runbook, 10.2). La
+jetable de répétition : l'outil d'import de production reste à écrire (runbook, 10.2). Seule
+exception, explicite et réservée aux tests manuels de l'utilisateur sur une base PostgreSQL
+locale qu'il crée vide : `scripts/c11_local_import.py`, qui n'est pas l'outil de production
+(voir `c11-local-test.md`). La
 procédure de bascule et de retour arrière, avec ses
 durées mesurées et ses portes, est `c11-cutover-runbook.md`. Les sections ci-dessous
 restent l'historique de la préparation. C11 reste ouvert : voir l'entrée du ledger du
