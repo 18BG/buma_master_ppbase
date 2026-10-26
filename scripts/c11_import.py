@@ -2,8 +2,10 @@
 
 Only a closed, standalone PB snapshot is accepted. The CLI is read-only apart
 from its explicit new report files and never receives a PostgreSQL URL. The
-rehearsal and the volume benchmark own their own disposable database. The one
-import entry point, ``import_snapshot``, loads records, accounts and settings
+rehearsal and the volume benchmark own their own disposable database;
+``scripts/c11_local_import.py`` names the database it found entirely empty and
+migrated itself (``check_target_database``). The one import entry point,
+``import_snapshot``, loads records, accounts and settings
 (``scripts.c11_auth_import.import_auth``) in a single transaction.
 
 Storage modes: ``directory`` reads and hashes a real ``storage/`` tree;
@@ -188,6 +190,11 @@ ROWID_TRIGGER_DEFINITION = {
     "has_when": False,
     "has_columns": False,
 }
+# The only database that the import primitives (load_isolated, check_ready,
+# import_auth) write into by default: the disposable rehearsal database of the
+# script that owns it. See ``check_target_database`` for the one explicit
+# exception.
+REHEARSAL_DATABASE = "buma_c11_rehearsal"
 
 
 class ImportBlocked(ValueError):
@@ -207,6 +214,27 @@ class ImportBlocked(ValueError):
         super().__init__(code)
         self.code = code
         self.details = details
+
+
+def check_target_database(current: str, verified_empty_database: str | None = None) -> None:
+    """Refuse a target database the caller did not explicitly vouch for.
+
+    Default (``verified_empty_database`` None): only the disposable rehearsal
+    database ``buma_c11_rehearsal`` (``isolated_rehearsal_database_required``).
+    Explicit name: that exact database and no other
+    (``verified_empty_database_mismatch``). Only ``scripts.c11_local_import``
+    passes one, the name of the database it found entirely empty (no table, no
+    applied migration) and then migrated itself; the importer cannot verify that
+    statement, so no other caller may make it.
+    """
+    if verified_empty_database is None:
+        if current != REHEARSAL_DATABASE:
+            raise ImportBlocked("isolated_rehearsal_database_required")
+        return
+    if not isinstance(verified_empty_database, str) or not verified_empty_database:
+        raise ValueError("verified_empty_database must name a database")
+    if current != verified_empty_database:
+        raise ImportBlocked("verified_empty_database_mismatch")
 
 
 def quote(name: str) -> str:
@@ -2745,13 +2773,16 @@ async def load_isolated(
     fail_after: int | None = None,
     report: dict | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    verified_empty_database: str | None = None,
 ):
     """Load on the caller's transaction; requires empty tables, never clears data.
 
     No hooks/repositories/HTTP writes: historical balances, authors, numbers and
     timestamps must not be recomputed. The caller owns the transaction
     (``engine.begin()``): checked before any SQL, then on the driver connection
-    (an AUTOCOMMIT connection is refused). ``definitions`` must be exactly the
+    (an AUTOCOMMIT connection is refused). The database must be the rehearsal
+    one, or the one named by ``verified_empty_database``
+    (``check_target_database``). ``definitions`` must be exactly the
     diagnosed ones (``definitions_do_not_match_diagnosis``, before any SQL).
     The target may hold no trigger but the migrated rowid allocators, exactly
     defined, and no enabled event trigger (``check_target_triggers``: after the
@@ -2812,8 +2843,7 @@ async def load_isolated(
     if not driver.is_in_transaction():
         # e.g. an AUTOCOMMIT isolation level: every statement would commit alone.
         raise ImportBlocked("caller_transaction_required")
-    if current_db != "buma_c11_rehearsal":
-        raise ImportBlocked("isolated_rehearsal_database_required")
+    check_target_database(current_db, verified_empty_database)
     state = _LoadState(driver, batch_size, fail_after)
     state.statements["other"] += 1  # current_database()
 
@@ -3076,6 +3106,7 @@ async def import_snapshot(
     report: dict | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     auth_fail_after: str | None = None,
+    verified_empty_database: str | None = None,
 ):
     """Single entry point: records, accounts and settings in one transaction.
 
@@ -3088,7 +3119,9 @@ async def import_snapshot(
     without blocker, empty ``_superusers``, no ``settings`` parameter, no auth
     archive, same auth collection IDs), so that an account or settings refusal
     never comes after the whole load and no lock it takes is held while the
-    import waits.
+    import waits. ``verified_empty_database`` replaces the rehearsal database
+    by that exact database in all three steps (``check_target_database``);
+    only ``scripts.c11_local_import`` passes it.
     Then the snapshot is staged (``stage_snapshot``) and one transaction
     (``engine.begin()``) runs ``load_isolated`` (records, which first checks
     that every record table is empty), ``recount_relation_arrays`` and
@@ -3117,6 +3150,14 @@ async def import_snapshot(
 
     if auth_fail_after is not None and auth_fail_after not in FAIL_STAGES:
         raise ValueError("unknown failure stage")
+    if verified_empty_database is not None and (
+        not isinstance(verified_empty_database, str) or not verified_empty_database
+    ):
+        raise ValueError("verified_empty_database must name a database")
+    # Passed on only when given: the default calls keep their exact shape.
+    database = {}
+    if verified_empty_database is not None:
+        database["verified_empty_database"] = verified_empty_database
     if not hides_parameters(engine):
         # Without it SQLAlchemy repeats bound values (password hashes,
         # tokenKeys, secrets) in its error messages.
@@ -3126,7 +3167,7 @@ async def import_snapshot(
     evidence = report if report is not None else {}
     started = time.monotonic()
     async with engine.connect() as probe:
-        await check_ready(probe, data, definitions)
+        await check_ready(probe, data, definitions, **database)
     checked = time.monotonic()
     stage_snapshot(data, destination, diagnostic, manifest=manifest)
     staged = time.monotonic()
@@ -3139,12 +3180,13 @@ async def import_snapshot(
                 fail_after=fail_after,
                 report=evidence,
                 batch_size=batch_size,
+                **database,
             )
             loaded = time.monotonic()
             arrays = await recount_relation_arrays(connection, destination, definitions)
             recounted = time.monotonic()
             auth = await import_auth(
-                connection, destination, definitions, fail_after=auth_fail_after
+                connection, destination, definitions, fail_after=auth_fail_after, **database
             )
             imported = time.monotonic()
     except BaseException:

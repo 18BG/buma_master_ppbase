@@ -32,6 +32,7 @@ from pathlib import Path
 
 from scripts.c11_import import (
     ImportBlocked,
+    check_target_database,
     date_value,
     digest,
     load_schema,
@@ -40,8 +41,8 @@ from scripts.c11_import import (
     write_json_new,
 )
 
-# Same guard as load_isolated: never a supplied or long-lived database.
-REHEARSAL_DATABASE = "buma_c11_rehearsal"
+# Same guard as load_isolated (scripts.c11_import.check_target_database): the
+# rehearsal database, or the database named by verified_empty_database.
 ARCHIVE_TABLE = "_buma_c11_auth_archive"
 SUPERUSERS = "_superusers"
 INTERNAL_TABLES = ("_admins", "_params", "_externalAuths")
@@ -616,15 +617,22 @@ def hides_parameters(connection) -> bool:
 
 
 async def import_auth(
-    connection, data: Path, definitions: list[dict], *, fail_after: str | None = None
+    connection,
+    data: Path,
+    definitions: list[dict],
+    *,
+    fail_after: str | None = None,
+    verified_empty_database: str | None = None,
 ) -> dict:
     """Import admins, token secrets and settings on the caller's transaction.
 
     Call it after load_isolated, on the same connection and transaction, so a
-    failure anywhere rolls everything back. Refuses a non-empty target, records
-    that do not come from this snapshot and an engine that would echo bound
-    values. Database errors become a value-free ImportBlocked(DATABASE_ERROR)
-    whose only extra attribute is the SQLSTATE.
+    failure anywhere rolls everything back. Refuses a database other than the
+    rehearsal one or the one named by ``verified_empty_database``
+    (``check_target_database``), a non-empty target, records that do not come
+    from this snapshot and an engine that would echo bound values. Database
+    errors become a value-free ImportBlocked(DATABASE_ERROR) whose only extra
+    attribute is the SQLSTATE.
     """
     from sqlalchemy.exc import SQLAlchemyError
 
@@ -639,7 +647,9 @@ async def import_auth(
     if digest(data / "data.db") != diagnostic["data_db_sha256"]:
         raise ImportBlocked("staged_snapshot_changed")
     try:
-        return await _import_on_connection(connection, data, definitions, diagnostic, fail_after)
+        return await _import_on_connection(
+            connection, data, definitions, diagnostic, fail_after, verified_empty_database
+        )
     except SQLAlchemyError as exc:
         failure = _database_failure(exc)
     # Raised outside the handler: no __context__ keeps the driver error, its SQL
@@ -656,12 +666,19 @@ def _database_failure(exc) -> ImportBlocked:
     return failure
 
 
-async def check_ready(connection, data: Path, definitions: list[dict]) -> None:
+async def check_ready(
+    connection,
+    data: Path,
+    definitions: list[dict],
+    *,
+    verified_empty_database: str | None = None,
+) -> None:
     """Read-only refusals of import_auth, for scripts.c11_import.import_snapshot.
 
     Run before the snapshot is staged and the records are loaded, so that an
     account or settings refusal never comes after the whole load: an engine
-    that hides bound values, the rehearsal database, accounts and settings of
+    that hides bound values, the rehearsal database (or the one named by
+    ``verified_empty_database``, ``check_target_database``), accounts and settings of
     the closed snapshot ``data`` without blocker (``build_plan``), an empty
     ``_superusers``, no ``settings`` parameter, no auth archive, and the auth
     collections of the plan with their source IDs. Same codes as import_auth.
@@ -674,19 +691,18 @@ async def check_ready(connection, data: Path, definitions: list[dict]) -> None:
     if not hides_parameters(connection):
         raise ImportBlocked("engine_hide_parameters_required")
     try:
-        await _check_ready(connection, data, definitions)
+        await _check_ready(connection, data, definitions, verified_empty_database)
         return
     except SQLAlchemyError as exc:
         failure = _database_failure(exc)
     raise failure
 
 
-async def _check_ready(connection, data, definitions) -> None:
+async def _check_ready(connection, data, definitions, verified_empty_database=None) -> None:
     from sqlalchemy import text
 
     current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
-    if current_db != REHEARSAL_DATABASE:
-        raise ImportBlocked("isolated_rehearsal_database_required")
+    check_target_database(current_db, verified_empty_database)
     with snapshot(data) as db:
         source = read_source(db)
     plan = build_plan(source, definitions)
@@ -724,12 +740,13 @@ def expected_identities(diagnostic: dict) -> dict:
     return {c["id"]: (c["rows"], c["identity_sha256"]) for c in collections if c["rows"]}
 
 
-async def _import_on_connection(connection, data, definitions, diagnostic, fail_after) -> dict:
+async def _import_on_connection(
+    connection, data, definitions, diagnostic, fail_after, verified_empty_database=None
+) -> dict:
     from sqlalchemy import text
 
     current_db = (await connection.execute(text("SELECT current_database()"))).scalar_one()
-    if current_db != REHEARSAL_DATABASE:
-        raise ImportBlocked("isolated_rehearsal_database_required")
+    check_target_database(current_db, verified_empty_database)
     with snapshot(data) as db:
         source = read_source(db)
     plan = build_plan(source, definitions)

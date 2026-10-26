@@ -111,7 +111,7 @@ if __name__ == "__main__" and not __package__:
 from scripts import c11_auth_import as auth_import  # noqa: E402
 from scripts import c11_import as importer  # noqa: E402
 
-DATABASE = "buma_c11_rehearsal"  # the only name load_isolated and import_auth accept
+DATABASE = "buma_c11_rehearsal"  # the only name load_isolated and import_auth accept by default
 IMAGE = "postgres:16-alpine"
 CONTAINER_PREFIX = "buma-c11-ws-g-"
 SCOPE_LABEL = "c11-ws-g-real-rehearsal"
@@ -1931,8 +1931,11 @@ async def schema_check(url: str, schema: Path) -> dict:
     }
 
 
-async def prepare_target(engine, url: str, schema: Path, definitions: list[dict]):
-    """Every migration on the virgin database, schema checks, seeds of this database removed."""
+async def migrate_virgin_target(engine, url: str, schema: Path, definitions: list[dict]) -> dict:
+    """Every migration on the virgin database, then the schema checks; no row removed.
+
+    Also used by scripts/c11_local_import.py, after its own emptiness check.
+    """
     from ppbase.services.database_preparation import prepare_database
 
     from scripts.generate_native_baseline import load_schema as translated_schema
@@ -1952,6 +1955,22 @@ async def prepare_target(engine, url: str, schema: Path, definitions: list[dict]
     views = await verify_views(url, translated_schema(schema, include_views=True)[0])
     failed_views = [view["name"] for view in views if view["status"] != "OK"]
     require(not failed_views, "view_queries_failed", views=failed_views)
+    return {
+        "migrations_applied": len(applied),
+        "migration_files": len(files),
+        "schema": complete,
+        "relation_columns": {
+            "mode": "fresh",
+            "multiple": dict(columns["multiple"]),
+            "single": dict(columns["single"]),
+        },
+        "view_queries_ok": len(views),
+    }
+
+
+async def prepare_target(engine, url: str, schema: Path, definitions: list[dict]):
+    """Every migration on the virgin database, schema checks, seeds of this database removed."""
+    migrated = await migrate_virgin_target(engine, url, schema, definitions)
     tables = [c for c in definitions if c["type"] != "view"]
     seeds: dict[str, int] = {}
     from sqlalchemy import text
@@ -1970,18 +1989,14 @@ async def prepare_target(engine, url: str, schema: Path, definitions: list[dict]
     async with engine.connect() as conn:
         spec = await importer.introspect_target(conn, definitions)
     return spec, {
-        "migrations_applied": len(applied),
-        "migration_files": len(files),
-        "schema": complete,
-        "relation_columns": {
-            "mode": "fresh",
-            "multiple": dict(columns["multiple"]),
-            "single": dict(columns["single"]),
-        },
+        "migrations_applied": migrated["migrations_applied"],
+        "migration_files": migrated["migration_files"],
+        "schema": migrated["schema"],
+        "relation_columns": migrated["relation_columns"],
         "multiple_relation_column_types": {
             f"{table}.{field}": describe(spec[table][field]) for table, field in MULTIPLE_RELATIONS
         },
-        "view_queries_ok": len(views),
+        "view_queries_ok": migrated["view_queries_ok"],
         "seed_rows_removed": sum(seeds.values()),
         "seed_tables": sorted(seeds),
     }
