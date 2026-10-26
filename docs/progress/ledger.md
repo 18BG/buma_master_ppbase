@@ -3038,3 +3038,40 @@ relancée sur `f7e4ebd`.
 - Publication : `features/auth` avancé sur `c11/integration` après ces relectures.
 
 C11 reste ouvert ; aucune action sur la production.
+
+## C11 — commande d'import local pour les tests manuels de l'utilisateur — 2026-10-26
+
+Demande de l'utilisateur : tester lui-même, sur son Mac, l'import de son backup dans une
+base PostgreSQL qu'il garde, puis PPBase et ses applications, avec le strict nécessaire en
+paramètres. La production n'est accessible à aucun agent ; sa bascule passera par les
+procédures de l'entreprise.
+
+- **Livré** (chantier WS-L, relu, puis corrections de la relecture) :
+  `scripts/c11_local_import.py`, « `python -m scripts.c11_local_import BACKUP
+  ADRESSE_POSTGRESQL` » (ZIP complet, dossier extrait avec `storage/`, ou dossier avec le
+  manifeste) ; guide `docs/c11-local-test.md` ; paramètre explicite
+  `verified_empty_database` de l'importeur (`scripts/c11_import.py`,
+  `scripts/c11_auth_import.py`), le refus par défaut des répétitions restant inchangé ;
+  `migrate_virgin_target` extraite de `scripts/c11_real_rehearsal.py` sans changement.
+- **Protection** : la commande refuse une base qui n'est pas entièrement vide (tables, vues,
+  séquences, fonctions, types, extensions autres que plpgsql) et un stockage `pb_data`
+  non vide ; elle ne retire que les 24 lignes de départ de la migration C5 qu'elle vient
+  d'insérer ; l'import est en une transaction. Elle ne prétend pas savoir si une base est
+  une base de test : c'est l'utilisateur qui la choisit.
+- **Preuves** : suite BUMA 905 passed (dont 3 tests d'intégration : fixture `real_shape`
+  construite par PocketBase 0.22.34 avec fichiers, import, PPBase démarré par la commande
+  affichée, connexion admin, liste, fichier identique octet pour octet ; base non vide
+  laissée intacte) ; Ruff ; `c11_rehearsal` 0.22.34 et `c11_idempotency_runtime` passés
+  (garde par défaut inchangée) ; une exécution réelle sur le serveur en mode manifeste
+  (1 188 247 records, 1 administrateur importé, 24 lignes C5 retirées, PPBase démarré,
+  connexion admin et listes égales à SQLite, puis tout détruit ; `data.db` inchangé).
+- **Non vérifié** : macOS lui-même ; la copie des fichiers réels et le chemin du ZIP réel
+  (prouvés sur la fixture seulement : pas de `storage/` sur le serveur) ; la page du
+  dashboard (`/_/`, à construire une fois dans `admin-ui` avec Node.js 20 ou plus) ; la
+  connexion avec le vrai mot de passe administrateur (inconnu, à garder ainsi).
+- L'administrateur PocketBase est importé avec son e-mail et son mot de passe : aucun
+  superuser à créer pour le dashboard.
+
+Prochaine action : l'utilisateur teste sur son Mac selon `docs/c11-local-test.md`. Les
+décisions D-0029, D-0036, D-0039 et D-0042 restent en attente de sa réponse. C11 reste
+ouvert ; aucune action sur la production.
