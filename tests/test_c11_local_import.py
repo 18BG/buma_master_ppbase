@@ -245,6 +245,7 @@ EMPTY = {
     "relations": 0,
     "routines": 0,
     "types": 0,
+    "extensions": 0,
 }
 
 
@@ -258,6 +259,8 @@ def test_an_entirely_empty_database_passes():
         ({"relations": 1}, "database_not_empty"),
         ({"routines": 2}, "database_not_empty"),
         ({"types": 1}, "database_not_empty"),
+        # An extension (other than plpgsql) may own tables outside public.
+        ({"extensions": 1}, "database_not_empty"),
         ({"version_num": 150008, "version": "15.8"}, "postgresql_too_old"),
         ({"encoding": "LATIN1"}, "database_not_utf8"),
     ],
@@ -750,7 +753,15 @@ def test_the_summary_warns_about_what_differs_locally():
     assert "cd /x/ppbase/admin-ui && npm ci && npm run build" in text
     assert "ne trie pas le texte octet par octet comme PocketBase" in text
     assert "aucun (mode manifeste) ; 596 fichiers référencés : 404" in text
-    assert "non repris (attendu, D-0027) : backup_schedule_not_imported." in text
+    assert "comptes et paramètres (voir D-0027) : backup_schedule_not_imported." in text
+
+
+def test_the_summary_says_to_create_an_admin_when_none_was_imported():
+    imported = "\n".join(summary_lines())
+    assert "aucun superuser à créer" in imported
+    none = "\n".join(summary_lines(auth={"admins": {"imported_rows": 0}}))
+    assert "aucun superuser à créer" not in none
+    assert "lien d'installation" in none
 
 
 def test_no_procfs_or_linux_only_call():
@@ -956,7 +967,7 @@ def ppbase(command: str, log: Path):
     """PPBase started by the displayed command itself, through a shell."""
     import httpx
 
-    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TZ")
+    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TZ", "PYTHONDONTWRITEBYTECODE")
     env = {key: os.environ[key] for key in keep if key in os.environ}
     port = int(re.search(r"--port (\d+)", command).group(1))
     with log.open("w") as stream:
@@ -1151,7 +1162,12 @@ def test_pocketbase_zip_import_after_a_refused_non_empty_storage(integration):
     )
     assert refusal(job.execute).code == "storage_target_not_empty"
     state = asyncio.run(local.probe_database(local.database_url(url)))
-    assert (state["relations"], state["routines"], state["types"]) == (0, 0, 0)
+    assert (state["relations"], state["routines"], state["types"], state["extensions"]) == (
+        0,
+        0,
+        0,
+        0,
+    )
     assert not (root / "work").exists()  # refused before the extraction
     lines = []
     job = LocalImport(

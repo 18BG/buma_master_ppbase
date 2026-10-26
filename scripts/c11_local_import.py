@@ -99,7 +99,9 @@ INSERT_TABLE = re.compile(r'INSERT INTO "([^"]+)"')
 
 # Every object outside the system schemas, extension members aside: tables,
 # views, sequences, indexes (relations), functions and procedures (routines),
-# enums, domains and ranges (types: neither row types nor arrays).
+# enums, domains and ranges (types: neither row types nor arrays); and every
+# extension but plpgsql (neither BUMA nor PPBase creates one: an extension may
+# own tables outside public, e.g. pg_cron).
 EMPTINESS_SQL = """
 WITH spaces AS (
     SELECT oid FROM pg_catalog.pg_namespace
@@ -117,7 +119,8 @@ SELECT
         AND (p.tableoid, p.oid) NOT IN (SELECT classid, objid FROM members)) AS routines,
     (SELECT count(*) FROM pg_catalog.pg_type t
       WHERE t.typnamespace IN (SELECT oid FROM spaces) AND t.typrelid = 0 AND t.typelem = 0
-        AND (t.tableoid, t.oid) NOT IN (SELECT classid, objid FROM members)) AS types
+        AND (t.tableoid, t.oid) NOT IN (SELECT classid, objid FROM members)) AS types,
+    (SELECT count(*) FROM pg_catalog.pg_extension WHERE extname <> 'plpgsql') AS extensions
 """
 DATABASE_SQL = """
 SELECT current_database() AS name,
@@ -463,11 +466,12 @@ def check_empty(state: dict) -> None:
             "database_not_utf8",
             f"La base « {state['name']} » est encodée en {state['encoding']} : il faut UTF8.",
         )
-    if state["relations"] or state["routines"] or state["types"]:
+    if state["relations"] or state["routines"] or state["types"] or state["extensions"]:
         raise refused(
             "database_not_empty",
             f"La base « {state['name']} » n'est pas vide ({state['relations']} tables, index, "
-            f"vues ou séquences, {state['routines']} fonctions, {state['types']} types). "
+            f"vues ou séquences, {state['routines']} fonctions, {state['types']} types, "
+            f"{state['extensions']} extensions). "
             "L'import n'accepte qu'une base entièrement vide, pour ne jamais écraser ni "
             "mélanger des données : crée une nouvelle base vide et relance.",
         )
@@ -552,6 +556,8 @@ async def migrate_and_describe(url, schema: Path, definitions: list[dict]) -> di
     """Steps 3 to 5 (database side): migrations, C5 rows, target columns."""
     from scripts.c11_real_rehearsal import RehearsalFailure, migrate_virgin_target
 
+    # Read before any write: an unreadable C5 migration must not leave a migrated base.
+    c5_rows = await c5_seed_rows()
     engine = make_engine(url)
     try:
         try:
@@ -561,7 +567,7 @@ async def migrate_and_describe(url, schema: Path, definitions: list[dict]) -> di
                 "migrations_failed",
                 f"Les migrations BUMA ou leurs contrôles ont échoué (code {exc.code}).",
             ) from None
-        seeds = await remove_c5_seeds(engine, definitions, await c5_seed_rows())
+        seeds = await remove_c5_seeds(engine, definitions, c5_rows)
         async with engine.connect() as conn:
             spec = await importer.introspect_target(conn, definitions)
     finally:
@@ -1054,10 +1060,16 @@ class LocalImport:
         out(f"  {command}")
         out("")
         out(f"Tableau de bord : http://{HOST}:{self.port}/_/")
-        out(
-            "  Connecte-toi avec l'e-mail et le mot de passe de l'administrateur de ton "
-            "PocketBase : il est importé, aucun superuser à créer."
-        )
+        if auth["admins"]["imported_rows"] >= 1:
+            out(
+                "  Connecte-toi avec l'e-mail et le mot de passe de l'administrateur de ton "
+                "PocketBase : il est importé, aucun superuser à créer."
+            )
+        else:
+            out(
+                "  Ton backup n'a aucun administrateur : crée-en un avec le lien d'installation "
+                "que PPBase affiche à son démarrage."
+            )
         out(f"Applications : adresse du serveur http://{HOST}:{self.port}")
         out("")
         out("Attention :")
@@ -1065,7 +1077,10 @@ class LocalImport:
             "  - n'utilise pas l'envoi d'un e-mail de test du tableau de bord : il passerait par "
             "le serveur SMTP de la production, dont les réglages sont importés (D-0027) ;"
         )
-        out("  - ne définis pas PPBASE_SMTP_* : sans ces variables, PPBase n'envoie aucun e-mail.")
+        out(
+            "  - ne définis pas PPBASE_SMTP_* (ni PPBASE_DEV), y compris dans le fichier .env "
+            "du dépôt, que PPBase lit : sans ces variables, PPBase n'envoie aucun e-mail."
+        )
         if not ppbase["dashboard_built"]:
             out(
                 "  - le tableau de bord n'est pas construit dans ton PPBase : lance une fois "
@@ -1080,7 +1095,7 @@ class LocalImport:
         skipped = warning_codes(auth.get("warnings"))
         if skipped:
             out(
-                "  - paramètres PocketBase non repris (attendu, D-0027) : "
+                "  - avertissements de l'import des comptes et paramètres (voir D-0027) : "
                 + ", ".join(skipped)
                 + "."
             )

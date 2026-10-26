@@ -5,8 +5,8 @@ PostgreSQL que tu crées et que tu gardes, puis à démarrer PPBase avec les hoo
 BUMA et à y brancher tes applications. C'est un test local : ce n'est pas la
 bascule de production.
 
-Il te faut : macOS, Python 3.12, Docker Desktop, Node.js 18 ou plus (une fois,
-pour le tableau de bord), le ZIP complet du backup et l'export du schéma
+Il te faut : macOS, Python 3.12, Docker Desktop, Node.js 20 ou plus (22
+recommandé ; une fois, pour construire le tableau de bord), le ZIP complet du backup et l'export du schéma
 `buma-master-pb_schema-corrected.json`.
 
 ## 1. Récupérer les deux dépôts, côte à côte
@@ -107,11 +107,14 @@ l'arrête.
   **aucun superuser à créer**.
 - Applications : adresse du serveur `http://127.0.0.1:8090` (émulateur Android :
   `http://10.0.2.2:8090`). Les comptes gardent leurs mots de passe, et les
-  sessions ouvertes avant le backup restent valides.
+  sessions ouvertes avant le backup restent valides jusqu'à leur expiration
+  normale (ensuite, les applis redemandent la connexion).
 - Un vrai téléphone ne voit pas `127.0.0.1` : remplace `--host 127.0.0.1` par
   `--host 0.0.0.0` dans la commande et utilise l'adresse IP du Mac, seulement sur
   un réseau de confiance (les données deviennent visibles sur ce réseau).
 - Si le port 8090 est pris, change `--port 8090` dans la commande.
+- PPBase lit aussi le fichier `.env` du dépôt s'il existe : n'y mets ni
+  `PPBASE_SMTP_*` ni `PPBASE_DEV` pendant tes tests (aucun e-mail ne doit partir).
 
 ## 7. Précautions
 
