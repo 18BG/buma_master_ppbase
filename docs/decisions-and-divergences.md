@@ -1457,15 +1457,16 @@ références orphelines, fichiers absents, doublons RETURN, IDs personnalisés, 
 déclarés, JSON null, dates vides, comptes, superuser, paramètres, jetons), des jetons
 émis par PocketBase **avant** l'import, l'import par `import_snapshot`, puis un serveur
 PPBase isolé comparé réponse par réponse au binaire. Elle prouve (deux passages
-identiques sur le code de WS-D2 ; sur l'état final, un passage publié, reproduit à
-l'identique par la relecture WS-ORCH4 sur `f7e4ebd`) : la fidélité de l'import (records, rowids, tableaux dans l'ordre stocké,
+identiques sur le code de WS-D2 ; sur l'état final, deux passages concordants : celui de
+la relecture WS-ORCH4 sur `f7e4ebd` et le passage publié sur `3853d7e`) : la fidélité de
+l'import (records, rowids, tableaux dans l'ordre stocké,
 orphelins, dates, JSON null, comptes, superuser, 16 chemins de paramètres, secrets de
 jetons), l'acceptation des jetons 0.22.34 d'avant l'import (admin, users, agent_users,
 refresh, realtime), les mots de passe d'origine, les fichiers présents servis octet pour
 octet et les absents en 404, trois échecs injectés qui laissent l'état migré vide, un seul
 gagnant sur deux imports concurrents, le schéma (114 définitions, 42 vues) avant et
-après. Sur l'état final (BUMA `c96943b` avec les seuls rapports publics régénérés non
-encore commités, code identique à `b7427fe` ; PPBase `069e0bb` ; mode d'erreur 0.22 activé),
+après. Sur l'état final (rapport publié régénéré sur BUMA `3853d7e`, arbre propre ;
+PPBase `069e0bb` ; mode d'erreur 0.22 activé),
 les **84 réponses comparées sont identiques à PocketBase 0.22.34 en statut et en corps**,
 sans différence inattendue ; seule reste ouverte la classe `json_content_type_charset`
 (en-tête `Content-Type` sans `charset`, D-0034). Toute autre différence fait échouer la
