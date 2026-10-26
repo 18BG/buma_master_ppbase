@@ -1,10 +1,10 @@
 {
-  "timestamp_utc": "2026-10-25T12:34:34.997440+00:00",
+  "timestamp_utc": "2026-10-26T04:09:02.701242+00:00",
   "scope": "c11_complete_synthetic_rehearsal",
-  "command": "python -m scripts.c11_rehearsal --pocketbase /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --schema /root/projects/buma-master-pb_schema-corrected.json --report docs/c11-synthetic-rehearsal-report.json --container-tag final",
+  "command": "python -m scripts.c11_rehearsal --pocketbase /root/buma-c11-tools/pocketbase-0.22.34/bin/pocketbase --schema /root/projects/buma-master-pb_schema-corrected.json --report /tmp/buma-c11-session/synthetic-final-clean2.json --container-tag final4",
   "buma": {
-    "git_commit": "c96943b46a4dac68d96192474c18bb238087f485",
-    "uncommitted_changes": true
+    "git_commit": "3853d7e26fbc72f68d21d4f481567fa6705eac54",
+    "uncommitted_changes": false
   },
   "profile": "real_shape",
   "pocketbase": {
@@ -100,7 +100,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "6228d5cd0f670bc778cd2b5be9eaa43d451016c0901d622bc6a8cf3d166a1971",
-        "source_rows_sha256": "0afef154a2dd9777fdfb6761df6a6593bdbac039694ffacb19df9f592cd8e371"
+        "source_rows_sha256": "806ea13e1d510e368ddd5acba4b5b102ab716994e5f4e6eece789e7b9f69ede7"
       },
       {
         "name": "users",
@@ -109,7 +109,7 @@
         "rowid_min": 41,
         "rowid_max": 95,
         "identity_sha256": "6c2130741bf1260ed661777daf54127d7bdaa5ec66aa3e49f20ca856714642f3",
-        "source_rows_sha256": "dfdc221a9d41e1ec9736b741aefcfed1e772f904b1f519b4ac69a7fbd6336cae"
+        "source_rows_sha256": "1f0fd032ab0cbcf5aba7d99dea9df484b340a35a15bab8ef9f6ecd5053f2b8a4"
       },
       {
         "name": "buma_agent",
@@ -145,7 +145,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "4191efe9b2471e45d96d45f69af4e9bd75bfa77d156512a632b1c3e76767ca80",
-        "source_rows_sha256": "b1c4753c9cce8ff5d75fe3a3d5de3403f532a190c2ca354b4e8e913abe6e8e0c"
+        "source_rows_sha256": "6702f504c2dc8e80c74f8034775563342e6799d1cf2bab737a2bc3b91a33b82b"
       },
       {
         "name": "buma_article",
@@ -154,7 +154,7 @@
         "rowid_min": 7001,
         "rowid_max": 7002,
         "identity_sha256": "5442a78efbc0251b7b111fe50cf00ce9771785c54376ed770f8c3c4f4d735788",
-        "source_rows_sha256": "28bf811624853622ee4a8c1306912f1fe237028c37fe222d38930b3922dde5d4"
+        "source_rows_sha256": "4f73ae9efcdaf4ec361bab47dba7154fe86e351ec07e7f5cbee37953e614314c"
       },
       {
         "name": "buma_article_categorie",
@@ -262,7 +262,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "97ec129c9e8076eabbb842a964a7f3cdf744eb8d49bf88330d4454365e59a923",
-        "source_rows_sha256": "4189d540e8853bb535052a8f82345aba8749810d0ae9f0854173d7b5f77e85d0"
+        "source_rows_sha256": "8eb8eddab098560a47d943f81c6e857bddb1a799c896b5d7118bb5fa040c3f93"
       },
       {
         "name": "buma_caisse_expense_type",
@@ -325,7 +325,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "b037e01aa4e1062f4713e358a6db21555a9ae47fa81291425721a25e558c7e85",
-        "source_rows_sha256": "de54a2f6351daf875057fd23cc178f9d23e9362f8a337e775bf036edcf1945ac"
+        "source_rows_sha256": "54950dab7036fddb6cf83963b293aa0e13590bf6e8b09edb32360cdc1669d90e"
       },
       {
         "name": "buma_conversion",
@@ -343,7 +343,7 @@
         "rowid_min": 1,
         "rowid_max": 3,
         "identity_sha256": "22ec6aad7827f3c98451567ab93b6c49e46a8e2dc554623a45ca16c61ba1b504",
-        "source_rows_sha256": "355afcd7dea8c083f3d159d74a350a7800cce6c4f0ba94eac8ac677d3ad5d94c"
+        "source_rows_sha256": "9c7c748a74a237c0e0a1af9d86ce910a76b22c1dc628b44419572a279cad5ff5"
       },
       {
         "name": "buma_customer_document",
@@ -514,7 +514,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "6be22fe5d00840e3083057d8d18a03cd878e1a1b7d46f08035aea039f101cb60",
-        "source_rows_sha256": "281304f8da4fad847f5b984692322856bfd387cd4353e4424b1319fcbb84c569"
+        "source_rows_sha256": "79a98768255c02477955f2494bd1b88d59e59f55c934c4fd40804c7da31faab6"
       },
       {
         "name": "buma_payment_method",
@@ -523,7 +523,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "e66195be86ab5ad8fcb2328d2155e797a139d4a645dcb9fcfc24d524f9de794f",
-        "source_rows_sha256": "003691cf99f25fbc9290733f34a9537d5df03f608b02a621e045b31c7a2a6990"
+        "source_rows_sha256": "2a9b4423bc297c6f837d6ff80647d21ac37d664331df8a00c31652d916891639"
       },
       {
         "name": "buma_pdv",
@@ -532,7 +532,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "b933b23133be0f6da1dcfea4f35475b8a98abab9178cf8c1b8fd6af00ce606f2",
-        "source_rows_sha256": "0aa03edb5a1afd27a74d7726cb2174139bd6e339bc6b14f49cce565d5b1cd882"
+        "source_rows_sha256": "0e27b1f82e0de1c74e8501999d9d617e366a4af3156ebe125b0c444b0b0ad95e"
       },
       {
         "name": "buma_pdv_doc",
@@ -568,7 +568,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "7d3efb056ee2acd5622da413938163f974750007c77eb161b1c29c0f6ca3d202",
-        "source_rows_sha256": "904446e29c37ad44b4a204c440024d77ff5e337cd9e163664ef3abe524b3ecab"
+        "source_rows_sha256": "59be23a2c3267da9c2c5ec5d4f4420e585c4b1fb7f680d9e58e367b9d0837e05"
       },
       {
         "name": "buma_pilotage_ticket_tag",
@@ -577,7 +577,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "1fe60aef8e28ce6832e320458bed8cebaa9aaa0f5971d05208c35e857f1f3e7e",
-        "source_rows_sha256": "dacaaf188f534abfa1a392c300f388085ef93e160fc21a1b2e8f093c38e0cb16"
+        "source_rows_sha256": "28ce10465862675dd2030c0249503881feaf54dc1d40efe43798983d6129a1b4"
       },
       {
         "name": "buma_ressources",
@@ -586,7 +586,7 @@
         "rowid_min": 1,
         "rowid_max": 4,
         "identity_sha256": "e36fa93b9afb7bf304226cb1961f459a37ab10352a07f8f83aa19bdbb2de5c3f",
-        "source_rows_sha256": "12e7a19499ce50c659ba93fbbf6383dadc412c423b0fec81e12f0b76c5104fe9"
+        "source_rows_sha256": "c8663bb47c48957127585e7dfff5c7a829b63c855cf29344167c355c843f36dd"
       },
       {
         "name": "buma_return",
@@ -622,7 +622,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "a6acbdde313027a0c0b2d4e159ba07bce375880e5759eb1cbb588930ea581f86",
-        "source_rows_sha256": "37612746dd4b88eabee42bf007d3299fab8cdd0de1a4cf8b6232e1cc4ef2a393"
+        "source_rows_sha256": "a64988c0b5477f3a9ae138f953c84e4dd1a240d3cdb4228ca498955617e11bba"
       },
       {
         "name": "buma_sim",
@@ -640,7 +640,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "a902214beabfa4f3b8c8bc23e7ee1778d78be7101f7dca03dfbb1e978bf94cf4",
-        "source_rows_sha256": "d95bc97e3611f624d5f1c52c6e880e59f77eb25f98d83017afb97ccabcd9afdb"
+        "source_rows_sha256": "0eb810e1b7fda578bf83afe7fc6325f9d0b61bdbdcfa4618724e640205b227a7"
       },
       {
         "name": "buma_stockage_user",
@@ -676,7 +676,7 @@
         "rowid_min": 1,
         "rowid_max": 6,
         "identity_sha256": "f93792ec008eaba780efc84ec94ddf79645930998cf970ef723cb99c6144b9f2",
-        "source_rows_sha256": "aa4be8830c112253052038c8596b9eb9603988af4a5f01b4e651b26a3910290e"
+        "source_rows_sha256": "3057e9c63952163f5d6a34653a34c93181c06c13fd49f1b8c864c8639adef18b"
       },
       {
         "name": "buma_transfer",
@@ -721,7 +721,7 @@
         "rowid_min": 1,
         "rowid_max": 2,
         "identity_sha256": "937d602277a4734a1585a831e5c057197e87ca753eb2b55676a2c79fa5c1c9ce",
-        "source_rows_sha256": "a6749349fb374d16468477d700fe338097332ee56e6a02aee09c733c26896374"
+        "source_rows_sha256": "124abd9bf61fc053e48246ff9ab4297dd40290781071d2034a75f24b933bd562"
       },
       {
         "name": "buma_wallet_transactions",
@@ -739,7 +739,7 @@
         "rowid_min": 1,
         "rowid_max": 1,
         "identity_sha256": "18b4d93892b5f276cf3c99a9e96e623ebc3fcb200b7bfa6a2f5b5500296d4c69",
-        "source_rows_sha256": "9ed8c07bcc20ee5fc86913522f87facad3546913d03e74bebfb891ba5bdff29f"
+        "source_rows_sha256": "ce8ab41e5d114b7f270750b82e532b8d77d06face49358696e9804b6b819c8ea"
       }
     ],
     "warnings": [
@@ -864,10 +864,10 @@
         ]
       }
     },
-    "data_db_sha256": "0f3d5f6f47c9e99371b5c6e30080ca05c70eb731dfc2de9bdf5174bd8c2200a1",
+    "data_db_sha256": "d98d2dcba33efd26ba86333af616a0528d30494e24debc7f69b1b25b86343dee",
     "files": 15,
     "file_bytes": 2220,
-    "file_manifest_sha256": "21812e5526dc853550d0c2edf73c9001dfa75e087b8a8d31b7b32fb07ad295e0",
+    "file_manifest_sha256": "6d48227d400808485d02ffe23765c6bf59fe26e6220a53d97aede2eef1d8cb8e",
     "referenced_files": 8,
     "present_referenced_files": 6,
     "unreferenced_files": 9,
@@ -875,8 +875,8 @@
     "rows": 39,
     "blocked_rows": 0,
     "ready_for_isolated_rehearsal": true,
-    "elapsed_seconds": 0.09,
-    "peak_rss_kib": 101664
+    "elapsed_seconds": 0.1,
+    "peak_rss_kib": 101684
   },
   "preserved_anomalies": {
     "dangling_relation_fields": 5,
@@ -1415,23 +1415,23 @@
       }
     ],
     "timings_seconds": {
-      "checks": 0.882,
-      "copy_and_readback": 0.354,
+      "checks": 1.005,
+      "copy_and_readback": 0.332,
       "copy_and_readback_breakdown": {
-        "copy": 0.135,
-        "prepare_in_worker": 0.01,
-        "readback_and_compare": 0.126,
-        "waiting_for_worker": 0.048
+        "copy": 0.127,
+        "prepare_in_worker": 0.009,
+        "readback_and_compare": 0.121,
+        "waiting_for_worker": 0.042
       },
-      "final_check": 0.293,
-      "conservation": 0.209,
-      "total": 2.112,
-      "importer_cpu": 0.731,
-      "readiness_check": 0.024,
-      "staging": 0.023,
-      "relation_arrays": 0.064,
-      "auth_import": 0.089,
-      "commit": 0.004
+      "final_check": 0.361,
+      "conservation": 0.207,
+      "total": 2.331,
+      "importer_cpu": 0.822,
+      "readiness_check": 0.029,
+      "staging": 0.026,
+      "relation_arrays": 0.096,
+      "auth_import": 0.11,
+      "commit": 0.016
     }
   },
   "preservation": {
@@ -1504,19 +1504,19 @@
         "state": "resolved",
         "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
         "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
-        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+        "documented_in": "D-0031 (resolved: an absent permission key is false)"
       },
       "denied_lists_wallets": {
         "state": "resolved",
         "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
         "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
-        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+        "documented_in": "D-0031 (resolved: an absent permission key is false)"
       },
       "denied_views_joined_wallet": {
         "state": "resolved",
         "cause": "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 (merge_live_auth_context) gives a False default only to isAdmin, to the keys that buma_apps_roles.info.actions declares and to role.*/user.*; an undeclared key of the rule (customer.read, wallet.read, wallet.list) is bound as '' and PostgreSQL refuses '' = TRUE (asyncpg DataError, HTTP 500), even when isAdmin = true already holds. PocketBase v0.22.34 resolves the missing JSON key to NULL and compares it without error (tools/search/filter.go:290-330, resolveEqualExpr): the condition is false",
         "client_impact": "HTTP 500 with a plain-text body (text/plain, not the JSON error envelope) instead of 200 or 404 for any record session, admins included, whose role and the buma_apps_roles rows do not declare the key: listing or viewing buma_customer (customer.read) and buma_wallet (wallet.read, wallet.list) fails; with the keys declared, the same rules answer as PocketBase (see declared_permission_keys). Production exposure depends on its roles.permission and buma_apps_roles content (aggregates to measure on the real backup). Cutover blocker until fixed in app/auth/context.py (False default for every key a rule reads) or accepted",
-        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+        "documented_in": "D-0031 (resolved: an absent permission key is false)"
       }
     },
     "divergence_classes": {
@@ -1602,7 +1602,7 @@
         "count": 75,
         "cause": "measured: PocketBase v0.22.34 sends JSON answers as application/json; charset=UTF-8 (set by its echo v5 dependency, whose source is not on this server: not verified offline), PPBase as application/json",
         "client_impact": "JSON is UTF-8 either way (RFC 8259 section 8.1); only a client that compares the exact Content-Type string differs",
-        "documented_in": "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+        "documented_in": "D-0034 (remaining gaps of the 0.22 mode) and D-0040"
       }
     },
     "token_shapes": {
@@ -2415,5 +2415,5 @@
     "container_stopped": true,
     "container_removed": true
   },
-  "elapsed_seconds": 51.7
+  "elapsed_seconds": 63.4
 }
