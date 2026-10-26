@@ -173,6 +173,8 @@ conversation alone is never the project handoff record.
   those acceptances; the open gaps of section 10.4 of the runbook, fixed or decided;
   the production import tool and the other tools of section 10.2 of the runbook,
   which do not exist yet (written, reviewed, tested and authorized: G0 is NO-GO until
-  then); the rehearsal with the complete ZIP and its file bytes; tests of the real
+  then); the real rehearsal rerun at the release commit (C-45: the published report
+  covers b7427fe, and scripts changed since); the rehearsal with the complete ZIP and
+  its file bytes; tests of the real
   clients on a staging; and a distinct production authorization (not requested, not
   obtained, not executed).

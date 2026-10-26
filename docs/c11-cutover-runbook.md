@@ -2073,7 +2073,10 @@ finales (D-0040, D-0041) :
 - BUMA `c11/integration` : raccordement de `c11/hookup` (`c333e14`) ;
   répétition réelle `scripts/c11_real_rehearsal.py` (`1edfed1`) ; migration
   `1789236851` des vues (WS-H, `47c3c47`) ; rapports régénérés sur l'état
-  final (`b7427fe`) et rapport final de la répétition réelle (`a99a2a4`).
+  final (`b7427fe`) et rapport final de la répétition réelle (`a99a2a4`) ; le
+  2026-10-26, corrections relues de `scripts/` et `tests/` (`e1e2cca` et
+  suivants) : la répétition réelle publiée couvre `b7427fe` et doit être rejouée
+  au commit de release (C-45).
 
 Non intégré : le chantier PPBase WS-A11 (branche `c11/ws-a11`, `61bc951`),
 qui corrigeait le placement des NULL de vues dans les filtres et les tris,

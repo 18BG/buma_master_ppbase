@@ -1247,7 +1247,7 @@ les envoie que sur les fichiers servis (D-0037), pas sur les réponses JSON ni l
 absentes si aucun proxy ne les ajoute ; à poser par le proxy de bascule (runbook).
 Mesures avec le raccordement BUMA : répétition
 synthétique complète 0.22.34 passante, 84 sondes sur 84 identiques en statut et en corps
-(9 identiques en tout, 75 qui ne diffèrent que par l'en-tête `Content-Type`), 0 différence
+(9 identiques sur tous les éléments comparés ; parmi les éléments comparés (statut, `Content-Type`, corps, forme du jeton ; octets et `Content-Disposition` des fichiers), 75 ne diffèrent que par le `Content-Type` ; en-têtes de sécurité, `Server` et `ETag` non comparés (D-0034, runbook 10.4)), 0 différence
 inattendue, enveloppes d'erreur identiques à l'octet ; banc des sessions :
 33 sur 33.
 Régressions : `tests/test_error_compat_unit.py`, `tests/integration/test_error_compat.py`,

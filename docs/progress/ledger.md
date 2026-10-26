@@ -2927,9 +2927,8 @@ d'où le téléchargement d'objets non référencés (D-0038).
 - `c11_idempotency_runtime` passed (C4, C7, C9 sur 29 routes) ; `c11_auth_runtime` 0.22.34
   passed (22 refus sur 22 au statut de PocketBase, 0 écart de libellé, mêmes clés
   d'enveloppe, 19 résultats realtime identiques, 0 secret servi) ; `c11_rehearsal` 0.22.34
-  passed (84 réponses sur 84 identiques à PocketBase en statut et en corps, dont 75 ne
-  diffèrent que par l'en-tête `Content-Type`, 0 différence
-  inattendue) ; `c11_view_semantics_runtime` passed (matrice de 6 433 requêtes avant et
+  passed (84 réponses sur 84 identiques à PocketBase en statut et en corps ; parmi les éléments comparés (statut, `Content-Type`, corps, forme du jeton ; octets et `Content-Disposition` des fichiers), 75 ne diffèrent que par le `Content-Type` ; en-têtes de sécurité, `Server` et `ETag` non comparés (D-0034, runbook 10.4) ;
+  0 différence inattendue) ; `c11_view_semantics_runtime` passed (matrice de 6 433 requêtes avant et
   après `1789236851`, 190 requêtes appariées) ; référence 0.22.34 régénérée (toutes les
   conclusions vraies, dont « seule la porte de version » pour tous les profils).
 - **Répétition réelle** (`docs/c11-real-rehearsal-report.json`, D-0041) : deux passages
@@ -2979,7 +2978,10 @@ intactes). `data.db` vérifié intact à chaque étape (empreinte publiée).
   (`X-Content-Type-Options`, `X-Frame-Options`, `X-Xss-Protection`) absents des réponses JSON
   et du dashboard de PPBase (D-0034, à poser par le proxy, runbook).
 - **Outils de bascule** : aucune commande d'import de production n'existe : l'outil d'import de production et les autres outils de la section 10.2 du runbook restent à écrire, relire, tester et faire autoriser (G0 NO-GO d'ici là).
-- **Écarts de la section 10.4 du runbook, à corriger ou décider avant G0** : modèles et
+- **Écarts de la section 10.4 du runbook, à corriger ou décider avant G0**, dont (liste
+  complète en 10.4 : aussi la classe `Content-Type` de D-0034, l'ordre des textes selon la
+  collation, la requête préparée après un changement de schéma à chaud et le journal
+  `_requests` sans rétention) : modèles et
   expéditeur des e-mails importés mais ignorés par PPBase ; SMTP en TLS implicite non pris
   en charge ; envoi des e-mails synchrone dans la boucle d'événements ; `data.version` de
   `/api/health` ; routes BUMA hors source (`GET /`, `/__foundation/*`) ; `/api/batch`
@@ -2997,5 +2999,42 @@ par elle. Conditions avant toute bascule : acceptations ci-dessus, écarts de la
 écrits, relus, testés et autorisés, répétition avec le ZIP complet, tests des clients réels
 sur un staging, autorisation distincte de l'utilisateur. Prochaine action exacte : soumettre
 à l'utilisateur les acceptations D-0029, D-0036, D-0039 et D-0042 et les écarts de la section
-10.4, puis écrire et faire relire l'outil d'import de production, puis la répétition avec le
-ZIP complet devant lui.
+10.4, puis écrire, faire relire, tester et faire autoriser l'outil d'import de production et
+les autres outils de la section 10.2, puis rejouer la répétition réelle au commit de release
+et faire la répétition avec le ZIP complet devant lui.
+
+## Fin de session serveur — relectures finales et publication — 2026-10-26
+
+Reprise après l'arrêt du processus de la session (la relecture WS-ORCH4 en cours n'a laissé
+aucun verdict) : état vérifié (aucun conteneur, arbres propres, `data.db` inchangé), relecture
+relancée sur `f7e4ebd`.
+
+- **WS-ORCH4** (changes_required, 3 majors) : conditions incomplètes (aucune commande d'import
+  de production : outils de la section 10.2 du runbook à écrire, G0 NO-GO), critère C-45
+  contradictoire, correctif `913bde7` sans test ; minors et nits (chiffres, D-0040, écarts de
+  la section 10.4, titres CommonMark) ; et une **adresse e-mail réelle de l'administrateur**
+  écrite par une session antérieure dans l'entrée C10 du 2026-09-26 (commit `3d20322` du
+  2026-10-22). Corrigés : `e1e2cca` (fonction `conclusions()` testée, titres ATX CommonMark,
+  refus setext, classes citant leurs décisions), `04b35f7` (documents, C-45, chiffres,
+  caviardage), `3853d7e` et `c1268b3` (référence 0.22.34 et répétition synthétique régénérées,
+  la seconde sur un arbre propre), `87b0ac1` (D-0040).
+- **WS-ORCH5** (approve) : les 14 constats vérifiés un par un, mutations tuées, suite BUMA 847
+  passed, Ruff, répétition synthétique reproduite à l'identique sur `87b0ac1`, référence avec
+  toutes ses conclusions vraies, comparaison de confidentialité des 222 fichiers suivis avec
+  les 5 452 259 valeurs texte distinctes de `data.db` (lecture seule) ; minors restants traités
+  ensuite : formulation des 84 réponses (éléments comparés seulement), résumé de la liste de
+  tâches, renvoi complet à la section 10.4, disque plein en point ouvert, commentaires HTML
+  ignorés par le lecteur des décisions et gardes du refus setext testées, trois littéraux de
+  tests de `tests/test_c11_real_rehearsal.py` égaux à des valeurs réelles remplacés par des
+  jetons synthétiques (fichier jamais publié jusque-là).
+- **Limite consignée** : le caviardage ne retire l'adresse que des fichiers courants ; elle
+  reste dans l'historique déjà poussé (`3d20322`, `origin/features/auth`). Seule une réécriture
+  d'historique avec force push la retirerait : interdit par le plan sans autorisation explicite
+  de l'utilisateur ; décision soumise à l'utilisateur.
+- **Conséquence pour la release (C-45)** : la répétition réelle publiée couvre `b7427fe` ;
+  `e1e2cca` et les corrections de ce jour changent `scripts/` et `tests/` : elle doit être
+  rejouée au commit de release.
+- PPBase : branche non intégrée `c11/ws-a11` poussée sur `ssakone/ppbase` pour reprise.
+- Publication : `features/auth` avancé sur `c11/integration` après ces relectures.
+
+C11 reste ouvert ; aucune action sur la production.

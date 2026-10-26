@@ -344,7 +344,7 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   Sort des autres éléments de l'ancien point : S3 hors périmètre (un S3 activé bloque
   l'import, D-0027) ; aucun champ fichier protégé dans BUMA (D-0037) ; arrêt brutal et
   manque de mémoire traités au runbook (transaction unique, rien d'importé) ; disque
-  plein **non testé** (ouvert).
+  plein : point ouvert ci-dessous.
 - [x] Corriger les failles de sécurité PPBase préexistantes trouvées en chemin : règles
   `users` (D-0030), champs auth cachés et `@request` absents (D-0031), expand et viewRule
   (D-0033), noms de fichiers d'une écriture (D-0038) ; et les parités de réponses : dates
@@ -352,8 +352,8 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   valeurs zéro des NULL (D-0036), fichiers (D-0037), vues (D-0039, migration
   `1789236851`), booléens écrits (D-0042).
 - [x] Répétition synthétique complète sur le code final (D-0040) : 84 réponses sur 84
-  identiques à PocketBase 0.22.34 en statut et en corps (75 ne diffèrent que par l'en-tête
-  `Content-Type`, D-0034) ; `docs/c11-synthetic-rehearsal-report.json`.
+  identiques à PocketBase 0.22.34 en statut et en corps (parmi les éléments comparés (statut, `Content-Type`, corps, forme du jeton ; octets et `Content-Disposition` des fichiers), 75 ne diffèrent que par le `Content-Type` ; en-têtes de sécurité, `Server` et `ETag` non comparés (D-0034, runbook 10.4)) ;
+  `docs/c11-synthetic-rehearsal-report.json`.
 - [x] Répétition complète sur le vrai backup, sans octets de fichiers, dans un PostgreSQL
   jetable (D-0041) : deux passages passés et identiques ;
   `docs/c11-real-rehearsal-report.json`.
@@ -361,6 +361,9 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   `docs/c11-cutover-runbook.md`.
 - [ ] Acceptations de l'utilisateur demandées : D-0029, D-0036, D-0039, D-0042.
 - [ ] Écarts ouverts de la section 10.4 du runbook corrigés ou décidés avant G0.
+- [ ] Import interrompu par un disque plein : non testé.
+- [ ] Répétition réelle rejouée au commit de release (C-45 : le rapport publié couvre
+  `b7427fe`, et `e1e2cca` puis les corrections du 2026-10-26 changent `scripts/` et `tests/`).
 - [ ] Outil d'import de production et autres outils de la section 10.2 du runbook :
   à écrire, relire, tester et faire autoriser (aucun n'existe ; G0 NO-GO d'ici là).
 - [ ] Répétition avec le ZIP complet (octets des fichiers), devant l'utilisateur.
@@ -370,11 +373,14 @@ ni la bascule et ne modifie pas les statuts des checkpoints.
   gates requises ; **non demandée, non obtenue, non exécutée**.
 
 Guide et commandes : `docs/c11-preparation.md`, `docs/c11-cutover-runbook.md`. État au
-2026-10-25 : C11 ouvert, prêt pour la bascule sous conditions (acceptations, ZIP complet,
-clients réels, autorisation distincte). Les seuls imports du vrai backup ont eu lieu dans
-des PostgreSQL jetables détruits ; aucun import de production ni bascule effectué.
-Prochaine action : soumettre à l'utilisateur les acceptations D-0029, D-0036, D-0039 et
-D-0042.
+2026-10-26 : C11 ouvert, prêt pour la bascule sous conditions : acceptations, écarts de la
+section 10.4 corrigés ou décidés, outil d'import de production et autres outils de la
+section 10.2 écrits, relus, testés et autorisés, répétition réelle rejouée au commit de
+release, répétition avec le ZIP complet, clients réels sur un staging, autorisation
+distincte. Les seuls imports du vrai backup ont eu lieu dans des PostgreSQL jetables
+détruits ; aucun import de production ni bascule effectué. Prochaine action : soumettre à
+l'utilisateur les acceptations D-0029, D-0036, D-0039 et D-0042 et les écarts de la
+section 10.4.
 
 Reprise du 2026-10-23 (nouvel agent, analyse seule) : handoff relu, aucun code
 modifié, aucune case cochée. Suite locale : 150 tests passants et 7 échecs dus
