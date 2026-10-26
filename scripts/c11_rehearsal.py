@@ -381,7 +381,7 @@ DEFAULTED_PERMISSION_APPS = frozenset({"role", "user"})
 # file can carry it. A probe-declared divergence is accepted only with its
 # declared pair of statuses (and JSON paths); once it disappears it is
 # reported "resolved" and the probe is checked like any other.
-TO_RECORD = "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"
+TO_RECORD = "not yet in docs/decisions-and-divergences.md: to record (D-XXXX)"  # for a new class
 UNDECLARED_PERMISSION_KEY = (
     "pre-existing BUMA C3 defect, independent of the import: app/auth/context.py:45-94 "
     "(merge_live_auth_context) gives a False default only to isAdmin, to the keys that "
@@ -407,7 +407,7 @@ KNOWN_DIVERGENCES: dict[str, dict] = {
         "ppbase": 500,
         "cause": UNDECLARED_PERMISSION_KEY,
         "client_impact": UNDECLARED_PERMISSION_IMPACT,
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0031 (resolved: an absent permission key is false)",
     }
     for label, pocketbase_status in (
         ("users_lists_customers_by_role", 200),
@@ -455,7 +455,7 @@ DIVERGENCE_CLASSES = {
             "typing it as a non-null string (Dart String, TypeScript string) receives null, "
             'JavaScript new Date(null) gives 1970-01-01 where new Date("") was invalid'
         ),
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0032 (resolved)",
     },
     "auth_email_hidden_despite_manage_rule": {
         "cause": (
@@ -468,7 +468,7 @@ DIVERGENCE_CLASSES = {
             "a record session whose role satisfies users.manageRule (isAdmin) no longer "
             "receives the other users' email in lists and views"
         ),
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0033 (resolved)",
     },
     "empty_expand_object": {
         "cause": (
@@ -480,7 +480,7 @@ DIVERGENCE_CLASSES = {
             "a client testing whether expand exists takes the other branch (empty object "
             "instead of no key), e.g. when every relation of the record is an orphan"
         ),
-        "documented_in": "D-0025 (remaining PPBase gaps); " + TO_RECORD,
+        "documented_in": "D-0025 (remaining PPBase gaps); D-0031 (resolved)",
     },
     "empty_list_total_pages": {
         "cause": (
@@ -488,7 +488,7 @@ DIVERGENCE_CLASSES = {
             "(tools/search/provider.go:254); PPBase max(1, ...) (ppbase/models/record.py:196-201)"
         ),
         "client_impact": "an empty list reports totalPages 1 instead of 0 (pagers, page loops)",
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0031 (resolved)",
     },
     "default_thumb_size_serves_original": {
         "cause": (
@@ -501,7 +501,7 @@ DIVERGENCE_CLASSES = {
             "?thumb=100x100 returns the original image (its size and dimensions) instead of "
             "a 100x100 thumbnail"
         ),
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0037 (resolved)",
     },
     "file_content_disposition_missing": {
         "cause": (
@@ -513,7 +513,7 @@ DIVERGENCE_CLASSES = {
             "a browser or downloader gets no file name and no inline/attachment hint from "
             "the header (it falls back to the URL name)"
         ),
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0037 (resolved)",
     },
     "json_content_type_charset": {
         "cause": (
@@ -525,7 +525,7 @@ DIVERGENCE_CLASSES = {
             "JSON is UTF-8 either way (RFC 8259 section 8.1); only a client that compares the "
             "exact Content-Type string differs"
         ),
-        "documented_in": TO_RECORD,
+        "documented_in": "D-0034 (remaining gaps of the 0.22 mode) and D-0040",
     },
 }
 # (PocketBase type, PPBase type) -> (PocketBase claims, PPBase claims). Tokens

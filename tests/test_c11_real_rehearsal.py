@@ -994,6 +994,30 @@ def test_an_unclosed_fence_is_refused():
     refused(lambda: rehearsal.decision_sections(decisions), "decisions_unbalanced_fence")
 
 
+@pytest.mark.parametrize("heading", ["  ## D-0030 — suivante", "##\tD-0030 — suivante"])
+def test_commonmark_atx_headings_end_a_decision(heading):
+    decisions = (
+        REQUESTED_SECTION
+        + "\n"
+        + heading
+        + "\n\nStatut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    sections = rehearsal.decision_sections(decisions)
+    assert "Statut : acceptée" not in sections["D-0029"]
+    assert "Statut : acceptée" in sections["D-0030"]
+
+
+@pytest.mark.parametrize("underline", ["---", "==="])
+def test_a_setext_heading_is_refused(underline):
+    decisions = (
+        REQUESTED_SECTION
+        + "\nUn titre setext\n"
+        + underline
+        + "\n\nStatut : acceptée par l'utilisateur le 2026-10-25\n"
+    )
+    refused(lambda: rehearsal.decision_sections(decisions), "decisions_setext_heading")
+
+
 def test_an_impossible_acceptance_date_is_refused():
     refused(
         lambda: rehearsal.divergence_decisions(

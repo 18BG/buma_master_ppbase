@@ -4410,6 +4410,10 @@ def privacy_check(ctx, report: dict) -> dict:
 # holds no backtick) or tildes, closed by the same character, at least as long.
 FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 FENCE_CLOSE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
+# CommonMark ATX headings (0-3 spaces of indent, a space or tab after the #s,
+# or none on an empty heading) and setext underlines of a paragraph line.
+ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$")
+SETEXT_UNDERLINE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 
 
 def decision_sections(text: str) -> dict[str, str]:
@@ -4423,23 +4427,33 @@ def decision_sections(text: str) -> dict[str, str]:
     sections: dict[str, list[str]] = {}
     current = None
     fence: tuple[str, int] | None = None
+    previous = ""
     for line in text.splitlines():
         if fence is not None:
             closer = FENCE_CLOSE.match(line)
             if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= fence[1]:
                 fence = None
+            previous = ""
             continue
         opener = FENCE_OPEN.match(line)
         if opener and not (opener.group(1)[0] == "`" and "`" in opener.group(2)):
             fence = (opener.group(1)[0], len(opener.group(1)))
+            previous = ""
             continue
-        if re.match(r"#{1,2} ", line):
-            match = re.match(r"## (D-[0-9]{4})\b", line)
+        heading = ATX_HEADING.match(line)
+        if heading and len(heading.group(1)) <= 2:
+            title = heading.group(2) or ""
+            match = re.match(r"(D-[0-9]{4})\b", title) if len(heading.group(1)) == 2 else None
             current = match.group(1) if match else None
             if current is not None:
                 sections[current] = [line]
+        elif SETEXT_UNDERLINE.match(line) and previous.strip() and not ATX_HEADING.match(previous):
+            # A setext heading would end the section under a title this reader
+            # cannot attribute safely: refused, like an open fence.
+            raise RehearsalFailure("decisions_setext_heading")
         elif current is not None:
             sections[current].append(line)
+        previous = line
     if fence is not None:
         raise RehearsalFailure("decisions_unbalanced_fence")
     return {key: "\n".join(lines) for key, lines in sections.items()}

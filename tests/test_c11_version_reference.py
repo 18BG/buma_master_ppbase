@@ -82,3 +82,54 @@ def test_importer_view_restores_the_registry_when_diagnose_raises(monkeypatch):
     with pytest.raises(RuntimeError, match="diagnose failed"):
         importer_view(Path("unused"), Path("unused"), ASSESSED_VERSION)
     assert c11_import.VALIDATED_SOURCE_VERSIONS[ASSESSED_VERSION] is entry
+
+
+def measured_report(real_shape_blockers=(VERSION_GATE_BLOCKER,)):
+    """The parts of a reference report that its conclusion is computed from."""
+
+    def profile(blockers):
+        return {
+            "storage_identical": True,
+            "unexpected_formats": {"0.22.27": [], "0.22.34": []},
+            "view_schemas": {
+                version: {"equal_to_export_without_field_ids": 42, "views": 42}
+                for version in ("0.22.27", "0.22.34")
+            },
+            "importer_diagnostic_differences": [],
+            "importer_diagnostic": gate(blockers),
+        }
+
+    return {
+        "source": {"storage_paths_changed": []},
+        "binaries": {
+            "binaries": {
+                version: {"embedded_sqlite_version": "3.45.1"} for version in ("0.22.27", "0.22.34")
+            },
+            "profiles": {
+                "default": profile([VERSION_GATE_BLOCKER]),
+                "real_shape": profile(list(real_shape_blockers)),
+            },
+            "default_profile_vs_fb381ac": {"rows": {"identical": True}},
+        },
+        "real_backup_formats": {
+            "header": {"last_writer_sqlite_version": 3_045_001},
+            "assessment": {"all_match": True},
+        },
+    }
+
+
+def test_the_reference_accepts_0_22_34_only_when_every_profile_is_blocked_by_the_gate_alone():
+    from scripts.c11_version_reference import STATEMENT, conclusions
+
+    accepted = conclusions(measured_report())
+    assert accepted["only_version_gate_blocks_0_22_34_all_profiles"] is True
+    assert accepted["importer_can_accept_0_22_34"] is True
+    assert accepted["statement"] == STATEMENT
+
+    # The importer's registry reads its version from real_shape: another blocker
+    # there must withhold the conclusion even when the default fixture is clean.
+    refused = conclusions(measured_report([VERSION_GATE_BLOCKER, "schema_drift"]))
+    assert refused["only_version_gate_blocks_0_22_34_default_fixture"] is True
+    assert refused["only_version_gate_blocks_0_22_34_all_profiles"] is False
+    assert refused["importer_can_accept_0_22_34"] is False
+    assert refused["statement"] == "Not established: see checks."

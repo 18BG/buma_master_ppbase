@@ -1439,6 +1439,59 @@ def only_version_gate_blocks(gate: dict) -> bool:
     return blockers_0_22_34 == [VERSION_GATE_BLOCKER] and blockers_0_22_27 == []
 
 
+def conclusions(report: dict) -> dict:
+    """The conclusion of the report from its measured parts.
+
+    importer_can_accept_0_22_34 holds only with the real backup's formats and
+    every other conclusion true, including the version gate measured alone for
+    every profile (the importer's registry reads its version from real_shape).
+    """
+    binaries = report["binaries"]
+    profiles = binaries["profiles"].values()
+    gate = binaries["profiles"]["default"]["importer_diagnostic"]
+    real = report.get("real_backup_formats")
+    embedded = {v["embedded_sqlite_version"] for v in binaries["binaries"].values()}
+    conclusion = {
+        "storage_paths_identical_in_source": not report["source"]["storage_paths_changed"],
+        "binary_storage_identical_except_random_values": all(
+            p["storage_identical"] for p in profiles
+        ),
+        "random_values_same_formats": all(
+            not any(p["unexpected_formats"].values()) for p in profiles
+        ),
+        "view_schemas_equal_export_for_both_binaries": all(
+            v["equal_to_export_without_field_ids"] == v["views"] == 42
+            for p in profiles
+            for v in p["view_schemas"].values()
+        ),
+        "importer_reads_both_identically": all(
+            not p["importer_diagnostic_differences"] for p in profiles
+        ),
+        "only_version_gate_blocks_0_22_34_default_fixture": only_version_gate_blocks(gate),
+        # STATEMENT claims it of the importer as a whole, and the registry reads
+        # its version from the real_shape fixture: every profile must agree.
+        "only_version_gate_blocks_0_22_34_all_profiles": all(
+            only_version_gate_blocks(p["importer_diagnostic"]) for p in profiles
+        ),
+        "same_embedded_sqlite": len(embedded) == 1,
+    }
+    for key, value in binaries.items():
+        if key.startswith("default_profile_vs_"):
+            conclusion[key + "_identical"] = all(v["identical"] for v in value.values())
+    if real:
+        major, minor, patch = (int(part) for part in sorted(embedded)[0].split("."))
+        conclusion["real_backup_last_writer_is_the_embedded_sqlite"] = (
+            real["header"]["last_writer_sqlite_version"]
+            == major * 1_000_000 + minor * 1_000 + patch
+        )
+        conclusion["real_backup_formats_match"] = real["assessment"]["all_match"]
+    conclusion["importer_can_accept_0_22_34"] = bool(real) and all(conclusion.values())
+    conclusion["statement"] = (
+        STATEMENT if conclusion["importer_can_accept_0_22_34"] else "Not established: see checks."
+    )
+    return conclusion
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command")
@@ -1512,50 +1565,7 @@ def main() -> None:
                 work,
             )
             report["real_backup_formats"] = aggregates | {"assessment": assess_real(aggregates)}
-    binaries = report["binaries"]
-    profiles = binaries["profiles"].values()
-    gate = binaries["profiles"]["default"]["importer_diagnostic"]
-    real = report.get("real_backup_formats")
-    embedded = {v["embedded_sqlite_version"] for v in binaries["binaries"].values()}
-    conclusion = {
-        "storage_paths_identical_in_source": not report["source"]["storage_paths_changed"],
-        "binary_storage_identical_except_random_values": all(
-            p["storage_identical"] for p in profiles
-        ),
-        "random_values_same_formats": all(
-            not any(p["unexpected_formats"].values()) for p in profiles
-        ),
-        "view_schemas_equal_export_for_both_binaries": all(
-            v["equal_to_export_without_field_ids"] == v["views"] == 42
-            for p in profiles
-            for v in p["view_schemas"].values()
-        ),
-        "importer_reads_both_identically": all(
-            not p["importer_diagnostic_differences"] for p in profiles
-        ),
-        "only_version_gate_blocks_0_22_34_default_fixture": only_version_gate_blocks(gate),
-        # STATEMENT claims it of the importer as a whole, and the registry reads
-        # its version from the real_shape fixture: every profile must agree.
-        "only_version_gate_blocks_0_22_34_all_profiles": all(
-            only_version_gate_blocks(p["importer_diagnostic"]) for p in profiles
-        ),
-        "same_embedded_sqlite": len(embedded) == 1,
-    }
-    for key, value in binaries.items():
-        if key.startswith("default_profile_vs_"):
-            conclusion[key + "_identical"] = all(v["identical"] for v in value.values())
-    if real:
-        major, minor, patch = (int(part) for part in sorted(embedded)[0].split("."))
-        conclusion["real_backup_last_writer_is_the_embedded_sqlite"] = (
-            real["header"]["last_writer_sqlite_version"]
-            == major * 1_000_000 + minor * 1_000 + patch
-        )
-        conclusion["real_backup_formats_match"] = real["assessment"]["all_match"]
-    conclusion["importer_can_accept_0_22_34"] = bool(real) and all(conclusion.values())
-    conclusion["statement"] = (
-        STATEMENT if conclusion["importer_can_accept_0_22_34"] else "Not established: see checks."
-    )
-    report["conclusion"] = conclusion
+    report["conclusion"] = conclusions(report)
     report["status"] = "passed"
     write_json_new(args.report, report)
     print(json.dumps({"status": report["status"], "report": str(args.report)}))
