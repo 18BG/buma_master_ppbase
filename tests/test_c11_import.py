@@ -1507,6 +1507,8 @@ def test_import_snapshot_keeps_the_planned_signature():
         "report": None,
         "batch_size": c11.DEFAULT_BATCH_SIZE,
         "auth_fail_after": None,
+        # Only scripts.c11_local_import passes it (check_target_database).
+        "verified_empty_database": None,
     }
 
 
