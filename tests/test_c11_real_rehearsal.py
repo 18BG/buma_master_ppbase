@@ -294,14 +294,14 @@ def test_privacy_patterns_are_reported_by_path_only():
 
 
 def test_privacy_finds_real_values_whole_or_inside_a_string_and_in_keys():
-    sensitive = rehearsal.HashedValues(["k7d2m9q4w1x8z3c", "Mariam", "Diallo Store"])
+    sensitive = rehearsal.HashedValues(["k7d2m9q4w1x8z3c", "Zqxwvu", "Yqxwvt Xqxwv"])
     report = {
         "ok": {"rows": 12, "status": "passed"},
         "record": "k7d2m9q4w1x8z3c",
         "embedded": "first id k7d2m9q4w1x8z3c of the page",
-        "name": "Mariam",
-        "nested": [{"label": "Diallo Store"}],
-        "Mariam": 1,
+        "name": "Zqxwvu",
+        "nested": [{"label": "Yqxwvt Xqxwv"}],
+        "Zqxwvu": 1,
     }
     reasons = {v["path"]: v["reason"] for v in rehearsal.privacy_violations(report, sensitive)}
     assert reasons == {
@@ -378,7 +378,7 @@ def test_collect_sensitive_hashes_every_text_value_and_manifest_key(tmp_path):
         """
         CREATE TABLE buma_wallet (id TEXT, managers TEXT, balance NUMERIC, more TEXT);
         INSERT INTO buma_wallet VALUES
-            ('w1a2b3c4d5e6f7g', '["u1a2b3c4d5e6f7g,u7g6f5e4d3c2b1a"]', 12.5, '{"note": "Fatou"}');
+            ('w1a2b3c4d5e6f7g', '["u1a2b3c4d5e6f7g,u7g6f5e4d3c2b1a"]', 12.5, '{"note": "Wqxwv"}');
         CREATE TABLE _admins (id TEXT, email TEXT, passwordHash TEXT, tokenKey TEXT);
         INSERT INTO _admins VALUES ('a1b2c3d4e5f6g7h', 'boss@example.org', '$2a$10$hash', 'tk1');
         CREATE TABLE _params (id TEXT, key TEXT, value TEXT);
@@ -409,7 +409,7 @@ def test_collect_sensitive_hashes_every_text_value_and_manifest_key(tmp_path):
     for real in (
         "w1a2b3c4d5e6f7g",
         "u1a2b3c4d5e6f7g,u7g6f5e4d3c2b1a",
-        "Fatou",
+        "Wqxwv",
         "boss@example.org",
         "$2a$10$hash",
         "s3cr3t-pass",
@@ -1016,6 +1016,30 @@ def test_a_setext_heading_is_refused(underline):
         + "\n\nStatut : acceptée par l'utilisateur le 2026-10-25\n"
     )
     refused(lambda: rehearsal.decision_sections(decisions), "decisions_setext_heading")
+
+
+@pytest.mark.parametrize("before", ["", "## D-0030 — suivante"])
+def test_a_thematic_break_after_a_blank_line_or_a_heading_is_not_a_setext_heading(before):
+    decisions = REQUESTED_SECTION + "\n" + before + "\n---\n\nUn paragraphe.\n"
+    sections = rehearsal.decision_sections(decisions)
+    assert "D-0029" in sections
+
+
+def test_an_acceptance_line_inside_an_html_comment_accepts_nothing():
+    decisions = (
+        "## D-0029 — exemple\n\n- `jsonb_key_order_normalized`\n\n"
+        "<!-- brouillon\nStatut : acceptée par l'utilisateur le 2026-10-25\n"
+        "## D-0099 — caché\n-->\n"
+    )
+    sections = rehearsal.decision_sections(decisions)
+    assert "D-0099" not in sections
+    covered = rehearsal.divergence_decisions(["jsonb_key_order_normalized=D-0029"], decisions)
+    assert covered["jsonb_key_order_normalized"]["state"] == rehearsal.REQUESTED
+
+
+def test_an_unclosed_html_comment_is_refused():
+    decisions = REQUESTED_SECTION + "\n<!-- jamais fermé\n## D-0030 — suivante\n"
+    refused(lambda: rehearsal.decision_sections(decisions), "decisions_unbalanced_comment")
 
 
 def test_an_impossible_acceptance_date_is_refused():

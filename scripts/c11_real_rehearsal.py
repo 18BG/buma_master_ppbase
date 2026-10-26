@@ -4421,14 +4421,25 @@ def decision_sections(text: str) -> dict[str, str]:
     heading of level 1 or 2 (another decision or a section such as
     '## Divergences à décider plus tard', never part of a decision).
 
-    Fenced code blocks are left out of every section: a '# comment' there is no
-    heading, and an acceptance line there accepts nothing. A fence left open
-    is refused rather than guessed."""
+    Fenced code blocks and HTML comments are left out of every section: a
+    '# comment' there is no heading, and an acceptance line there accepts
+    nothing. CommonMark ATX headings of level 1 or 2 end a section; a setext
+    heading (a paragraph line underlined by === or ---) is refused, as is a
+    fence or a comment left open: none is guessed."""
     sections: dict[str, list[str]] = {}
     current = None
     fence: tuple[str, int] | None = None
+    comment = False
     previous = ""
     for line in text.splitlines():
+        if comment:
+            comment = "-->" not in line
+            previous = ""
+            continue
+        if re.match(r"^ {0,3}<!--", line):
+            comment = "-->" not in line.split("<!--", 1)[1]
+            previous = ""
+            continue
         if fence is not None:
             closer = FENCE_CLOSE.match(line)
             if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= fence[1]:
@@ -4456,6 +4467,8 @@ def decision_sections(text: str) -> dict[str, str]:
         previous = line
     if fence is not None:
         raise RehearsalFailure("decisions_unbalanced_fence")
+    if comment:
+        raise RehearsalFailure("decisions_unbalanced_comment")
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
